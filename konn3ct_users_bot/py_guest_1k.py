@@ -549,6 +549,7 @@ def main():
     parser.add_argument("--stagger-min",  type=float, default=1.0,  help="Min stagger between bots in a worker (default: 1)")
     parser.add_argument("--stagger-max",  type=float, default=3.0,  help="Max stagger between bots in a worker (default: 3)")
     parser.add_argument("--batch-pause",  type=float, default=15.0, help="Seconds between worker waves (default: 15)")
+    parser.add_argument("--wave-size",    type=int,   default=2,    help="Number of workers to launch per wave (default: 2)")
     parser.add_argument("--no-chat",      action="store_true",      help="Disable chat simulation")
     parser.add_argument("--no-headless",  action="store_true",      help="Show browser windows")
     args = parser.parse_args()
@@ -583,7 +584,7 @@ def main():
     print(f"  Worker processes: {actual_workers}  ({contexts_per_worker} contexts each)")
     print(f"  Architecture    : {actual_workers} OS processes × 1 browser × {contexts_per_worker} contexts")
     print(f"  Stagger         : {args.stagger_min}–{args.stagger_max}s between bots per worker")
-    print(f"  Worker wave     : 5 workers per wave, {batch_pause}s pause between waves")
+    print(f"  Worker wave     : {args.wave_size} workers per wave, {batch_pause}s pause between waves")
     print(f"  Auto-leave      : {'manual (Ctrl+C)' if not auto_leave_sec else f'{args.leave} min'}")
     print(f"  Chat            : {'ON' if chat_enabled else 'OFF'}")
     print(f"  Headless        : {'ON' if headless else 'OFF'}")
@@ -601,10 +602,10 @@ def main():
     signal.signal(signal.SIGINT,  _on_sigint)
     signal.signal(signal.SIGTERM, _on_sigint)
 
-    # ── Launch workers in waves of 5 ─────────────────────────────────────────
+    # ── Launch workers in waves ─────────────────────────────────────────────
     # Launching all workers simultaneously would hammer the network/server.
-    # Instead we start 5 workers, wait batch_pause, then 5 more, etc.
-    WAVE_SIZE   = 5
+    # Instead we start N workers, wait batch_pause, then N more, etc.
+    WAVE_SIZE   = args.wave_size
     all_procs   = []
 
     for wave_start in range(0, actual_workers, WAVE_SIZE):
