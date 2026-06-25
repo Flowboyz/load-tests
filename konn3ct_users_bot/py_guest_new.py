@@ -282,20 +282,56 @@ async def run_bot(browser, bot_id, meeting_url, stop_event, join_signal):
         log(bot_id, "🌐", "Join clicked — waiting for room…", "gry")
 
         # ── Wait for meeting room ─────────────────────────────────────────────
-        rxn_toggle = page.locator(SEL["reaction_toggle"])
+        # DETECTION STRATEGY: The join form (name/email fields) disappears
+        # once we enter the meeting room. This is universal across all Konn3ct
+        # versions — we don't need to guess meeting room element selectors.
         connect_start = asyncio.get_event_loop().time()
+        join_form = page.locator(SEL["name_field"])
+
+        # Also check for multiple possible meeting room indicators as fallback
+        meeting_indicators = [
+            'button[aria-label="Open reactions"]',
+            'button[aria-label*="mute" i]',
+            'button[aria-label*="Mute" i]',
+            'button[aria-label*="microphone" i]',
+            'button[aria-label*="camera" i]',
+            'button[aria-label*="leave" i]',
+            'button[aria-label*="Leave" i]',
+            'button[aria-label*="end" i]',
+            '[data-testid="leave-button"]',
+            '[data-testid="mute-button"]',
+        ]
 
         while not stop_event.is_set():
+            now = asyncio.get_event_loop().time()
+            elapsed = now - connect_start
+
             try:
-                if await rxn_toggle.is_visible():
-                    log(bot_id, "✅", f"JOINED — {name} ({email})", "grn")
-                    joined = True
-                    break
+                # PRIMARY: Join form has disappeared = we're in the meeting
+                form_visible = await join_form.is_visible()
+                if not form_visible and elapsed > 5:
+                    # Double-check it's really gone (not just a page transition flicker)
+                    await asyncio.sleep(2)
+                    still_visible = await join_form.is_visible()
+                    if not still_visible:
+                        log(bot_id, "✅", f"JOINED — {name} ({email})", "grn")
+                        joined = True
+                        break
             except Exception:
                 pass
 
-            now = asyncio.get_event_loop().time()
-            elapsed = now - connect_start
+            # FALLBACK: Check for any meeting room element
+            try:
+                for selector in meeting_indicators:
+                    el = page.locator(selector).first
+                    if await el.is_visible():
+                        log(bot_id, "✅", f"JOINED — {name} ({email})", "grn")
+                        joined = True
+                        break
+                if joined:
+                    break
+            except Exception:
+                pass
 
             # Check for error states
             try:
@@ -312,7 +348,6 @@ async def run_bot(browser, bot_id, meeting_url, stop_event, join_signal):
             except Exception as check_exc:
                 if "Session expired" in str(check_exc) or "full" in str(check_exc) or "Invalid" in str(check_exc):
                     raise check_exc
-                # inner_text can fail under load — ignore
 
             if elapsed > 180:
                 raise Exception("Connection timed out (180s)")
