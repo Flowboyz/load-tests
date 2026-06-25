@@ -138,18 +138,21 @@ LOBOTOMIZE_JS = """
     // 5. Override requestAnimationFrame to prevent rendering loops
     window.requestAnimationFrame = (cb) => setTimeout(cb, 30000);
 
-    // 6. Kill observer-based layout thrashing
+    // 6. Kill ONLY visual observers (ResizeObserver, IntersectionObserver)
+    // ⚠️ DO NOT kill MutationObserver — the meeting app may use it for
+    //    WebSocket state management and connection keepalive
     window.ResizeObserver = class { observe(){} unobserve(){} disconnect(){} };
     window.IntersectionObserver = class { observe(){} unobserve(){} disconnect(){} };
-    window.MutationObserver = class { observe(){} disconnect(){} takeRecords(){ return []; } };
 
-    // 7. Throttle setInterval to 30s minimum (kills polling loops)
-    const origSetInterval = window.setInterval;
-    window.setInterval = (fn, ms, ...args) => origSetInterval(fn, Math.max(ms, 30000), ...args);
+    // ⚠️ DO NOT throttle setInterval or setTimeout — the meeting app uses
+    //    these for WebSocket ping/pong heartbeats. Throttling them will cause
+    //    the server to think the client disconnected and kick them out.
 
-    // 8. Remove heavy DOM nodes (participant video grid, etc.)
+    // 7. Remove heavy DOM nodes (participant video grid tiles)
+    //    but keep the container alive so the app doesn't crash
     document.querySelectorAll('[class*="video"], [class*="Video"], [class*="stream"], [class*="Stream"]').forEach(el => {
-        el.innerHTML = '';
+        // Only clear children, don't remove the element itself
+        while (el.firstChild) el.removeChild(el.firstChild);
     });
 
     return 'lobotomized';
@@ -496,6 +499,39 @@ async def run_bot(browser, bot_id, meeting_url, stop_event, join_signal):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+#  BROWSER LAUNCH HELPER
+# ──────────────────────────────────────────────────────────────────────────────
+CHROME_ARGS = [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--mute-audio",
+    "--disable-blink-features=AutomationControlled",
+    "--disable-notifications",
+    "--disable-popup-blocking",
+    "--disable-extensions",
+    "--use-fake-ui-for-media-stream",
+    "--use-fake-device-for-media-stream",
+    "--disable-background-networking",
+    "--disable-default-apps",
+    "--disable-sync",
+    "--no-first-run",
+    # Memory reduction
+    "--disable-software-rasterizer",
+    "--disable-canvas-aa",
+    "--disable-2d-canvas-clip-aa",
+    "--disable-gl-drawing-for-tests",
+    "--disable-features=TranslateUI,WebRtcHideLocalIpsWithMdns",
+    "--disable-ipc-flooding-protection",
+    "--js-flags=--max-old-space-size=128",
+    # Reduce WebRTC overhead
+    "--disable-webrtc-hw-encoding",
+    "--disable-webrtc-hw-decoding",
+    "--force-fieldtrials=WebRTC-CpuOveruseDetection/Disabled/",
+]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 #  ORCHESTRATOR
 # ──────────────────────────────────────────────────────────────────────────────
 async def main_async(args):
@@ -522,125 +558,101 @@ async def main_async(args):
         )
 
     auto_leave_sec = args.leave * 60 if args.leave > 0 else None
+    per_browser = args.per_browser
+    num_browsers = (args.bots + per_browser - 1) // per_browser
 
     # ── Print plan ────────────────────────────────────────────────────────────
     print(f"\n{C['wht']}{'═'*60}")
     print(f"  🚀 py_guest_new — Lightweight Bot Joiner")
     print(f"{'═'*60}{C['reset']}")
-    print(f"  URL         : {meeting_url}")
-    print(f"  Bots        : {args.bots}")
-    print(f"  Batch size  : {args.batch} bots at a time")
-    print(f"  Batch pause : {args.pause}s between batches")
-    print(f"  Stagger     : {args.stagger}s between bots in a batch")
-    print(f"  Auto-leave  : {'manual (Ctrl+C)' if not auto_leave_sec else f'{args.leave} min'}")
-    print(f"  Architecture: 1 browser → {args.bots} contexts (sequential batches)")
+    print(f"  URL             : {meeting_url}")
+    print(f"  Bots            : {args.bots}")
+    print(f"  Bots per browser: {per_browser}")
+    print(f"  Browser instances: {num_browsers}")
+    print(f"  Stagger         : {args.stagger}s between bots")
+    print(f"  Browser pause   : {args.pause}s between new browsers")
+    print(f"  Auto-leave      : {'manual (Ctrl+C)' if not auto_leave_sec else f'{args.leave} min'}")
     est_ram = args.bots * 50 / 1024
-    print(f"  Est. RAM    : ~{est_ram:.1f} GB")
+    print(f"  Est. RAM        : ~{est_ram:.1f} GB")
     print(f"{C['wht']}{'═'*60}\n{C['reset']}")
 
     # ── Create scratch dir for error screenshots ──────────────────────────────
     os.makedirs("scratch", exist_ok=True)
 
     async with async_playwright() as pw:
-        # ── Launch ONE browser ────────────────────────────────────────────────
-        browser = await pw.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--mute-audio",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-notifications",
-                "--disable-popup-blocking",
-                "--disable-extensions",
-                "--use-fake-ui-for-media-stream",
-                "--use-fake-device-for-media-stream",
-                "--disable-background-networking",
-                "--disable-default-apps",
-                "--disable-sync",
-                "--no-first-run",
-                # Memory reduction
-                "--disable-software-rasterizer",
-                "--disable-canvas-aa",
-                "--disable-2d-canvas-clip-aa",
-                "--disable-gl-drawing-for-tests",
-                "--disable-features=TranslateUI,WebRtcHideLocalIpsWithMdns",
-                "--disable-ipc-flooding-protection",
-                "--js-flags=--max-old-space-size=128",
-                # Reduce WebRTC overhead
-                "--disable-webrtc-hw-encoding",
-                "--disable-webrtc-hw-decoding",
-                "--force-fieldtrials=WebRTC-CpuOveruseDetection/Disabled/",
-            ],
-        )
-
-        syslog("📦", "Browser launched — single process mode", "blu")
-
+        all_browsers = []
         all_tasks = []
-        joined_count = 0
-        failed_count = 0
-        total_batches = (args.bots + args.batch - 1) // args.batch
+        bot_counter = 0
 
-        # ── Launch bots in batches ────────────────────────────────────────────
-        for batch_num in range(total_batches):
+        # ── Launch browsers, each with up to per_browser bots ─────────────────
+        for browser_num in range(num_browsers):
             if stop_event.is_set():
                 break
 
-            batch_start = batch_num * args.batch + 1
-            batch_end   = min(batch_start + args.batch - 1, args.bots)
-            batch_size  = batch_end - batch_start + 1
+            # How many bots for this browser?
+            bots_remaining = args.bots - bot_counter
+            bots_this_browser = min(per_browser, bots_remaining)
 
-            syslog("📦", f"Batch {batch_num+1}/{total_batches} — "
-                   f"Bot-{batch_start:03d} to Bot-{batch_end:03d} "
-                   f"({batch_size} bots)", "blu")
+            syslog("🌐", f"Launching Browser-{browser_num+1}/{num_browsers} "
+                   f"(bots {bot_counter+1}–{bot_counter+bots_this_browser})", "blu")
 
-            batch_signals = []
+            browser = await pw.chromium.launch(headless=True, args=CHROME_ARGS)
+            all_browsers.append(browser)
 
-            for bot_id in range(batch_start, batch_end + 1):
+            syslog("📦", f"Browser-{browser_num+1} ready — "
+                   f"loading {bots_this_browser} bots", "blu")
+
+            # Launch bots for this browser one at a time
+            browser_signals = []
+
+            for i in range(bots_this_browser):
                 if stop_event.is_set():
                     break
 
+                bot_counter += 1
+                bot_id = bot_counter
+
                 join_signal = asyncio.Event()
-                batch_signals.append(join_signal)
+                browser_signals.append(join_signal)
 
                 task = asyncio.create_task(
                     run_bot(browser, bot_id, meeting_url, stop_event, join_signal)
                 )
                 all_tasks.append(task)
 
-                # Stagger between bots within the batch
-                if bot_id < batch_end:
+                # Stagger between bots
+                if i < bots_this_browser - 1:
                     await asyncio.sleep(args.stagger)
 
-            # ── Wait for this batch to finish joining ─────────────────────────
-            # Give them generous time (up to 120s) to connect
-            if batch_signals and not stop_event.is_set():
-                syslog("⏳", f"Waiting for batch {batch_num+1} to connect…", "gry")
+            # Wait for all bots in this browser to finish joining
+            if browser_signals and not stop_event.is_set():
+                syslog("⏳", f"Waiting for Browser-{browser_num+1} bots to connect…", "gry")
                 try:
                     await asyncio.wait_for(
-                        asyncio.gather(*[s.wait() for s in batch_signals]),
-                        timeout=120.0
+                        asyncio.gather(*[s.wait() for s in browser_signals]),
+                        timeout=180.0
                     )
                 except asyncio.TimeoutError:
-                    syslog("⚠️", f"Batch {batch_num+1} timed out — some bots may not have joined", "yel")
+                    syslog("⚠️", f"Browser-{browser_num+1} timed out — "
+                           f"some bots may not have joined", "yel")
 
-            # Count results so far
-            done_count = sum(1 for s in batch_signals if s.is_set())
-            syslog("📊", f"Batch {batch_num+1} done — "
-                   f"{done_count}/{batch_size} responded", "gry")
+            done_count = sum(1 for s in browser_signals if s.is_set())
+            syslog("📊", f"Browser-{browser_num+1} done — "
+                   f"{done_count}/{bots_this_browser} responded | "
+                   f"Total: {bot_counter}/{args.bots}", "grn")
 
-            # ── Pause between batches ─────────────────────────────────────────
-            is_last = (batch_num + 1) >= total_batches
+            # Pause before launching next browser
+            is_last = (browser_num + 1) >= num_browsers
             if not is_last and not stop_event.is_set():
-                syslog("⏳", f"Pausing {args.pause}s before next batch…", "gry")
+                syslog("⏳", f"Pausing {args.pause}s before next browser…", "gry")
                 try:
                     await asyncio.wait_for(stop_event.wait(), timeout=args.pause)
                 except asyncio.TimeoutError:
-                    pass  # Normal — pause completed
+                    pass
 
         # ── All launched ──────────────────────────────────────────────────────
-        syslog("✔", f"All {args.bots} bot(s) launched — press Ctrl+C to stop", "grn")
+        syslog("✔", f"All {bot_counter} bot(s) launched across "
+               f"{len(all_browsers)} browser(s) — press Ctrl+C to stop", "grn")
 
         # ── Auto-leave timer ──────────────────────────────────────────────────
         if auto_leave_sec:
@@ -662,7 +674,12 @@ async def main_async(args):
                 task.cancel()
 
         await asyncio.gather(*all_tasks, return_exceptions=True)
-        await browser.close()
+
+        for b in all_browsers:
+            try:
+                await b.close()
+            except Exception:
+                pass
 
     syslog("✔", "All bots stopped. Goodbye!", "gry")
 
@@ -674,12 +691,12 @@ def main():
     parser = argparse.ArgumentParser(
         description="py_guest_new — Lightweight Konn3ct Bot Joiner"
     )
-    parser.add_argument("--url",      required=True,            help="Meeting URL")
-    parser.add_argument("--bots",     type=int,   default=100,  help="Total bots (default: 100)")
-    parser.add_argument("--batch",    type=int,   default=5,    help="Bots per batch (default: 5)")
-    parser.add_argument("--stagger",  type=float, default=4.0,  help="Seconds between bots in a batch (default: 4)")
-    parser.add_argument("--pause",    type=float, default=30.0, help="Seconds between batches (default: 30)")
-    parser.add_argument("--leave",    type=int,   default=0,    help="Auto-leave after N minutes (default: 0 = manual)")
+    parser.add_argument("--url",          required=True,            help="Meeting URL")
+    parser.add_argument("--bots",         type=int,   default=100,  help="Total bots (default: 100)")
+    parser.add_argument("--per-browser",  type=int,   default=20,   help="Max bots per browser process (default: 20)")
+    parser.add_argument("--stagger",      type=float, default=5.0,  help="Seconds between bots (default: 5)")
+    parser.add_argument("--pause",        type=float, default=10.0, help="Seconds between new browsers (default: 10)")
+    parser.add_argument("--leave",        type=int,   default=0,    help="Auto-leave after N minutes (default: 0 = manual)")
     args = parser.parse_args()
 
     if not args.url.startswith("http"):
