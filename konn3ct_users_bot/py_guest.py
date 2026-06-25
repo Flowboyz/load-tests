@@ -186,7 +186,10 @@ async def run_bot(browser, bot_id, meeting_url, auto_leave_seconds, chat_enabled
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/122.0.0.0 Safari/537.36"
         ),
-        permissions=[],           # deny mic / camera / notifications / geolocation
+        # Grant microphone permission upfront so the browser never shows the
+        # native permission popup — that popup's backdrop overlay blocks all
+        # clicks on the join form behind it
+        permissions=["microphone", "camera"],
         ignore_https_errors=True,
     )
 
@@ -206,6 +209,20 @@ async def run_bot(browser, bot_id, meeting_url, auto_leave_seconds, chat_enabled
         await page.goto(meeting_url, wait_until="domcontentloaded",
                         timeout=PAGE_LOAD_TIMEOUT)
         await asyncio.sleep(3)
+
+        # ── Dismiss any overlay blocking the form ─────────────────────────────
+        # The mic/camera permission popup creates a backdrop (z-50 blur overlay)
+        # that intercepts all pointer events on the join form behind it.
+        # Granting permissions at context level stops the popup, but we also
+        # force-hide any leftover overlay via JS just in case.
+        await page.evaluate("""
+            () => {
+                document.querySelectorAll(
+                    '[aria-hidden="true"][data-state="open"], .backdrop-blur-sm'
+                ).forEach(el => el.remove());
+            }
+        """)
+        await asyncio.sleep(0.5)
 
         # ── Fill name field ───────────────────────────────────────────────────
         # Use page.locator() — returns a Locator which supports triple_click()

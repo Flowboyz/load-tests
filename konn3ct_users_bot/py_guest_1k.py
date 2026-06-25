@@ -179,7 +179,9 @@ async def run_bot(
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/122.0.0.0 Safari/537.36"
         ),
-        permissions=[],
+        # Grant mic/camera upfront — prevents the browser's native
+        # permission popup whose backdrop overlay blocks the join form
+        permissions=["microphone", "camera"],
         ignore_https_errors=True,
     )
 
@@ -197,6 +199,20 @@ async def run_bot(
             timeout=PAGE_LOAD_TIMEOUT,
         )
         await asyncio.sleep(random.uniform(2, 4))
+
+        # ── Dismiss any overlay blocking the form ─────────────────────────────
+        # The mic/camera permission popup creates a backdrop (z-50 blur overlay)
+        # that intercepts all pointer events on the join form behind it.
+        # Granting permissions at context level stops the popup, but we also
+        # force-hide any leftover overlay via JS just in case.
+        await page.evaluate("""
+            () => {
+                document.querySelectorAll(
+                    '[aria-hidden="true"][data-state="open"], .backdrop-blur-sm'
+                ).forEach(el => el.remove());
+            }
+        """)
+        await asyncio.sleep(0.5)
 
         # ── Name field ────────────────────────────────────────────────────────
         name_el = page.locator(SEL["name_field"])
