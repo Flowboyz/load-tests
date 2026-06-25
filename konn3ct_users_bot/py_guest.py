@@ -38,10 +38,25 @@ SEL = {
     "name_field":    '[name="fullName"]',
     "email_field":   '[name="email"]',
     "join_button":   "//button[text()='Join Now']",          # XPath
+    "chat_toggle":   'div:has(button[aria-label*="reactions"]) + button',
     "chat_input":    "textarea[placeholder='Send a message to everyone']",
-    "chat_send":     "svg.h-6.w-6",
+    "chat_send":     'textarea[placeholder="Send a message to everyone"] + div.flex.items-center.gap-4 > svg',
     "chat_messages": "[data-testid='chat-message'], .chat-message, .message-item",
+    "reaction_toggle": 'button[aria-label="Open reactions"]',
+    "chat_close":     'button.absolute.right-4.top-4',
 }
+
+REACTION_SELECTORS = [
+    'button[aria-label="Thumbs up"]',
+    'button[aria-label="Thumbs down"]',
+    'button[aria-label="Angry"]',
+    'button[aria-label="Clap"]',
+    'button[aria-label="Laugh"]',
+    'button[aria-label="Smile"]',
+]
+
+REACTION_MIN_INTERVAL = 20  # seconds
+REACTION_MAX_INTERVAL = 60  # seconds
 
 PAGE_LOAD_TIMEOUT  = 90_000   # ms — raised from 40s; slow networks need headroom
 CHAT_MIN_INTERVAL  = 30       # seconds
@@ -134,19 +149,63 @@ async def _send_chat(page, bot_id, name, email):
     message = random.choice(CHAT_MESSAGES)
     try:
         chatbox = page.locator(SEL["chat_input"])
-        await chatbox.wait_for(state="visible", timeout=10_000)
+        opened_by_me = False
+        if not await chatbox.is_visible():
+            toggle = page.locator(SEL["chat_toggle"])
+            await toggle.wait_for(state="visible", timeout=10_000)
+            await toggle.click(force=True)
+            await chatbox.wait_for(state="visible", timeout=10_000)
+            opened_by_me = True
+
         await chatbox.scroll_into_view_if_needed()
-        await chatbox.click()
+        await chatbox.click(force=True)
         await asyncio.sleep(0.3)
         await page.keyboard.press("Control+a")
         await page.keyboard.press("Delete")
         await asyncio.sleep(0.2)
         await chatbox.type(message, delay=random.uniform(30, 80))
         await asyncio.sleep(0.3)
-        await page.keyboard.press("Enter")
+        
+        send_btn = page.locator(SEL["chat_send"])
+        await send_btn.click(force=True)
         log(bot_id, name, email, "💬", f'Sent: "{message}"')
+
+        # Close chat panel if we opened it, to keep the toolbar clear
+        if opened_by_me:
+            await asyncio.sleep(0.5)
+            close_btn = page.locator(SEL["chat_close"])
+            await close_btn.evaluate("node => node.click()")
+            await chatbox.wait_for(state="hidden", timeout=10_000)
     except Exception as exc:
         log(bot_id, name, email, "⚠️", f"Chat send failed: {exc}")
+
+async def _send_reaction(page, bot_id, name, email):
+    try:
+        # If chat sidebar is open, close it first so it doesn't block the reactions button
+        chatbox = page.locator(SEL["chat_input"])
+        if await chatbox.is_visible():
+            close_btn = page.locator(SEL["chat_close"])
+            await close_btn.evaluate("node => node.click()")
+            await chatbox.wait_for(state="hidden", timeout=10_000)
+
+        rxn_toggle = page.locator(SEL["reaction_toggle"])
+        await rxn_toggle.wait_for(state="visible", timeout=10_000)
+        await rxn_toggle.click(force=True)
+        await asyncio.sleep(0.3)
+        
+        emoji_sel = random.choice(REACTION_SELECTORS)
+        emoji_btn = page.locator(emoji_sel)
+        await emoji_btn.wait_for(state="visible", timeout=5_000)
+        await emoji_btn.click(force=True)
+        log(bot_id, name, email, "😀", f"Reacted: {emoji_sel.split('\"')[1]}")
+
+        # Close reactions menu to prevent it from overlaying elements
+        await asyncio.sleep(0.5)
+        close_btn = page.locator('button[aria-label="Close reactions"]')
+        if await close_btn.is_visible():
+            await close_btn.evaluate("node => node.click()")
+    except Exception as exc:
+        log(bot_id, name, email, "⚠️", f"Reaction failed: {exc}")
 
 
 async def _read_chat(page, bot_id, name, email):
@@ -230,7 +289,7 @@ async def run_bot(browser, bot_id, meeting_url, auto_leave_seconds, chat_enabled
         name_input = page.locator(SEL["name_field"])
         await name_input.wait_for(state="visible", timeout=PAGE_LOAD_TIMEOUT)
         await name_input.scroll_into_view_if_needed()
-        await name_input.click(click_count=3)    # select all — works on all Playwright versions
+        await name_input.click(click_count=3, force=True)    # select all — works on all Playwright versions
         await name_input.type(name, delay=random.uniform(50, 120))
 
         await asyncio.sleep(0.3)
@@ -239,7 +298,7 @@ async def run_bot(browser, bot_id, meeting_url, auto_leave_seconds, chat_enabled
         email_input = page.locator(SEL["email_field"])
         await email_input.wait_for(state="visible", timeout=PAGE_LOAD_TIMEOUT)
         await email_input.scroll_into_view_if_needed()
-        await email_input.click(click_count=3)   # select all — works on all Playwright versions
+        await email_input.click(click_count=3, force=True)   # select all — works on all Playwright versions
         await email_input.type(email, delay=random.uniform(50, 120))
 
         await asyncio.sleep(0.5)
@@ -249,7 +308,7 @@ async def run_bot(browser, bot_id, meeting_url, auto_leave_seconds, chat_enabled
         await join_btn.wait_for(state="visible", timeout=PAGE_LOAD_TIMEOUT)
         await join_btn.scroll_into_view_if_needed()
         await asyncio.sleep(0.3)
-        await join_btn.click()
+        await join_btn.click(force=True)
 
         log(bot_id, name, email, "✅", "Joined meeting")
 
@@ -261,10 +320,11 @@ async def run_bot(browser, bot_id, meeting_url, auto_leave_seconds, chat_enabled
         # Set leave_at HERE (after room settles) not at join-click time.
         # If set earlier, slow page loads eat into the timer and produce a
         # negative timeout — causing the bot to leave the instant it joins.
-        loop_start   = asyncio.get_event_loop().time()
-        leave_at     = loop_start + auto_leave_seconds if auto_leave_seconds else None
-        next_chat_at = loop_start + random.uniform(10, 20)
-        next_read_at = loop_start + CHAT_READ_INTERVAL
+        loop_start       = asyncio.get_event_loop().time()
+        leave_at         = loop_start + auto_leave_seconds if auto_leave_seconds else None
+        next_chat_at     = loop_start + random.uniform(10, 20)
+        next_reaction_at = loop_start + random.uniform(15, 30)
+        next_read_at     = loop_start + CHAT_READ_INTERVAL
 
         while not stop_event.is_set():
             now = asyncio.get_event_loop().time()
@@ -278,6 +338,11 @@ async def run_bot(browser, bot_id, meeting_url, auto_leave_seconds, chat_enabled
             if chat_enabled and now >= next_chat_at:
                 await _send_chat(page, bot_id, name, email)
                 next_chat_at = now + random.uniform(CHAT_MIN_INTERVAL, CHAT_MAX_INTERVAL)
+
+            # Send emoji reaction
+            if chat_enabled and now >= next_reaction_at:
+                await _send_reaction(page, bot_id, name, email)
+                next_reaction_at = now + random.uniform(REACTION_MIN_INTERVAL, REACTION_MAX_INTERVAL)
 
             # Read chat — only Bot-001 does this
             if bot_id == 1 and now >= next_read_at:
