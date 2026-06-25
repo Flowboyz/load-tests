@@ -87,13 +87,13 @@ REACTION_SELECTORS = [
     'button[aria-label="Smile"]',
 ]
 
-REACTION_MIN_INTERVAL = 20  # seconds
-REACTION_MAX_INTERVAL = 60  # seconds
+REACTION_MIN_INTERVAL = 60   # seconds  (spread out at scale to save CPU)
+REACTION_MAX_INTERVAL = 180  # seconds
 
-PAGE_LOAD_TIMEOUT  = 90_000   # ms
-CHAT_MIN_INTERVAL  = 45       # seconds  (spread out more at scale)
-CHAT_MAX_INTERVAL  = 120      # seconds
-CHAT_READ_INTERVAL = 20       # seconds  (only worker-1 bot-1 reads)
+PAGE_LOAD_TIMEOUT  = 120_000  # ms  (120s — generous for CPU-starved contexts)
+CHAT_MIN_INTERVAL  = 90       # seconds  (spread out more at scale)
+CHAT_MAX_INTERVAL  = 240      # seconds
+CHAT_READ_INTERVAL = 60       # seconds  (only worker-1 bot-1 reads)
 
 CHAT_MESSAGES = [
     "Hello everyone! 👋",
@@ -164,14 +164,14 @@ def make_identity_generator(worker_id: int):
             last   = last_raw.replace("'", "").replace(" ", "").lower()
             suffix = random.randint(1000, 99999)
             domain = random.choice(domains)
-            name   = f"{first_raw} {last_raw} [Bot]"
+            name   = f"{first_raw} {last_raw}"
             email  = f"{first}.{last}.w{worker_id}.{suffix}@{domain}"
             if email not in used:
                 used.add(email)
                 return name, email
         uid = random.randint(10_000_000, 99_999_999)
         domain = random.choice(domains)
-        return f"Bot User {uid} [Bot]", f"bot.w{worker_id}.{uid}@{domain}"
+        return f"Guest User {uid}", f"guest.w{worker_id}.{uid}@{domain}"
 
     return generate
 
@@ -193,11 +193,11 @@ async def run_bot(
     name, email = generate_identity()
 
     context = await browser.new_context(
-        viewport={"width": 1280, "height": 720},
+        viewport={"width": 800, "height": 600},   # smaller viewport = less rendering work
         user_agent=(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
+            "Chrome/125.0.0.0 Safari/537.36"
         ),
         # Grant mic/camera upfront — prevents the browser's native
         # permission popup whose backdrop overlay blocks the join form
@@ -307,9 +307,15 @@ async def run_bot(
                     lobby_logged = True
                 in_lobby = True
             
+            # Check for session expired (NOT the same as "meeting full" — this
+            # happens when the page took too long to load under CPU pressure)
+            elif any(kw in body_text for kw in ["session expired", "session has expired"]):
+                olog(worker_id, bot_id, name, "⚠️", "Session expired (page loaded too slowly) — will retry")
+                raise Exception("Session expired — bot took too long to load the page")
+
             # Check for meeting full / license limit reached
-            elif any(kw in body_text for kw in ["meeting is full", "meeting full", "room is full", "session expired", "session has expired"]):
-                raise Exception("Failed to join: Meeting is full / License limit reached (30 participant ceiling)")
+            elif any(kw in body_text for kw in ["meeting is full", "meeting full", "room is full"]):
+                raise Exception("Failed to join: Meeting room is full")
                 
             # Check for invalid link
             elif any(kw in body_text for kw in ["invalid meeting", "link is invalid", "oops! invalid", "oops! meeting link"]):
@@ -325,9 +331,10 @@ async def run_bot(
                     olog(worker_id, bot_id, name, "🔄", f"Still connecting... (Page snippet: '{snippet}')")
                 last_status_log = now
                 
-            # Safety timeout (90 seconds max waiting to connect)
-            if now - connect_start > 90:
-                raise Exception("Connection timed out (90s limit reached)")
+            # Safety timeout (180 seconds max waiting to connect — generous
+            # because CPU-starved contexts need more time)
+            if now - connect_start > 180:
+                raise Exception("Connection timed out (180s limit reached)")
             
             await asyncio.sleep(2)
 
@@ -337,8 +344,8 @@ async def run_bot(
         # ── Main loop ─────────────────────────────────────────────────────────
         loop_start       = asyncio.get_event_loop().time()
         leave_at         = loop_start + auto_leave_seconds if auto_leave_seconds else None
-        next_chat_at     = loop_start + random.uniform(15, 40)
-        next_reaction_at = loop_start + random.uniform(20, 45)
+        next_chat_at     = loop_start + random.uniform(60, 120)
+        next_reaction_at = loop_start + random.uniform(60, 150)
         next_read_at     = loop_start + CHAT_READ_INTERVAL
 
         while not stop_ev.is_set():
@@ -511,6 +518,14 @@ def worker_main(
                     "--disable-sync",
                     "--metrics-recording-only",
                     "--no-first-run",
+                    # Aggressive memory reduction flags
+                    "--disable-software-rasterizer",
+                    "--disable-canvas-aa",
+                    "--disable-2d-canvas-clip-aa",
+                    "--disable-gl-drawing-for-tests",
+                    "--disable-features=TranslateUI",
+                    "--disable-ipc-flooding-protection",
+                    "--js-flags=--max-old-space-size=128",
                 ],
             )
 
@@ -571,10 +586,10 @@ def main():
     parser.add_argument("--url",          required=True,           help="Meeting URL")
     parser.add_argument("--bots",         type=int,   default=1000, help="Total bots (default: 1000)")
     parser.add_argument("--workers",      type=int,   default=0,    help="Worker processes (default: auto)")
-    parser.add_argument("--contexts",     type=int,   default=40,   help="Contexts per worker (default: 40, max: 50)")
+    parser.add_argument("--contexts",     type=int,   default=10,   help="Contexts per worker (default: 10, max: 50)")
     parser.add_argument("--leave",        type=int,   default=0,    help="Auto-leave after N minutes (default: 0 = manual)")
-    parser.add_argument("--stagger-min",  type=float, default=1.0,  help="Min stagger between bots in a worker (default: 1)")
-    parser.add_argument("--stagger-max",  type=float, default=3.0,  help="Max stagger between bots in a worker (default: 3)")
+    parser.add_argument("--stagger-min",  type=float, default=3.0,  help="Min stagger between bots in a worker (default: 3)")
+    parser.add_argument("--stagger-max",  type=float, default=6.0,  help="Max stagger between bots in a worker (default: 6)")
     parser.add_argument("--batch-pause",  type=float, default=15.0, help="Seconds between worker waves (default: 15)")
     parser.add_argument("--wave-size",    type=int,   default=2,    help="Number of workers to launch per wave (default: 2)")
     parser.add_argument("--no-chat",      action="store_true",      help="Disable chat simulation")
