@@ -69,8 +69,8 @@ from faker import Faker
 SEL = {
     "name_field":    '[name="fullName"]',
     "email_field":   '[name="email"]',
-    "join_button":   "//button[text()='Join Now']",
-    "chat_toggle":   'div:has(button[aria-label*="reactions"]) + button',
+    "join_button":   "button:has-text('Join')",
+    "chat_toggle":   'button:has(svg path[d^="M6.4 5.6"])',
     "chat_input":    "textarea[placeholder='Send a message to everyone']",
     "chat_send":     'textarea[placeholder="Send a message to everyone"] + div.flex.items-center.gap-4 > svg',
     "chat_messages": "[data-testid='chat-message'], .chat-message, .message-item",
@@ -233,23 +233,25 @@ async def run_bot(
         name_el = page.locator(SEL["name_field"])
         await name_el.wait_for(state="visible", timeout=PAGE_LOAD_TIMEOUT)
         await name_el.scroll_into_view_if_needed()
-        await name_el.click(click_count=3, force=True)
-        await name_el.type(name, delay=random.uniform(40, 100))
+        await name_el.fill(name)
         await asyncio.sleep(0.3)
 
         # ── Email field ───────────────────────────────────────────────────────
         email_el = page.locator(SEL["email_field"])
         await email_el.wait_for(state="visible", timeout=PAGE_LOAD_TIMEOUT)
         await email_el.scroll_into_view_if_needed()
-        await email_el.click(click_count=3, force=True)
-        await email_el.type(email, delay=random.uniform(40, 100))
+        await email_el.fill(email)
         await asyncio.sleep(0.5)
 
         # ── Join button ───────────────────────────────────────────────────────
-        join_el = page.locator(f"xpath={SEL['join_button']}")
+        join_el = page.locator(SEL['join_button'])
         await join_el.wait_for(state="visible", timeout=PAGE_LOAD_TIMEOUT)
         await join_el.scroll_into_view_if_needed()
         await asyncio.sleep(0.3)
+        
+        if await join_el.is_disabled():
+            raise Exception("Join button is disabled by the server (20+ participant limit reached on sandbox/trial license)")
+            
         await join_el.click(force=True)
 
         olog(worker_id, bot_id, name, "🌐", "Join clicked — connecting...")
@@ -278,15 +280,13 @@ async def run_bot(
                     lobby_logged = True
                 in_lobby = True
             
-            # Check for meeting full
-            elif any(kw in body_text for kw in ["meeting is full", "meeting full", "room is full"]):
-                olog(worker_id, bot_id, name, "❌", "Failed to join: Meeting room is full!")
-                break
+            # Check for meeting full / license limit reached
+            elif any(kw in body_text for kw in ["meeting is full", "meeting full", "room is full", "session expired", "session has expired"]):
+                raise Exception("Failed to join: Meeting is full / License limit reached (30 participant ceiling)")
                 
             # Check for invalid link
-            elif any(kw in body_text for kw in ["invalid meeting", "link is invalid", "oops!"]):
-                olog(worker_id, bot_id, name, "❌", "Failed to join: Invalid meeting link!")
-                break
+            elif any(kw in body_text for kw in ["invalid meeting", "link is invalid", "oops! invalid", "oops! meeting link"]):
+                raise Exception("Failed to join: Invalid meeting link!")
             
             # Periodically print status if stuck in connecting/loading state
             now = asyncio.get_event_loop().time()
@@ -300,8 +300,7 @@ async def run_bot(
                 
             # Safety timeout (90 seconds max waiting to connect)
             if now - connect_start > 90:
-                olog(worker_id, bot_id, name, "❌", "Connection timed out (90s limit reached)")
-                break
+                raise Exception("Connection timed out (90s limit reached)")
             
             await asyncio.sleep(2)
 
@@ -332,7 +331,7 @@ async def run_bot(
                 next_reaction_at = now + random.uniform(REACTION_MIN_INTERVAL, REACTION_MAX_INTERVAL)
 
             # Only the very first bot in worker-1 reads chat
-            if worker_id == 1 and local_id == 1 and now >= next_read_at:
+            if chat_enabled and worker_id == 1 and local_id == 1 and now >= next_read_at:
                 await _read_chat(page, worker_id, bot_id, name)
                 next_read_at = now + CHAT_READ_INTERVAL
 
@@ -342,6 +341,12 @@ async def run_bot(
         olog(worker_id, bot_id, name, "🚪", "Cancelled")
     except Exception as exc:
         olog(worker_id, bot_id, name, "❌", f"{exc}")
+        try:
+            screenshot_path = f"scratch/error_worker_{worker_id:02d}_bot_{bot_id:04d}.png"
+            await page.screenshot(path=screenshot_path)
+            olog(worker_id, bot_id, name, "📸", f"Saved error screenshot to {screenshot_path}")
+        except Exception as screenshot_exc:
+            olog(worker_id, bot_id, name, "⚠️", f"Failed to take screenshot: {screenshot_exc}")
     finally:
         try:
             await page.close()
@@ -367,12 +372,7 @@ async def _send_chat(page, worker_id, bot_id, name):
             opened_by_me = True
 
         await chatbox.scroll_into_view_if_needed()
-        await chatbox.click(force=True)
-        await asyncio.sleep(0.2)
-        await page.keyboard.press("Control+a")
-        await page.keyboard.press("Delete")
-        await asyncio.sleep(0.2)
-        await chatbox.type(msg, delay=random.uniform(30, 70))
+        await chatbox.fill(msg)
         await asyncio.sleep(0.3)
         
         send_btn = page.locator(SEL["chat_send"])
