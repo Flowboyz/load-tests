@@ -310,10 +310,61 @@ async def run_bot(browser, bot_id, meeting_url, auto_leave_seconds, chat_enabled
         await asyncio.sleep(0.3)
         await join_btn.click(force=True)
 
-        log(bot_id, name, email, "✅", "Joined meeting")
+        log(bot_id, name, email, "🌐", "Join clicked — connecting...")
+
+        # ── Wait for room or lobby state to resolve ───────────────────────────
+        in_lobby = False
+        lobby_logged = False
+        connect_start = asyncio.get_event_loop().time()
+        last_status_log = connect_start
+        rxn_toggle = page.locator(SEL["reaction_toggle"])
+        
+        while not stop_event.is_set():
+            if await rxn_toggle.is_visible():
+                if in_lobby:
+                    log(bot_id, name, email, "✅", "Admitted to meeting room!")
+                else:
+                    log(bot_id, name, email, "✅", "Joined meeting room successfully")
+                break
+                
+            body_text = (await page.inner_text("body")).lower()
+            
+            # Check for waiting/lobby room
+            if any(kw in body_text for kw in ["waiting", "lobby", "please wait", "admit you", "moderator", "waiting room"]):
+                if not lobby_logged:
+                    log(bot_id, name, email, "⏳", "Stuck in virtual lobby (waiting for host to admit)")
+                    lobby_logged = True
+                in_lobby = True
+            
+            # Check for meeting full
+            elif any(kw in body_text for kw in ["meeting is full", "meeting full", "room is full"]):
+                log(bot_id, name, email, "❌", "Failed to join: Meeting room is full!")
+                break
+                
+            # Check for invalid link
+            elif any(kw in body_text for kw in ["invalid meeting", "link is invalid", "oops!"]):
+                log(bot_id, name, email, "❌", "Failed to join: Invalid meeting link!")
+                break
+            
+            # Periodically print status if stuck in connecting/loading state
+            now = asyncio.get_event_loop().time()
+            if now - last_status_log > 15:
+                if in_lobby:
+                    log(bot_id, name, email, "⏳", "Still waiting in lobby...")
+                else:
+                    snippet = body_text[:60].replace('\n', ' ')
+                    log(bot_id, name, email, "🔄", f"Still connecting... (Page snippet: '{snippet}')")
+                last_status_log = now
+                
+            # Safety timeout (90 seconds max waiting to connect)
+            if now - connect_start > 90:
+                log(bot_id, name, email, "❌", "Connection timed out (90s limit reached)")
+                break
+            
+            await asyncio.sleep(2)
 
         # Wait for meeting room to settle
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
         log(bot_id, name, email, "🏠", "Meeting room ready")
 
         # ── Main bot loop ─────────────────────────────────────────────────────
