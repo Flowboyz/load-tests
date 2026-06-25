@@ -154,19 +154,24 @@ def make_identity_generator(worker_id: int):
     faker  = Faker()
     used   = set()
     Faker.seed(worker_id * 99991)   # deterministic but different per worker
+    domains = ["gmail.com", "yahoo.com", "outlook.com", "hotmail.com"]
 
     def generate():
         for _ in range(500):
-            first  = faker.first_name()
-            last   = faker.last_name()
+            first_raw = faker.first_name()
+            last_raw  = faker.last_name()
+            first  = first_raw.replace("'", "").replace(" ", "").lower()
+            last   = last_raw.replace("'", "").replace(" ", "").lower()
             suffix = random.randint(1000, 99999)
-            name   = f"{first} {last} [Bot]"
-            email  = f"{first.lower()}.{last.lower()}.w{worker_id}.{suffix}@botmail.test"
+            domain = random.choice(domains)
+            name   = f"{first_raw} {last_raw} [Bot]"
+            email  = f"{first}.{last}.w{worker_id}.{suffix}@{domain}"
             if email not in used:
                 used.add(email)
                 return name, email
         uid = random.randint(10_000_000, 99_999_999)
-        return f"Bot User {uid} [Bot]", f"bot.w{worker_id}.{uid}@botmail.test"
+        domain = random.choice(domains)
+        return f"Bot User {uid} [Bot]", f"bot.w{worker_id}.{uid}@{domain}"
 
     return generate
 
@@ -202,8 +207,16 @@ async def run_bot(
 
     page = await context.new_page()
 
-    # Block media files — saves bandwidth and GPU per context
-    await page.route("**/*.{mp4,webm,ogg,mp3,wav}", lambda r: r.abort())
+    # Block heavy resources (images, fonts, media, analytics) to save bandwidth, CPU, and RAM
+    async def block_assets(route, request):
+        if request.resource_type in ["image", "font", "media"]:
+            await route.abort()
+        elif any(domain in request.url for domain in ["google-analytics.com", "mixpanel.com", "sentry.io", "hotjar.com"]):
+            await route.abort()
+        else:
+            await route.continue_()
+
+    await page.route("**/*", block_assets)
 
     try:
         olog(worker_id, bot_id, name, "🌐", "Navigating…")
@@ -229,19 +242,33 @@ async def run_bot(
         """)
         await asyncio.sleep(0.5)
 
+        # Helper function for robust input filling to prevent React state resets/truncation under load
+        async def fill_with_retry(locator, val, field_name):
+            for attempt in range(5):
+                await locator.click()
+                await locator.fill(val)
+                await asyncio.sleep(0.3)
+                current = await locator.input_value()
+                if current == val:
+                    return
+                olog(worker_id, bot_id, name, "⚠️", f"Refilling {field_name} (got '{current}', expected '{val}')")
+            # If all fails, try typing character by character
+            await locator.click()
+            await locator.press("Control+A")
+            await locator.press("Delete")
+            await locator.type(val, delay=30)
+
         # ── Name field ────────────────────────────────────────────────────────
         name_el = page.locator(SEL["name_field"])
         await name_el.wait_for(state="visible", timeout=PAGE_LOAD_TIMEOUT)
         await name_el.scroll_into_view_if_needed()
-        await name_el.fill(name)
-        await asyncio.sleep(0.3)
+        await fill_with_retry(name_el, name, "name")
 
         # ── Email field ───────────────────────────────────────────────────────
         email_el = page.locator(SEL["email_field"])
         await email_el.wait_for(state="visible", timeout=PAGE_LOAD_TIMEOUT)
         await email_el.scroll_into_view_if_needed()
-        await email_el.fill(email)
-        await asyncio.sleep(0.5)
+        await fill_with_retry(email_el, email, "email")
 
         # ── Join button ───────────────────────────────────────────────────────
         join_el = page.locator(SEL['join_button'])
@@ -552,6 +579,13 @@ def main():
     parser.add_argument("--no-chat",      action="store_true",      help="Disable chat simulation")
     parser.add_argument("--no-headless",  action="store_true",      help="Show browser windows")
     args = parser.parse_args()
+
+    # Clean the URL to bypass the sandbox domain's proxy/bottleneck
+    if "konnectsandbox.convergenceondemand.com/conferencing/join/" in args.url:
+        args.url = args.url.replace(
+            "konnectsandbox.convergenceondemand.com/conferencing/join/",
+            "meetingapp.convergenceondemand.com/join/"
+        )
 
     if not args.url.startswith("http"):
         print(f"{C['red']}❌  URL must start with http/https{C['reset']}")
