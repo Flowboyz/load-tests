@@ -1,11 +1,9 @@
 """
-generate_report.py — Builds a formatted Word report from a py_guest.py test run.
+generate_report.py — Builds a formatted Word report from a py_guest.py test run (Advanced Version).
 
 Reads the JSON event log (.jsonl) written by py_guest.py during a load test,
-aggregates the data, and produces a polished .docx report with:
-  - Executive summary (totals, success rate, peak concurrency)
-  - Timeline of active users over the test duration
-  - Per-bot failure details (which bots failed, why, when)
+aggregates the data (including personas, time-to-active latency, propagation latency, desyncs),
+and produces a polished .docx report via build_docx_report.js.
 
 Usage:
     python generate_report.py report_log.jsonl
@@ -19,6 +17,14 @@ import subprocess
 import os
 import datetime
 
+# Force UTF-8 stdout/stderr for Windows terminal compatibility
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 
 def load_events(path):
     events = []
@@ -28,6 +34,14 @@ def load_events(path):
             if line:
                 events.append(json.loads(line))
     return events
+
+
+def percentile(lst, pct):
+    if not lst:
+        return 0.0
+    lst_sorted = sorted(lst)
+    idx = int(len(lst_sorted) * pct)
+    return lst_sorted[min(idx, len(lst_sorted) - 1)]
 
 
 def aggregate(events):
@@ -40,6 +54,14 @@ def aggregate(events):
     reconnects    = []   # list of dicts: bot_id, name, attempt, ts
     bot_durations = []   # list of duration_seconds for bots that completed normally
     total_bots_seen = set()
+
+    # Advanced metrics aggregates
+    persona_counts = {}
+    time_to_active_values = []
+    latencies_by_action = {}
+    total_desyncs = 0
+    desync_events = []
+    abnormal_resolved = []
 
     for e in events:
         etype = e.get("event")
@@ -88,6 +110,45 @@ def aggregate(events):
             finished_at = e["ts"]
             final_stats = {k: v for k, v in e.items() if k not in ("event", "ts", "bot_id", "name", "email")}
 
+        # Advanced metrics handling
+        elif etype == "persona_assigned":
+            pers = e.get("persona", "unknown")
+            persona_counts[pers] = persona_counts.get(pers, 0) + 1
+
+        elif etype == "time_to_active":
+            val = e.get("elapsed_ms")
+            if val is not None:
+                time_to_active_values.append(val)
+
+        elif etype == "action_confirmed":
+            action = e.get("action")
+            elapsed = e.get("elapsed_ms")
+            if action and elapsed is not None:
+                if action not in latencies_by_action:
+                    latencies_by_action[action] = []
+                latencies_by_action[action].append(elapsed)
+
+        elif etype == "desync_detected":
+            total_desyncs += 1
+            desync_events.append({
+                "bot_id": e.get("bot_id"),
+                "name": e.get("name"),
+                "local_count": e.get("local_count", 0),
+                "active_count": e.get("active_count", 0),
+                "ts": e.get("ts"),
+            })
+
+        elif etype == "abnormal_action_resolved":
+            abnormal_resolved.append({
+                "bot_id": e.get("bot_id"),
+                "name": e.get("name"),
+                "action": e.get("action"),
+                "outcome": e.get("outcome"),
+                "status": e.get("status"),
+                "details": e.get("details"),
+                "ts": e.get("ts"),
+            })
+
     # Compute elapsed seconds for timeline relative to start
     if started_at and timeline:
         t0 = datetime.datetime.fromisoformat(started_at)
@@ -113,6 +174,11 @@ def aggregate(events):
 
     avg_duration = round(sum(bot_durations) / len(bot_durations), 1) if bot_durations else 0.0
 
+    abnormal_total = len(abnormal_resolved)
+    abnormal_blocked = sum(1 for e in abnormal_resolved if e["status"] == "PASS")
+    abnormal_allowed = sum(1 for e in abnormal_resolved if e["status"] == "FAIL")
+    abnormal_pass_rate = round((abnormal_blocked / abnormal_total) * 100, 1) if abnormal_total else 100.0
+
     return {
         "config":          config,
         "started_at":      started_at,
@@ -129,13 +195,36 @@ def aggregate(events):
         "reconnects":      reconnects,
         "avg_duration":    avg_duration,
         "total_reconnect_events": len(reconnects),
+        # Advanced statistics
+        "personas":        persona_counts,
+        "desyncs_count":   total_desyncs,
+        "desyncs":         desync_events[:20],  # cap list of events shown in report
+        "time_to_active": {
+            "avg": round(sum(time_to_active_values) / len(time_to_active_values), 1) if time_to_active_values else 0.0,
+            "p95": round(percentile(time_to_active_values, 0.95), 1) if time_to_active_values else 0.0,
+            "max": round(max(time_to_active_values), 1) if time_to_active_values else 0.0,
+        },
+        "latencies": {
+            act: {
+                "avg": round(sum(vals) / len(vals), 1),
+                "p95": round(percentile(vals, 0.95), 1),
+                "count": len(vals)
+            } for act, vals in latencies_by_action.items()
+        },
+        "abnormal_stats": {
+            "total": abnormal_total,
+            "blocked": abnormal_blocked,
+            "allowed": abnormal_allowed,
+            "pass_rate": abnormal_pass_rate,
+        },
+        "abnormal_actions": abnormal_resolved,
     }
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate a Word report from a py_guest.py test run")
+    parser = argparse.ArgumentParser(description="Generate an advanced Word report from a py_guest.py test run")
     parser.add_argument("log_file", help="Path to the .jsonl report log written by py_guest.py")
-    parser.add_argument("--output", default="load_test_report.docx", help="Output .docx filename")
+    parser.add_argument("--output", default="load_test_report_advanced.docx", help="Output .docx filename")
     args = parser.parse_args()
 
     if not os.path.exists(args.log_file):
@@ -164,6 +253,15 @@ def main():
     print(f"   Success rate   : {data['success_rate']}%")
     print(f"   Peak active    : {data['peak_active']}")
     print(f"   Duration       : {data['duration_str']}")
+    print(f"   State Desyncs  : {data['desyncs_count']}")
+    if data['time_to_active']['avg'] > 0:
+        print(f"   Time-to-Active : Avg={data['time_to_active']['avg']:.1f}ms, 95th={data['time_to_active']['p95']:.1f}ms")
+    print()
+    print("🛡️  Behavioural & Security Testing:")
+    print(f"   Abnormal actions tried : {data['abnormal_stats']['total']}")
+    print(f"   Correctly blocked      : {data['abnormal_stats']['blocked']}")
+    print(f"   Incorrectly allowed    : {data['abnormal_stats']['allowed']}")
+    print(f"   Security Pass Rate     : {data['abnormal_stats']['pass_rate']}%")
     print()
     print("📝 Building Word document...")
 

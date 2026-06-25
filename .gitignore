@@ -1,0 +1,39 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+web_modules/
+
+# Python environment and cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+
+# Large generated report files and logs
+*.docx
+~$*.docx
+~$*.doc
+*.jsonl
+*.log
+_report_data.json
+
+# Local config & system files
+.env
+.env.local
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor / IDE settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

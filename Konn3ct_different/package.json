@@ -1,0 +1,9 @@
+{
+  "name": "konn3ct-different-report",
+  "version": "1.0.0",
+  "description": "Word docx report generation for Konn3ct different load test framework",
+  "main": "build_docx_report.js",
+  "dependencies": {
+    "docx": "^8.2.0"
+  }
+}

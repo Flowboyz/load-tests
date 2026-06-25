@@ -116,7 +116,7 @@ const statsTable2 = new Table({
         statCard("Peak Concurrent", data.peak_active, TEAL),
         statCard("Test Duration", data.duration_str, NAVY),
         statCard("Reconnect Events", data.total_reconnect_events, data.total_reconnect_events > 0 ? AMBER : GREY),
-        statCard("Avg Session Length", `${data.avg_duration}s`, NAVY),
+        statCard("State Desyncs", data.desyncs_count, data.desyncs_count > 0 ? RED : GREY),
       ],
     }),
   ],
@@ -131,6 +131,11 @@ const configRows = [
   ["Stagger (seconds)", cfg.stagger ?? "N/A"],
   ["Max Concurrency", cfg.concurrency ?? "N/A"],
   ["Auto-leave (minutes)", cfg.auto_leave_minutes ? cfg.auto_leave_minutes : "Manual"],
+  ["Lurkers Ratio", cfg.lurkers_ratio !== undefined ? `${(cfg.lurkers_ratio*100).toFixed(0)}%` : "75%"],
+  ["Active Ratio", cfg.active_ratio !== undefined ? `${(cfg.active_ratio*100).toFixed(0)}%` : "15%"],
+  ["Presenters Ratio", cfg.presenters_ratio !== undefined ? `${(cfg.presenters_ratio*100).toFixed(0)}%` : "5%"],
+  ["Churners Ratio", cfg.churners_ratio !== undefined ? `${(cfg.churners_ratio*100).toFixed(0)}%` : "5%"],
+  ["Hostiles Ratio", cfg.hostiles_ratio !== undefined ? `${(cfg.hostiles_ratio*100).toFixed(0)}%` : "0%"],
   ["Chat Simulation", cfg.chat_enabled ? "Enabled" : "Disabled"],
   ["Camera Toggle", cfg.camera_enabled ? "Enabled" : "Disabled"],
   ["Mic Toggle", cfg.mic_enabled ? "Enabled" : "Disabled"],
@@ -152,7 +157,7 @@ const configTable = new Table({
   ),
 });
 
-// ── Timeline table (sampled — show every Nth point to keep it readable) ──
+// ── Timeline table (sampled ─ show every Nth point to keep it readable) ──
 const timeline = data.timeline || [];
 const maxRows = 20;
 const step = Math.max(1, Math.floor(timeline.length / maxRows));
@@ -188,7 +193,7 @@ const timelineTable = new Table({
   ],
 });
 
-// ── Simple bar chart of active users over time (drawn with table cells) ──
+// ── Simple bar chart of active users over time ──
 function buildBarChart() {
   if (sampledTimeline.length === 0) return [];
   const maxActive = Math.max(...sampledTimeline.map(p => p.active), 1);
@@ -243,6 +248,125 @@ function buildBarChart() {
     }),
   ];
 }
+
+// ── Persona Swarm Distribution Table ─────────────────────────────────────
+const personas = data.personas || {};
+const pCols = [3000, 3180, 3180];
+const personaRows = Object.entries(personas).map(([pers, count], i) => {
+  const fill = i % 2 === 0 ? "FFFFFF" : LIGHT;
+  const pct = data.requested_bots > 0 ? ((count / data.requested_bots) * 100).toFixed(1) : "0.0";
+  return new TableRow({
+    children: [
+      bodyCell(pers.toUpperCase(), pCols[0], { fill, bold: true, color: NAVY }),
+      bodyCell(count, pCols[1], { fill }),
+      bodyCell(`${pct}%`, pCols[2], { fill }),
+    ],
+  });
+});
+
+const personaTable = Object.keys(personas).length === 0
+  ? [new Paragraph({ children: [new TextRun({ text: "No persona breakdown available.", italics: true })] })]
+  : [new Table({
+      width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+      columnWidths: pCols,
+      rows: [
+        new TableRow({
+          children: [
+            headerCell("Persona", pCols[0]),
+            headerCell("Bot Count", pCols[1]),
+            headerCell("Percentage", pCols[2]),
+          ],
+        }),
+        ...personaRows,
+      ],
+    })];
+
+// ── Advanced Performance Metrics Table ───────────────────────────────────
+const latCols = [3180, 2060, 2060, 2060];
+const latencyRows = [];
+
+if (data.time_to_active && data.time_to_active.avg > 0) {
+  latencyRows.push(
+    new TableRow({
+      children: [
+        bodyCell("Time-to-Active (Join Latency)", latCols[0], { bold: true, color: NAVY }),
+        bodyCell(`${data.time_to_active.avg} ms`, latCols[1]),
+        bodyCell(`${data.time_to_active.p95} ms`, latCols[2]),
+        bodyCell(data.joined_count, latCols[3]),
+      ],
+    })
+  );
+}
+
+if (data.latencies) {
+  Object.entries(data.latencies).forEach(([act, stats], i) => {
+    const fill = i % 2 === 0 ? LIGHT : "FFFFFF";
+    latencyRows.push(
+      new TableRow({
+        children: [
+          bodyCell(`Propagation: ${act.toUpperCase()}`, latCols[0], { fill, bold: true, color: TEAL }),
+          bodyCell(`${stats.avg} ms`, latCols[1], { fill }),
+          bodyCell(`${stats.p95} ms`, latCols[2], { fill }),
+          bodyCell(stats.count, latCols[3], { fill }),
+        ],
+      })
+    );
+  });
+}
+
+const metricsTable = latencyRows.length === 0
+  ? [new Paragraph({ children: [new TextRun({ text: "No latency metrics recorded (no actions confirmed).", italics: true })] })]
+  : [new Table({
+      width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+      columnWidths: latCols,
+      rows: [
+        new TableRow({
+          children: [
+            headerCell("Action / Metric", latCols[0]),
+            headerCell("Avg Latency", latCols[1]),
+            headerCell("95th Percentile", latCols[2]),
+            headerCell("Total Samples", latCols[3]),
+          ],
+        }),
+        ...latencyRows,
+      ],
+    })];
+
+// ── Desyncs Details Table ────────────────────────────────────────────────
+const desyncs = data.desyncs || [];
+const dCols = [900, 2400, 2000, 2000, 2060];
+const desyncsTable = desyncs.length === 0
+  ? [new Paragraph({
+      spacing: { before: 120, after: 120 },
+      children: [new TextRun({ text: "No participant list desync desynchronization desyncs detected. The swarm was 100% consistent! ✅", italics: true, color: GREEN, size: 20 })],
+    })]
+  : [new Table({
+      width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+      columnWidths: dCols,
+      rows: [
+        new TableRow({
+          children: [
+            headerCell("Bot ID", dCols[0]),
+            headerCell("Name", dCols[1]),
+            headerCell("Local Count", dCols[2]),
+            headerCell("Actual Swarm", dCols[3]),
+            headerCell("Time Detected", dCols[4]),
+          ],
+        }),
+        ...desyncs.map((d, i) => {
+          const fill = i % 2 === 0 ? "FFFFFF" : LIGHT;
+          return new TableRow({
+            children: [
+              bodyCell(`#${String(d.bot_id).padStart(4, "0")}`, dCols[0], { fill }),
+              bodyCell(d.name || "Unknown", dCols[1], { fill }),
+              bodyCell(d.local_count, dCols[2], { fill, color: RED, bold: true }),
+              bodyCell(d.active_count, dCols[3], { fill }),
+              bodyCell(d.ts ? new Date(d.ts).toLocaleTimeString() : "N/A", dCols[4], { fill }),
+            ],
+          });
+        }),
+      ],
+    })];
 
 // ── Failures table ────────────────────────────────────────────────────────
 const failures = data.failures || [];
@@ -313,6 +437,57 @@ const reconnectsTable = reconnects.length === 0
               bodyCell(r.name || "Unknown", rCols[1], { fill }),
               bodyCell(r.attempt ?? "N/A", rCols[2], { fill, color: AMBER }),
               bodyCell(r.ts ? new Date(r.ts).toLocaleTimeString() : "N/A", rCols[3], { fill }),
+            ],
+          });
+        }),
+      ],
+    })];
+
+// ── Behavioural Security Verification Table ───────────────────────────────
+const ABNORMAL_ACTION_LABELS = {
+  "poll_create": "Unauthorized Poll Create",
+  "note_update": "Unauthorized Note Edit",
+  "poll_vote": "Invalid Poll Vote",
+  "malformed_payload": "Malformed Payload",
+  "chat_spamming": "Chat Rate-Limit Spam",
+  "premium_features": "Unauthorized Premium Feature",
+  "host_mute_bypass": "Host Mute Bypass",
+};
+
+const abnormalActions = data.abnormal_actions || [];
+const abCols = [900, 2100, 1800, 1500, 1560, 1500]; // sum = 9360 (CONTENT_WIDTH)
+const abnormalTable = abnormalActions.length === 0
+  ? [new Paragraph({
+      spacing: { before: 120, after: 120 },
+      children: [new TextRun({ text: "No behavioral/security validation tests were executed. ℹ️", italics: true, color: GREY, size: 20 })],
+    })]
+  : [new Table({
+      width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+      columnWidths: abCols,
+      rows: [
+        new TableRow({
+          children: [
+            headerCell("Bot ID", abCols[0]),
+            headerCell("Name", abCols[1]),
+            headerCell("Action Tried", abCols[2]),
+            headerCell("Expected", abCols[3]),
+            headerCell("Actual", abCols[4]),
+            headerCell("Status", abCols[5]),
+          ],
+        }),
+        ...abnormalActions.map((a, i) => {
+          const fill = i % 2 === 0 ? "FFFFFF" : LIGHT;
+          const isPass = a.status === "PASS";
+          const statusColor = isPass ? GREEN : RED;
+          const outcomeColor = isPass ? GREEN : RED;
+          return new TableRow({
+            children: [
+              bodyCell(`#${String(a.bot_id).padStart(4, "0")}`, abCols[0], { fill }),
+              bodyCell(a.name || "Unknown", abCols[1], { fill }),
+              bodyCell(ABNORMAL_ACTION_LABELS[a.action] || a.action || "Unknown", abCols[2], { fill }),
+              bodyCell("Blocked", abCols[3], { fill }),
+              bodyCell(a.outcome === "blocked" ? "Blocked (Didn't work)" : "Allowed (Worked!)", abCols[4], { fill, color: outcomeColor, bold: !isPass }),
+              bodyCell(a.status || "Unknown", abCols[5], { fill, color: statusColor, bold: true }),
             ],
           });
         }),
@@ -414,6 +589,28 @@ const doc = new Document({
       sectionHeading("Test Configuration"),
       configTable,
 
+      // Swarm Distribution
+      sectionHeading("Swarm Persona Distribution"),
+      new Paragraph({
+        spacing: { after: 160 },
+        children: [new TextRun({
+          text: "Breakdown of simulated user behaviors assigned to the bots in this test.",
+          size: 20, color: GREY, italics: true,
+        })],
+      }),
+      ...personaTable,
+
+      // Performance Latency Metrics
+      sectionHeading("Realtime Performance Latency Metrics"),
+      new Paragraph({
+        spacing: { after: 160 },
+        children: [new TextRun({
+          text: "Calculated latencies for joining the room (Time-to-Active) and round-trip event broadcasts (Propagation Latency). Values are displayed in milliseconds (ms).",
+          size: 20, color: GREY, italics: true,
+        })],
+      }),
+      ...metricsTable,
+
       // Timeline
       sectionHeading("Participant Timeline"),
       new Paragraph({
@@ -427,6 +624,17 @@ const doc = new Document({
       new Paragraph({ spacing: { before: 240 }, children: [] }),
       subHeading("Detailed Timeline Data"),
       timelineTable,
+
+      // State Consistency desyncs
+      sectionHeading("Participant List Consistency Checks"),
+      new Paragraph({
+        spacing: { after: 160 },
+        children: [new TextRun({
+          text: "Tracks whether participants lists remained consistent. Desynchronization occurs when a client local view has fewer participants than actual active bots.",
+          size: 20, color: GREY,
+        })],
+      }),
+      ...desyncsTable,
 
       // Failures
       sectionHeading("Bot Failure Details"),
@@ -449,6 +657,30 @@ const doc = new Document({
         })],
       }),
       ...reconnectsTable,
+
+      // Behavioural Security Validation
+      sectionHeading("Behavioural & Security Testing"),
+      new Paragraph({
+        spacing: { after: 160 },
+        children: [new TextRun({
+          text: `Simulated bots with the ABNORMAL persona attempted unauthorized actions (e.g. creating polls or updating notes without permissions) to verify the server correctly blocks them.`,
+          size: 20, color: GREY,
+        })],
+      }),
+      new Paragraph({
+        spacing: { after: 160 },
+        children: [
+          new TextRun({ text: "Total Attempts: ", bold: true, size: 20 }),
+          new TextRun({ text: `${data.abnormal_stats?.total ?? 0}  |  `, size: 20 }),
+          new TextRun({ text: "Correctly Blocked: ", bold: true, size: 20, color: GREEN }),
+          new TextRun({ text: `${data.abnormal_stats?.blocked ?? 0}  |  `, size: 20 }),
+          new TextRun({ text: "Incorrectly Allowed: ", bold: true, size: 20, color: RED }),
+          new TextRun({ text: `${data.abnormal_stats?.allowed ?? 0}  |  `, size: 20 }),
+          new TextRun({ text: "Security Pass Rate: ", bold: true, size: 20 }),
+          new TextRun({ text: `${data.abnormal_stats?.pass_rate ?? 100}%`, bold: true, size: 20, color: (data.abnormal_stats?.pass_rate ?? 100) === 100 ? GREEN : RED }),
+        ],
+      }),
+      ...abnormalTable,
     ],
   }],
 });

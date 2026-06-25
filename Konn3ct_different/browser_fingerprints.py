@@ -1,0 +1,125 @@
+# browser_fingerprints.py — Browser Fingerprint Database for Konn3ct Load Testing
+
+BROWSER_FINGERPRINTS = {
+    "chrome": {
+        "name": "Chrome",
+        "versions": ["120.0.0.0", "121.0.0.0", "122.0.0.0", "123.0.0.0", "124.0.0.0"],
+        "user_agent_template": "Mozilla/5.0 ({os_details}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Safari/537.36",
+        "webrtc_implementation": "Chrome WebRTC (m120+)",
+        "codecs": ["AV1", "VP9", "VP8", "H264"],
+        "simulcast_layers": 3,
+        "max_resolution": "1920x1080",
+        "adaptive_bitrate": True,
+        "notes": "Aggressive bandwidth estimation, AV1 support, 3-layer simulcast."
+    },
+    "safari": {
+        "name": "Safari",
+        "versions": ["16.4", "17.0", "17.2", "17.4", "17.5"],
+        "user_agent_template": "Mozilla/5.0 ({os_details}) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{version} Safari/605.1.15",
+        "webrtc_implementation": "WebKit WebRTC",
+        "codecs": ["H264"],
+        "simulcast_layers": 2,
+        "max_resolution": "1920x1080",
+        "adaptive_bitrate": True,
+        "notes": "Stricter ICE handling, H.264 preferred, requires explicit permission handling, no AV1."
+    },
+    "firefox": {
+        "name": "Firefox",
+        "versions": ["121.0", "122.0", "123.0", "124.0", "125.0"],
+        "user_agent_template": "Mozilla/5.0 ({os_details}; rv:{version}) Gecko/20100101 Firefox/{version}",
+        "webrtc_implementation": "Mozilla WebRTC (libwebrtc)",
+        "codecs": ["VP9", "VP8", "H264"],
+        "simulcast_layers": 2,
+        "max_resolution": "1920x1080",
+        "adaptive_bitrate": True,
+        "notes": "Different SDP format, 2-layer simulcast, no AV1."
+    },
+    "edge": {
+        "name": "Edge",
+        "versions": ["120.0.0.0", "121.0.0.0", "122.0.0.0", "123.0.0.0"],
+        "user_agent_template": "Mozilla/5.0 ({os_details}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Safari/537.36 Edg/{version}",
+        "webrtc_implementation": "Chrome WebRTC (m120+)",
+        "codecs": ["AV1", "VP9", "VP8", "H264"],
+        "simulcast_layers": 3,
+        "max_resolution": "1920x1080",
+        "adaptive_bitrate": True,
+        "notes": "Aggressive bandwidth estimation, identical to Chrome capabilities."
+    },
+    "brave": {
+        "name": "Brave",
+        "versions": ["1.61.0", "1.62.0", "1.63.0", "1.64.0"],
+        "user_agent_template": "Mozilla/5.0 ({os_details}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Brave/{version}",
+        "webrtc_implementation": "Chrome WebRTC (Brave shield enabled)",
+        "codecs": ["AV1", "VP9", "VP8", "H264"],
+        "simulcast_layers": 3,
+        "max_resolution": "1920x1080",
+        "adaptive_bitrate": True,
+        "notes": "Shield block behaviors, WebRTC IP leakage protection."
+    },
+    "opera": {
+        "name": "Opera",
+        "versions": ["106.0.0.0", "107.0.0.0", "108.0.0.0"],
+        "user_agent_template": "Mozilla/5.0 ({os_details}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 OPR/{version}",
+        "webrtc_implementation": "Chrome WebRTC",
+        "codecs": ["AV1", "VP9", "VP8", "H264"],
+        "simulcast_layers": 3,
+        "max_resolution": "1920x1080",
+        "adaptive_bitrate": True,
+        "notes": "Opera built-in VPN/adblocker simulation."
+    },
+    "chrome_mobile": {
+        "name": "Chrome Mobile",
+        "versions": ["120.0.0.0", "121.0.0.0", "122.0.0.0"],
+        "user_agent_template": "Mozilla/5.0 (Linux; Android {os_version}; {device_model}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Mobile Safari/537.36",
+        "webrtc_implementation": "Chrome Mobile WebRTC",
+        "codecs": ["VP9", "VP8", "H264"],
+        "simulcast_layers": 2,
+        "max_resolution": "1280x720",
+        "adaptive_bitrate": True,
+        "notes": "Limited resolution support, battery-conscious encoding."
+    },
+    "safari_mobile": {
+        "name": "Safari Mobile",
+        "versions": ["16.4", "17.0", "17.2", "17.4"],
+        "user_agent_template": "Mozilla/5.0 (iPhone; CPU iPhone OS {os_version_underscore} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{version} Mobile/15E148 Safari/605.1.15",
+        "webrtc_implementation": "WebKit Mobile WebRTC",
+        "codecs": ["H264"],
+        "simulcast_layers": 2,
+        "max_resolution": "1280x720",
+        "adaptive_bitrate": True,
+        "notes": "iOS battery constraints, WebKit WebRTC stack."
+    },
+    "samsung": {
+        "name": "Samsung Internet",
+        "versions": ["22.0", "23.0", "24.0"],
+        "user_agent_template": "Mozilla/5.0 (Linux; Android {os_version}; {device_model}) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/{version} Chrome/115.0.0.0 Mobile Safari/537.36",
+        "webrtc_implementation": "Chromium-based Samsung WebRTC",
+        "codecs": ["VP9", "VP8", "H264"],
+        "simulcast_layers": 2,
+        "max_resolution": "1280x720",
+        "adaptive_bitrate": True,
+        "notes": "Samsung customization on Chromium WebRTC."
+    },
+    "firefox_mobile": {
+        "name": "Firefox Mobile",
+        "versions": ["120.0", "121.0", "122.0"],
+        "user_agent_template": "Mozilla/5.0 (Android {os_version}; Mobile; rv:{version}) Gecko/{version} Firefox/{version}",
+        "webrtc_implementation": "Mozilla Mobile WebRTC",
+        "codecs": ["VP8", "H264"],
+        "simulcast_layers": 2,
+        "max_resolution": "1280x720",
+        "adaptive_bitrate": True,
+        "notes": "GeckoView implementation of WebRTC."
+    },
+    "opera_mobile": {
+        "name": "Opera Mobile",
+        "versions": ["78.0", "79.0", "80.0"],
+        "user_agent_template": "Mozilla/5.0 (Linux; Android {os_version}; {device_model}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Mobile Safari/537.36 OPR/{version}",
+        "webrtc_implementation": "Chromium-based Opera Mobile WebRTC",
+        "codecs": ["VP9", "VP8", "H264"],
+        "simulcast_layers": 2,
+        "max_resolution": "1280x720",
+        "adaptive_bitrate": True,
+        "notes": "Opera battery-saver mode constraints."
+    }
+}
