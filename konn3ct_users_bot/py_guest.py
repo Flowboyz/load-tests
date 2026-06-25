@@ -129,17 +129,22 @@ def log(bot_id: int, name: str, email: str, icon: str, message: str):
 # ──────────────────────────────────────────────────────────────────────────────
 async def generate_identity():
     async with _identity_lock:
+        domains = ["gmail.com", "yahoo.com", "outlook.com", "hotmail.com"]
         for _ in range(200):
-            first  = faker_gen.first_name()
-            last   = faker_gen.last_name()
+            first_raw = faker_gen.first_name()
+            last_raw  = faker_gen.last_name()
+            first  = first_raw.replace("'", "").replace(" ", "").lower()
+            last   = last_raw.replace("'", "").replace(" ", "").lower()
             suffix = random.randint(100, 9999)
-            name   = f"{first} {last} [Bot]"
-            email  = f"{first.lower()}.{last.lower()}{suffix}@botmail.test"
+            domain = random.choice(domains)
+            name   = f"{first_raw} {last_raw} [Bot]"
+            email  = f"{first}.{last}{suffix}@{domain}"
             if email not in _used_identities:
                 _used_identities.add(email)
                 return name, email
         uid = random.randint(1_000_000, 9_999_999)
-        return f"Bot User {uid} [Bot]", f"bot{uid}@botmail.test"
+        domain = random.choice(domains)
+        return f"Bot User {uid} [Bot]", f"bot{uid}@{domain}"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -250,11 +255,16 @@ async def run_bot(browser, bot_id, meeting_url, auto_leave_seconds, chat_enabled
     # Open the page for this bot context
     page = await context.new_page()
 
-    # Block heavy media to save bandwidth and CPU per context
-    await page.route(
-        "**/*.{mp4,webm,ogg,mp3,wav}",
-        lambda route: route.abort()
-    )
+    # Block heavy resources (images, fonts, media, analytics) to save bandwidth, CPU, and RAM
+    async def block_assets(route, request):
+        if request.resource_type in ["image", "font", "media"]:
+            await route.abort()
+        elif any(domain in request.url for domain in ["google-analytics.com", "mixpanel.com", "sentry.io", "hotjar.com"]):
+            await route.abort()
+        else:
+            await route.continue_()
+
+    await page.route("**/*", block_assets)
 
     try:
         log(bot_id, name, email, "🌐", "Context created — navigating to meeting")
@@ -278,23 +288,33 @@ async def run_bot(browser, bot_id, meeting_url, auto_leave_seconds, chat_enabled
         """)
         await asyncio.sleep(0.5)
 
+        # Helper function for robust input filling to prevent React state resets/truncation under load
+        async def fill_with_retry(locator, val, field_name):
+            for attempt in range(5):
+                await locator.click()
+                await locator.fill(val)
+                await asyncio.sleep(0.3)
+                current = await locator.input_value()
+                if current == val:
+                    return
+                log(bot_id, name, email, "⚠️", f"Refilling {field_name} (got '{current}', expected '{val}')")
+            # If all fails, try typing character by character
+            await locator.click()
+            await locator.press("Control+A")
+            await locator.press("Delete")
+            await locator.type(val, delay=30)
+
         # ── Fill name field ───────────────────────────────────────────────────
-        # Use page.locator() — returns a Locator which supports triple_click()
-        # wait_for_selector() returns ElementHandle which does NOT have triple_click
         name_input = page.locator(SEL["name_field"])
         await name_input.wait_for(state="visible", timeout=PAGE_LOAD_TIMEOUT)
         await name_input.scroll_into_view_if_needed()
-        await name_input.fill(name)
-
-        await asyncio.sleep(0.3)
+        await fill_with_retry(name_input, name, "name")
 
         # ── Fill email field ──────────────────────────────────────────────────
         email_input = page.locator(SEL["email_field"])
         await email_input.wait_for(state="visible", timeout=PAGE_LOAD_TIMEOUT)
         await email_input.scroll_into_view_if_needed()
-        await email_input.fill(email)
-
-        await asyncio.sleep(0.5)
+        await fill_with_retry(email_input, email, "email")
 
         # ── Click join button ─────────────────────────────────────────────────
         join_btn = page.locator(SEL['join_button'])
@@ -567,6 +587,13 @@ def main():
     parser.add_argument("--no-chat",     action="store_true",     help="Disable chat simulation")
     parser.add_argument("--no-headless", action="store_true",     help="Show browser window")
     args = parser.parse_args()
+
+    # Clean the URL to bypass the sandbox domain's proxy/bottleneck
+    if "konnectsandbox.convergenceondemand.com/conferencing/join/" in args.url:
+        args.url = args.url.replace(
+            "konnectsandbox.convergenceondemand.com/conferencing/join/",
+            "meetingapp.convergenceondemand.com/join/"
+        )
 
     if not args.url.startswith("http"):
         print(f"{COLOURS['err']}❌  Invalid URL — must start with http/https{COLOURS['reset']}")

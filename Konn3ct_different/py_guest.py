@@ -950,7 +950,7 @@ if __name__ == "__main__":
     parser.add_argument("--report-output", default="load_test_report.docx")
     parser.add_argument("--frontend", default=DEFAULT_FRONTEND)
     parser.add_argument("--signal", default=DEFAULT_SIGNAL)
-    parser.add_argument("--jwt-secret", default="fallback-secret-key", help="JWT secret for local authentication tokens")
+    parser.add_argument("--jwt-secret", default=None, help="JWT secret for local authentication tokens")
     parser.add_argument("--max-subscriptions", type=int, default=2, help="Maximum concurrent WebRTC downlink subscriptions per bot")
     parser.add_argument("--decode-downlink", action="store_true", help="Decode incoming downlink WebRTC video streams in software")
     parser.add_argument("--host-bot-id", type=int, default=1, help="The bot ID assigned as host/moderator")
