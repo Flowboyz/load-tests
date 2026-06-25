@@ -231,53 +231,148 @@ async def run_bot(browser, bot_id, meeting_url, stop_event, join_signal):
         )
         await asyncio.sleep(random.uniform(3, 5))
 
-        # ── Dismiss overlays ──────────────────────────────────────────────────
-        await page.evaluate("""
+        # ── Dismiss ALL overlays aggressively ─────────────────────────────────
+        # The Konn3ct app shows a Radix UI alertdialog for camera/mic permissions
+        # that blocks ALL pointer events on the form behind it. We need to
+        # remove this dialog AND its backdrop overlay.
+        DISMISS_OVERLAYS_JS = """
             () => {
-                document.querySelectorAll(
-                    '[aria-hidden="true"][data-state="open"], .backdrop-blur-sm'
-                ).forEach(el => el.remove());
+                let removed = 0;
+
+                // 1. Remove Radix alert dialogs (camera/mic permission popup)
+                document.querySelectorAll('[role="alertdialog"]').forEach(el => {
+                    el.remove();
+                    removed++;
+                });
+
+                // 2. Remove Radix regular dialogs
+                document.querySelectorAll('[role="dialog"][data-state="open"]').forEach(el => {
+                    el.remove();
+                    removed++;
+                });
+
+                // 3. Remove any data-state="open" overlays with z-50 positioning
+                document.querySelectorAll('[data-state="open"].fixed').forEach(el => {
+                    el.remove();
+                    removed++;
+                });
+
+                // 4. Remove backdrop blur overlays
+                document.querySelectorAll('.backdrop-blur-sm, .backdrop-blur').forEach(el => {
+                    el.remove();
+                    removed++;
+                });
+
+                // 5. Remove any aria-hidden overlays
+                document.querySelectorAll('[aria-hidden="true"][data-state="open"]').forEach(el => {
+                    el.remove();
+                    removed++;
+                });
+
+                // 6. Remove any fixed/absolute overlays with high z-index that could block
+                document.querySelectorAll('div[data-radix-portal]').forEach(el => {
+                    el.remove();
+                    removed++;
+                });
+
+                return removed;
             }
-        """)
-        await asyncio.sleep(0.5)
+        """
 
-        # ── Fill name ─────────────────────────────────────────────────────────
-        name_el = page.locator(SEL["name_field"])
-        await name_el.wait_for(state="visible", timeout=PAGE_TIMEOUT)
-        await name_el.click()
-        await name_el.fill(name)
-        await asyncio.sleep(0.5)
+        # Try dismissing overlays multiple times (they can reappear)
+        for dismiss_attempt in range(3):
+            removed = await page.evaluate(DISMISS_OVERLAYS_JS)
+            if removed > 0:
+                log(bot_id, "🧹", f"Removed {removed} overlay(s) (attempt {dismiss_attempt+1})", "gry")
+            await asyncio.sleep(1)
 
-        # Verify name was filled correctly
-        actual_name = await name_el.input_value()
-        if actual_name != name:
-            log(bot_id, "⚠️", f"Name mismatch, retrying (got '{actual_name}')", "yel")
-            await name_el.click()
-            await name_el.press("Control+a")
-            await name_el.type(name, delay=30)
+        # ── Fill form using JavaScript (bypasses pointer event interception) ──
+        # Using page.evaluate() to set values directly avoids the Radix dialog
+        # blocking Playwright's click/fill actions via pointer event interception.
+        await page.locator(SEL["name_field"]).wait_for(state="visible", timeout=PAGE_TIMEOUT)
+
+        await page.evaluate("""
+            (data) => {
+                // Helper to trigger React's onChange by setting value via native setter
+                function setNativeValue(element, value) {
+                    const valueSetter = Object.getOwnPropertyDescriptor(
+                        window.HTMLInputElement.prototype, 'value'
+                    ).set;
+                    valueSetter.call(element, value);
+                    element.dispatchEvent(new Event('input', { bubbles: true }));
+                    element.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+
+                const nameEl = document.querySelector('[name="fullName"]');
+                const emailEl = document.querySelector('[name="email"]');
+
+                if (nameEl) {
+                    nameEl.focus();
+                    setNativeValue(nameEl, data.name);
+                }
+                if (emailEl) {
+                    emailEl.focus();
+                    setNativeValue(emailEl, data.email);
+                }
+            }
+        """, {"name": name, "email": email})
+        await asyncio.sleep(1)
+
+        # Verify the values were set correctly
+        actual_name = await page.locator(SEL["name_field"]).input_value()
+        actual_email = await page.locator(SEL["email_field"]).input_value()
+
+        if actual_name != name or actual_email != email:
+            log(bot_id, "⚠️", f"JS fill incomplete (name='{actual_name}', email='{actual_email}'), retrying with type()", "yel")
+            # Fallback: use force clicks + type character by character
+            await page.evaluate(DISMISS_OVERLAYS_JS)
+            await asyncio.sleep(0.5)
+
+            name_loc = page.locator(SEL["name_field"])
+            await name_loc.click(force=True)
+            await name_loc.fill(name, force=True)
             await asyncio.sleep(0.3)
 
-        # ── Fill email ────────────────────────────────────────────────────────
-        email_el = page.locator(SEL["email_field"])
-        await email_el.wait_for(state="visible", timeout=PAGE_TIMEOUT)
-        await email_el.click()
-        await email_el.fill(email)
-        await asyncio.sleep(0.5)
-
-        # Verify email
-        actual_email = await email_el.input_value()
-        if actual_email != email:
-            log(bot_id, "⚠️", f"Email mismatch, retrying", "yel")
-            await email_el.click()
-            await email_el.press("Control+a")
-            await email_el.type(email, delay=30)
+            email_loc = page.locator(SEL["email_field"])
+            await email_loc.click(force=True)
+            await email_loc.fill(email, force=True)
             await asyncio.sleep(0.3)
+
+        log(bot_id, "📝", f"Form filled — {name} / {email}", "gry")
+
+        # ── Dismiss overlays again before clicking Join ───────────────────────
+        await page.evaluate(DISMISS_OVERLAYS_JS)
+        await asyncio.sleep(0.5)
 
         # ── Click join ────────────────────────────────────────────────────────
-        join_el = page.locator(SEL["join_button"])
-        await join_el.wait_for(state="visible", timeout=PAGE_TIMEOUT)
-        await asyncio.sleep(0.5)
-        await join_el.click(force=True)
+        # Use JavaScript click as primary (immune to overlays), with Playwright force-click as fallback
+        clicked = await page.evaluate("""
+            () => {
+                // Try multiple selectors for the join button
+                const selectors = [
+                    "button:has-text('Join')",
+                    'button[type="submit"]',
+                    'button:contains("Join")',
+                ];
+
+                // Find the button by checking all buttons on the page
+                const buttons = document.querySelectorAll('button');
+                for (const btn of buttons) {
+                    const text = btn.textContent.trim().toLowerCase();
+                    if (text.includes('join') && !btn.disabled) {
+                        btn.click();
+                        return true;
+                    }
+                }
+                return false;
+            }
+        """)
+
+        if not clicked:
+            # Fallback to Playwright's force click
+            join_el = page.locator(SEL["join_button"])
+            await join_el.wait_for(state="visible", timeout=PAGE_TIMEOUT)
+            await join_el.click(force=True)
 
         log(bot_id, "🌐", "Join clicked — waiting for room…", "gry")
 
