@@ -283,7 +283,13 @@ def download_report(session_id, fmt):
                 session.report_pdf_path = pdf
                 db.session.commit()
                 return send_file(pdf, as_attachment=True, download_name=f"session_{session_id}_report.pdf")
-            return jsonify({'message': 'PDF report is not available or PDF conversion failed on this server.'}), 404
+            return jsonify({
+                'message': (
+                    'PDF conversion failed. This feature requires LibreOffice to be installed on the server. '
+                    'To enable PDF downloads: on Linux run "sudo apt install libreoffice-nogui", or on Windows '
+                    'install LibreOffice (soffice) and ensure it is added to your system PATH or installed in the default location.'
+                )
+            }), 404
         return send_file(pdf_path, as_attachment=True, download_name=f"session_{session_id}_report.pdf")
         
     else:
