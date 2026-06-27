@@ -31,7 +31,7 @@ class BrowserEmulator:
         if not config:
             return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-        version = random.choice(config["versions"])
+        version = self.profile.get("browser_version_spec") or random.choice(config["versions"])
         template = config["user_agent_template"]
 
         # Parse OS Details
@@ -85,7 +85,7 @@ class BrowserEmulator:
         # Determine actual version string used
         config = BROWSER_FINGERPRINTS.get(self.browser_type, {})
         versions = config.get("versions", ["1.0"])
-        version = versions[0] # pick first as default identifier
+        version = self.profile.get("browser_version_spec") or versions[0]
 
         return {
             "browser_type": self.browser_type,

@@ -339,7 +339,11 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                 # Process metrics
                 bot_id = event.get("bot_id")
                 
-                if etype == "bot_joined" and bot_id:
+                if etype == "bot_connecting" and bot_id:
+                    metrics_state["connecting_bots"] = metrics_state["connecting_bots"] + 1
+                elif etype == "bot_reconnecting" and bot_id:
+                    metrics_state["reconnecting_bots"] = metrics_state["reconnecting_bots"] + 1
+                elif etype == "bot_joined" and bot_id:
                     joined_ids.add(bot_id)
                     metrics_state["connecting_bots"] = max(0, metrics_state["connecting_bots"] - 1)
                     metrics_state["connected_bots"] = len(joined_ids)

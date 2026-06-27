@@ -121,6 +121,10 @@ class Registry:
                         best_action = act
             return best_action
 
+    async def get_active_users(self):
+        async with self.lock:
+            return list(self.user_id_to_name.keys())
+
 registry = Registry()
 metrics = MetricsCollector()
 logger: ActionLogger = None
@@ -441,7 +445,6 @@ async def action_loop(
                                     sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
                                     client_event_id=client_event_id, sent_timestamp=sent_ts)
             continue
-
         # Normal random action intervals
         if now >= next_action_at:
             choices = []
@@ -450,7 +453,11 @@ async def action_loop(
             if hand_enabled: choices.append("hand")
             if screen_share_enabled: choices.append("screen_share")
             if "note_update" in scenarios: choices.append("note_update")
-            if role == "host": choices.append("force_mute")
+            if role == "host":
+                choices.extend(["force_mute", "remove_participant", "lock_meeting", "recording_state"])
+            choices.append("captions_state")
+            if random.random() < 0.04:  # small chance of leaving early
+                choices.append("leave_meeting")
 
             if choices:
                 act = random.choice(choices)
@@ -566,6 +573,11 @@ async def action_loop(
                         await logger.log_action(bot_id, name, email, "screen_share", screen_sharing, "sent", fingerprint=fingerprint,
                                                 sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
                                                 client_event_id=client_event_id, sent_timestamp=sent_ts)
+                        if webrtc_client:
+                            if screen_sharing:
+                                await webrtc_client.start_screen_share()
+                            else:
+                                await webrtc_client.stop_screen_share()
                     elif act == "note_update":
                         new_content = f"Notes session updated by {name} at {datetime.datetime.now().strftime('%H:%M:%S')}"
                         client_event_id = f"ce_nte_{uuid.uuid4().hex[:8]}"
@@ -615,6 +627,120 @@ async def action_loop(
                                                     client_event_id=client_event_id, sent_timestamp=sent_ts,
                                                     ack_timestamp=datetime.datetime.now().isoformat() + "Z", ack_latency_ms=elapsed, final_status="acknowledged")
                             await metrics.record_action("force_mute", fingerprint["browser_type"], "confirmed", elapsed)
+                    elif act == "captions_state":
+                        captions_enabled = not captions_enabled
+                        client_event_id = f"ce_cap_{uuid.uuid4().hex[:8]}"
+                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        payload = {
+                            "type": "captions_state",
+                            "captionsEnabled": captions_enabled,
+                            "clientEventId": client_event_id,
+                            "sentTimestamp": sent_ts,
+                            "senderBotId": f"bot-{bot_id:03d}",
+                            "senderOS": fingerprint.get("os_type"),
+                            "senderBrowser": fingerprint.get("browser_name"),
+                            "senderDeviceType": fingerprint.get("device_type"),
+                            "roomId": room_id,
+                            "actionType": "captions_state"
+                        }
+                        await ws.send(json.dumps(payload))
+                        pending.add("captions_state", captions_enabled, now, client_event_id)
+                        await registry.record_sent(my_user_id, "captions_state", captions_enabled, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                        await logger.log_action(bot_id, name, email, "captions_state", captions_enabled, "sent", fingerprint=fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
+                    elif act == "remove_participant":
+                        active_users = await registry.get_active_users()
+                        peers = [u for u in active_users if u != my_user_id]
+                        if peers:
+                            target_uid = random.choice(peers)
+                            target_name = await registry.lookup(target_uid)
+                            client_event_id = f"ce_rem_{uuid.uuid4().hex[:8]}"
+                            sent_ts = datetime.datetime.now().isoformat() + "Z"
+                            payload = {
+                                "type": "remove_participant",
+                                "targetUserId": target_uid,
+                                "clientEventId": client_event_id,
+                                "sentTimestamp": sent_ts,
+                                "senderBotId": f"bot-{bot_id:03d}",
+                                "senderOS": fingerprint.get("os_type"),
+                                "senderBrowser": fingerprint.get("browser_name"),
+                                "senderDeviceType": fingerprint.get("device_type"),
+                                "roomId": room_id,
+                                "actionType": "remove_participant"
+                            }
+                            await ws.send(json.dumps(payload))
+                            pending.add("remove_participant", target_uid, now, client_event_id)
+                            await registry.record_sent(my_user_id, "remove_participant", target_uid, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                            await logger.log_action(bot_id, name, email, "remove_participant", target_name, "sent", fingerprint=fingerprint,
+                                                    sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                    client_event_id=client_event_id, sent_timestamp=sent_ts)
+                    elif act == "lock_meeting":
+                        meeting_locked = not meeting_locked
+                        client_event_id = f"ce_lck_{uuid.uuid4().hex[:8]}"
+                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        payload = {
+                            "type": "lock_meeting",
+                            "isLocked": meeting_locked,
+                            "clientEventId": client_event_id,
+                            "sentTimestamp": sent_ts,
+                            "senderBotId": f"bot-{bot_id:03d}",
+                            "senderOS": fingerprint.get("os_type"),
+                            "senderBrowser": fingerprint.get("browser_name"),
+                            "senderDeviceType": fingerprint.get("device_type"),
+                            "roomId": room_id,
+                            "actionType": "lock_meeting"
+                        }
+                        await ws.send(json.dumps(payload))
+                        pending.add("lock_meeting", meeting_locked, now, client_event_id)
+                        await registry.record_sent(my_user_id, "lock_meeting", meeting_locked, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                        await logger.log_action(bot_id, name, email, "lock_meeting", meeting_locked, "sent", fingerprint=fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
+                    elif act == "recording_state":
+                        recording = not recording
+                        client_event_id = f"ce_rec_{uuid.uuid4().hex[:8]}"
+                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        payload = {
+                            "type": "recording_state",
+                            "isRecording": recording,
+                            "clientEventId": client_event_id,
+                            "sentTimestamp": sent_ts,
+                            "senderBotId": f"bot-{bot_id:03d}",
+                            "senderOS": fingerprint.get("os_type"),
+                            "senderBrowser": fingerprint.get("browser_name"),
+                            "senderDeviceType": fingerprint.get("device_type"),
+                            "roomId": room_id,
+                            "actionType": "recording_state"
+                        }
+                        await ws.send(json.dumps(payload))
+                        pending.add("recording_state", recording, now, client_event_id)
+                        await registry.record_sent(my_user_id, "recording_state", recording, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                        await logger.log_action(bot_id, name, email, "recording_state", recording, "sent", fingerprint=fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
+                    elif act == "leave_meeting":
+                        client_event_id = f"ce_lev_{uuid.uuid4().hex[:8]}"
+                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        payload = {
+                            "type": "leave_meeting",
+                            "clientEventId": client_event_id,
+                            "sentTimestamp": sent_ts,
+                            "senderBotId": f"bot-{bot_id:03d}",
+                            "senderOS": fingerprint.get("os_type"),
+                            "senderBrowser": fingerprint.get("browser_name"),
+                            "senderDeviceType": fingerprint.get("device_type"),
+                            "roomId": room_id,
+                            "actionType": "leave_meeting"
+                        }
+                        await ws.send(json.dumps(payload))
+                        pending.add("leave_meeting", "left", now, client_event_id)
+                        await registry.record_sent(my_user_id, "leave_meeting", "left", client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                        await logger.log_action(bot_id, name, email, "leave_meeting", "left", "sent", fingerprint=fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
+                        await asyncio.sleep(1.5)
+                        break
                 except Exception:
                     break
             next_action_at = now + random.uniform(action_interval * 0.7, action_interval * 1.3)
@@ -745,6 +871,9 @@ async def ws_session(
                                 p_uid = msg.get("userId")
                                 if webrtc_client and webrtc_enabled and p_uid != my_user_id:
                                     asyncio.create_task(webrtc_client.add_consumer(p_id, p_kind))
+                                    if cross_confirm:
+                                        server_event_id = f"se_wcon_{p_uid}_{p_id[:8]}"
+                                        await log_observed_action(bot_id, name, email, p_uid, "webrtc_connection", "CONNECTED", fingerprint, msg_client_event_id=None, msg_server_event_id=server_event_id)
                                     
                             elif mtype == "producer_closed":
                                 p_id = msg.get("producerId")
@@ -773,7 +902,7 @@ async def ws_session(
                                 await logger.log_action(bot_id, name, email, "force_mute", "muted", "confirmed", elapsed, fingerprint)
                                 await metrics.record_action("force_mute", fingerprint["browser_type"], "confirmed", elapsed)
                                     
-                            elif mtype in ("note_update", "camera_state", "mute_state", "hand_raise", "screen_share", "chat"):
+                            elif mtype in ("note_update", "camera_state", "mute_state", "hand_raise", "screen_share", "chat", "leave_meeting", "remove_participant", "lock_meeting", "recording_state", "captions_state"):
                                 uid = msg.get("userId")
                                 val = None
                                 act = ""
@@ -796,6 +925,42 @@ async def ws_session(
                                 elif mtype == "note_update":
                                     val = msg.get("content")
                                     act = "note_update"
+                                elif mtype == "leave_meeting":
+                                    val = "left"
+                                    act = "leave_meeting"
+                                elif mtype == "remove_participant":
+                                    val = msg.get("targetUserId")
+                                    act = "remove_participant"
+                                    if val == my_user_id:
+                                        logger.log("❌", "red", bot_id, name, "Removed from meeting by host.", fingerprint=fingerprint)
+                                        client_event_id = f"ce_lev_{uuid.uuid4().hex[:8]}"
+                                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                                        await ws.send(json.dumps({
+                                            "type": "leave_meeting",
+                                            "clientEventId": client_event_id,
+                                            "sentTimestamp": sent_ts,
+                                            "senderBotId": f"bot-{bot_id:03d}",
+                                            "senderOS": fingerprint.get("os_type"),
+                                            "senderBrowser": fingerprint.get("browser_name"),
+                                            "senderDeviceType": fingerprint.get("device_type"),
+                                            "roomId": room_id,
+                                            "actionType": "leave_meeting"
+                                        }))
+                                        await registry.record_sent(my_user_id, "leave_meeting", "left", client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                                        await logger.log_action(bot_id, name, email, "leave_meeting", "left", "sent", fingerprint=fingerprint,
+                                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
+                                        await asyncio.sleep(1.5)
+                                        break
+                                elif mtype == "lock_meeting":
+                                    val = msg.get("isLocked")
+                                    act = "lock_meeting"
+                                elif mtype == "recording_state":
+                                    val = msg.get("isRecording")
+                                    act = "recording_state"
+                                elif mtype == "captions_state":
+                                    val = msg.get("captionsEnabled")
+                                    act = "captions_state"
 
                                 clean_act = act.split(":")[0]
                                 client_event_id = msg.get("clientEventId") or msg.get("clientMsgId")
@@ -984,6 +1149,8 @@ async def run_bot(
     emulator = BrowserEmulator(profile)
     fingerprint = emulator.fingerprint
 
+    await logger.record_event("bot_connecting", bot_id, name, email, fingerprint=fingerprint)
+
     # Parse and select network condition profile
     net_choices = list(network_distribution.keys())
     net_weights = list(network_distribution.values())
@@ -1069,6 +1236,7 @@ async def run_bot(
 
         attempt += 1
         await stats.inc("reconnects")
+        await logger.record_event("bot_reconnecting", bot_id, name, email, fingerprint=fingerprint)
         backoff = min(2 ** attempt, 30) + random.uniform(0, 1)
         logger.log("🔄", "yellow", bot_id, name, f"Reconnecting in {backoff:.1f}s (attempt {attempt}/{max_retries})...", fingerprint=fingerprint)
         await asyncio.sleep(backoff)
@@ -1103,7 +1271,7 @@ async def main(args):
         net_distribution[k.strip().lower()] = float(v.strip())
 
     auto_leave_s = args.leave * 60 if args.leave > 0 else None
-    semaphore = asyncio.Semaphore(args.concurrency)
+    semaphore = asyncio.Semaphore(max(args.bots, args.concurrency))
 
     # Log initial test configuration
     await logger.record_event(
@@ -1232,10 +1400,18 @@ async def main(args):
         while bot_id <= args.bots and not stop_event.is_set():
             await pause_event.wait()
             batch = []
-            for _ in range(args.batch):
+            for i in range(args.batch):
                 if bot_id > args.bots:
                     break
-                batch.append(asyncio.create_task(launch(bot_id)))
+                
+                # Intra-batch micro-stagger: space out bot connections by 150ms inside the batch
+                async def launch_with_micro_stagger(b_id, delay):
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    await launch(b_id)
+                    
+                delay_sec = i * 0.15
+                batch.append(asyncio.create_task(launch_with_micro_stagger(bot_id, delay_sec)))
                 bot_id += 1
             tasks.extend(batch)
             if bot_id <= args.bots and args.stagger > 0:

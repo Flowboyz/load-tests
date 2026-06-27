@@ -75,14 +75,14 @@ class Configuration(db.Model):
     presenter_bot_id = db.Column(db.Integer, default=2)
     
     # Network condition distributions
-    network_conditions = db.Column(db.String(255), default='ethernet:20,wi-fi:50,4g:20,3g:10')
+    network_conditions = db.Column(db.Text, default='ethernet:20,wi-fi:50,4g:20,3g:10')
     network_degradation = db.Column(db.Boolean, default=False)
     degradation_interval = db.Column(db.Integer, default=300)
     
     # Browser/OS/Device distributions
-    browser_distribution = db.Column(db.String(512), default='chrome:30,safari:20,firefox:15,edge:10,brave:5,chrome_mobile:10,safari_mobile:5,opera:3,samsung:2')
-    device_distribution = db.Column(db.String(255), default='desktop:70,mobile:20,tablet:10')
-    os_distribution = db.Column(db.String(255), default='windows:40,macos:30,linux:10,ios:12,android:8')
+    browser_distribution = db.Column(db.Text, default='chrome:30,safari:20,firefox:15,edge:10,brave:5,chrome_mobile:10,safari_mobile:5,opera:3,samsung:2')
+    device_distribution = db.Column(db.Text, default='desktop:70,mobile:20,tablet:10')
+    os_distribution = db.Column(db.Text, default='windows:40,macos:30,linux:10,ios:12,android:8')
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

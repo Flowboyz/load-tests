@@ -132,5 +132,89 @@ BROWSER_FINGERPRINTS = {
         "max_resolution": "1280x720",
         "adaptive_bitrate": True,
         "notes": "Opera battery-saver mode constraints."
+    },
+    "firefox_esr": {
+        "name": "Firefox ESR",
+        "engine": "Gecko",
+        "versions": ["140.0"],
+        "user_agent_template": "Mozilla/5.0 ({os_details}; rv:{version}) Gecko/20100101 Firefox/{version}",
+        "webrtc_implementation": "Mozilla WebRTC (libwebrtc)",
+        "codecs": ["VP9", "VP8", "H264"],
+        "simulcast_layers": 2,
+        "max_resolution": "1920x1080",
+        "adaptive_bitrate": True,
+        "notes": "Firefox ESR long-term support release."
+    },
+    "edge_mobile": {
+        "name": "Edge Mobile",
+        "engine": "Blink",
+        "versions": ["149.0.0.0", "148.0.0.0"],
+        "user_agent_template": "Mozilla/5.0 (Linux; Android {os_version}; {device_model}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Mobile Safari/537.36 EdgA/{version}",
+        "webrtc_implementation": "Chrome Mobile WebRTC",
+        "codecs": ["VP9", "VP8", "H264"],
+        "simulcast_layers": 2,
+        "max_resolution": "1280x720",
+        "adaptive_bitrate": True,
+        "notes": "Chromium-based Edge Mobile browser."
+    },
+    "duckduckgo_mobile": {
+        "name": "DuckDuckGo Mobile",
+        "engine": "WebKit",
+        "versions": ["5.0"],
+        "user_agent_template": "Mozilla/5.0 (Linux; Android {os_version}; {device_model}) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36 DuckDuckGo/{version}",
+        "webrtc_implementation": "Chromium-based DuckDuckGo Mobile",
+        "codecs": ["VP8", "H264"],
+        "simulcast_layers": 2,
+        "max_resolution": "1280x720",
+        "adaptive_bitrate": True,
+        "notes": "DuckDuckGo privacy mobile browser."
+    },
+    "uc_browser_mobile": {
+        "name": "UC Browser Mobile",
+        "engine": "Blink",
+        "versions": ["15.0"],
+        "user_agent_template": "Mozilla/5.0 (Linux; Android {os_version}; {device_model}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Mobile Safari/537.36 UCBrowser/{version}",
+        "webrtc_implementation": "UC WebRTC client",
+        "codecs": ["VP8", "H264"],
+        "simulcast_layers": 1,
+        "max_resolution": "640x480",
+        "adaptive_bitrate": True,
+        "notes": "UC Browser mobile optimization and page compression."
+    },
+    "yandex_browser": {
+        "name": "Yandex Browser",
+        "engine": "Blink",
+        "versions": ["25.0.0.0"],
+        "user_agent_template": "Mozilla/5.0 ({os_details}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 YaBrowser/{version} Safari/537.36",
+        "webrtc_implementation": "Yandex WebRTC fork",
+        "codecs": ["AV1", "VP9", "VP8", "H264"],
+        "simulcast_layers": 3,
+        "max_resolution": "1920x1080",
+        "adaptive_bitrate": True,
+        "notes": "Yandex Chromium browser with active security check."
+    },
+    "vivaldi": {
+        "name": "Vivaldi",
+        "engine": "Blink",
+        "versions": ["7.0"],
+        "user_agent_template": "Mozilla/5.0 ({os_details}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Vivaldi/{version}",
+        "webrtc_implementation": "Vivaldi WebRTC (m120+)",
+        "codecs": ["AV1", "VP9", "VP8", "H264"],
+        "simulcast_layers": 3,
+        "max_resolution": "1920x1080",
+        "adaptive_bitrate": True,
+        "notes": "Vivaldi custom UI power-user browser."
+    },
+    "chromium": {
+        "name": "Chromium",
+        "engine": "Blink",
+        "versions": ["149.0.0.0", "148.0.0.0"],
+        "user_agent_template": "Mozilla/5.0 ({os_details}) AppleWebKit/537.36 (KHTML, like Gecko) Chromium/{version} Safari/537.36",
+        "webrtc_implementation": "Chrome WebRTC",
+        "codecs": ["AV1", "VP9", "VP8", "H264"],
+        "simulcast_layers": 3,
+        "max_resolution": "1920x1080",
+        "adaptive_bitrate": True,
+        "notes": "Pure open-source Chromium browser."
     }
 }

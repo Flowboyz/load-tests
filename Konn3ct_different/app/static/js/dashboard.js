@@ -29,6 +29,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 7. Setup Form Actions & Form submissions
     setupFormActions();
+
+    // 8. Populate Accordion Checkbox Grids
+    populateGrids();
+    updateSerializedInputs('network');
+    updateSerializedInputs('browser');
+    updateSerializedInputs('device');
+    updateSerializedInputs('os');
 });
 
 // Theme Management
@@ -159,29 +166,112 @@ async function loadSavedPresets() {
         if (!response.ok) return;
         const data = await response.json();
         
-        const tbody = document.getElementById('presetsTableBody');
-        tbody.innerHTML = '';
+        const container = document.getElementById('presetsGridContainer');
+        container.innerHTML = '';
         
         if (data.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No presets saved yet.</td></tr>`;
+            container.innerHTML = `<div class="text-center text-muted" style="padding: 40px; grid-column: 1 / -1;">No saved presets found. Create and save one from the "New Test" tab!</div>`;
             return;
         }
 
+        // Helpers to parse distribution stats beautifully
+        const parseDistribution = (str) => {
+            const result = {};
+            if (!str) return result;
+            str.split(',').forEach(item => {
+                const parts = item.split(':');
+                if (parts[0] && parts[1]) {
+                    result[parts[0].trim().toLowerCase()] = parseFloat(parts[1]);
+                }
+            });
+            return result;
+        };
+
+        const formatNetworkSummary = (str) => {
+            const dist = parseDistribution(str);
+            const entries = Object.entries(dist);
+            if (entries.length === 0) return 'Generic';
+            // Pick the one with the highest weight
+            entries.sort((a, b) => b[1] - a[1]);
+            return `${entries[0][0].replace(/_/g, ' ').toUpperCase()} (${entries[0][1].toFixed(0)}%)`;
+        };
+
+        const buildProgressBar = (str) => {
+            const dist = parseDistribution(str);
+            let html = '';
+            const colors = {
+                'desktop': 'desktop', 'laptop': 'desktop', 'workstation': 'desktop',
+                'android_phone': 'mobile', 'iphone': 'mobile', 'phablet': 'mobile',
+                'android_tablet': 'tablet', 'ipad': 'tablet', 'windows_tablet': 'tablet'
+            };
+            
+            Object.entries(dist).forEach(([key, val]) => {
+                if (val <= 0) return;
+                const type = colors[key] || 'other';
+                html += `<div class="dist-segment ${type}" style="width: ${val}%;" title="${key}: ${val.toFixed(1)}%"></div>`;
+            });
+            return html || '<div class="dist-segment other" style="width: 100%;"></div>';
+        };
+
+        const buildLabels = (str) => {
+            const dist = parseDistribution(str);
+            const counts = { desktop: 0, mobile: 0, tablet: 0, other: 0 };
+            
+            const desktopKeys = ['desktop', 'laptop', 'workstation', 'chromebook', 'windows_2_in_1'];
+            const mobileKeys = ['android_phone', 'iphone', 'phablet', 'android_webview', 'ios_webview', 'pwa_runtime_mobile'];
+            const tabletKeys = ['android_tablet', 'ipad', 'windows_tablet', 'android_foldable', 'pwa_runtime_tablet'];
+
+            Object.entries(dist).forEach(([key, val]) => {
+                if (desktopKeys.includes(key)) counts.desktop += val;
+                else if (mobileKeys.includes(key)) counts.mobile += val;
+                else if (tabletKeys.includes(key)) counts.tablet += val;
+                else counts.other += val;
+            });
+
+            let labels = [];
+            if (counts.desktop > 0) labels.push(`<span>💻 Desk: ${counts.desktop.toFixed(0)}%</span>`);
+            if (counts.mobile > 0) labels.push(`<span>📱 Mob: ${counts.mobile.toFixed(0)}%</span>`);
+            if (counts.tablet > 0) labels.push(`<span>平板 Tab: ${counts.tablet.toFixed(0)}%</span>`);
+            if (counts.other > 0) labels.push(`<span>⚙️ Other: ${counts.other.toFixed(0)}%</span>`);
+
+            return labels.join(' | ') || 'Default Mix';
+        };
+
         data.forEach(cfg => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><strong>${escapeHtml(cfg.name)}</strong><br><small class="text-muted">${escapeHtml(cfg.description || '')}</small></td>
-                <td><code class="text-cyan">${escapeHtml(cfg.room)}</code></td>
-                <td>${cfg.bots}</td>
-                <td><span class="badge ${cfg.webrtc_enabled ? 'badge-completed' : 'badge-stopped'}">${cfg.webrtc_enabled ? 'Enabled' : 'Disabled'}</span></td>
-                <td><small>${escapeHtml(cfg.device_distribution)}</small></td>
-                <td>${new Date(cfg.created_at).toLocaleString()}</td>
-                <td>
-                    <button class="btn btn-sm btn-primary" onclick="loadConfigIntoForm(${cfg.id})" title="Load Template"><i class="fa-solid fa-folder-open"></i></button>
-                    ${currentUser.role === 'Admin' ? `<button class="btn btn-sm btn-danger" onclick="deletePreset(${cfg.id})" title="Delete"><i class="fa-solid fa-trash"></i></button>` : ''}
-                </td>
+            const card = document.createElement('div');
+            card.className = 'preset-card';
+            card.innerHTML = `
+                <div class="preset-card-header">
+                    <div class="preset-title-wrap">
+                        <span class="preset-icon"><i class="fa-solid fa-bookmark"></i></span>
+                        <h4>${escapeHtml(cfg.name)}</h4>
+                    </div>
+                    ${currentUser.role === 'Admin' ? `<button class="btn-delete" onclick="deletePreset(${cfg.id})" title="Delete Preset"><i class="fa-solid fa-trash"></i></button>` : ''}
+                </div>
+                <div class="preset-card-body">
+                    <div class="preset-meta-row">
+                        <span><i class="fa-solid fa-door-open" style="margin-right: 4px;"></i> Room: <code>${escapeHtml(cfg.room)}</code></span>
+                        <span><i class="fa-solid fa-users" style="margin-right: 4px;"></i> Bots: <strong>${cfg.bots}</strong></span>
+                    </div>
+                    <div class="preset-meta-row">
+                        <span><i class="fa-solid fa-wifi" style="margin-right: 4px;"></i> Net: <strong>${formatNetworkSummary(cfg.network_conditions)}</strong></span>
+                        <span><i class="fa-solid fa-circle-nodes" style="margin-right: 4px;"></i> WebRTC: <span class="badge ${cfg.webrtc_enabled ? 'badge-running' : 'badge-stopped'}">${cfg.webrtc_enabled ? 'Active' : 'Disabled'}</span></span>
+                    </div>
+                    <div class="preset-dist-bar-wrap">
+                        <label>Hardware Device Distribution</label>
+                        <div class="dist-progress-bar">
+                            ${buildProgressBar(cfg.device_distribution)}
+                        </div>
+                        <div class="dist-labels">
+                            ${buildLabels(cfg.device_distribution)}
+                        </div>
+                    </div>
+                </div>
+                <div class="preset-card-footer">
+                    <button class="btn btn-primary btn-load-preset" onclick="loadConfigIntoForm(${cfg.id})"><i class="fa-solid fa-folder-open" style="margin-right: 6px;"></i> Load Preset Config</button>
+                </div>
             `;
-            tbody.appendChild(tr);
+            container.appendChild(card);
         });
     } catch (err) {
         console.error("Failed to load presets: ", err);
@@ -702,6 +792,11 @@ async function loadConfigIntoForm(cfgId) {
         document.getElementById('formDeviceDistribution').value = cfg.device_distribution;
         document.getElementById('formOsDistribution').value = cfg.os_distribution;
         
+        loadCheckboxesFromSerialized('network');
+        loadCheckboxesFromSerialized('browser');
+        loadCheckboxesFromSerialized('device');
+        loadCheckboxesFromSerialized('os');
+        
         switchTab('configurator');
     } catch (err) {
         alert("Failed to load preset configuration details.");
@@ -872,4 +967,134 @@ function calculateDuration(start, end) {
     const mins = Math.floor(diff / 60);
     const secs = diff % 60;
     return `${mins}m ${secs}s`;
+}
+
+// --- Accordion Multi-Select logic ---
+const DEFAULT_NETWORK_WEIGHTS = { "ethernet": 20, "wi-fi": 50, "4g": 20, "3g": 10, "5g": 20, "poor": 5 };
+const DEFAULT_BROWSER_WEIGHTS = {
+    "chrome_149": 10, "chrome_148": 8, "chrome_147": 6, "chrome_146": 6,
+    "edge_149": 8, "edge_148": 6, "edge_147": 6,
+    "firefox_152": 10, "firefox_151": 8, "firefox_150": 6,
+    "firefox_esr_140": 5,
+    "safari_18": 10, "safari_17": 8, "safari_16": 6,
+    "brave_149": 8, "brave_148": 6, "brave_147": 6,
+    "opera_119": 6, "opera_118": 5, "opera_117": 5,
+    "chrome_mobile_149": 8, "chrome_mobile_148": 6, "chrome_mobile_147": 6,
+    "safari_mobile_18": 8, "safari_mobile_17": 6, "safari_mobile_16": 6,
+    "samsung_internet_28": 6, "samsung_internet_27": 5, "samsung_internet_26": 5,
+    "firefox_mobile_152": 8, "firefox_mobile_151": 6, "firefox_mobile_150": 6,
+    "opera_mobile_89": 5, "opera_mobile_88": 5,
+    "edge_mobile_149": 5, "edge_mobile_148": 5,
+    "duckduckgo_mobile_5": 5,
+    "uc_browser_mobile_15": 5,
+    "yandex_browser_25": 8,
+    "vivaldi_7": 8
+};
+const DEFAULT_DEVICE_WEIGHTS = {
+    "desktop": 10.0, "laptop": 18.0, "workstation": 1.5, "chromebook": 2.0,
+    "android_phone": 28.5, "iphone": 13.0, "android_tablet": 5.0, "ipad": 4.0,
+    "windows_tablet": 1.0, "android_foldable": 1.0, "phablet": 1.5,
+    "windows_2_in_1": 2.0, "smart_tv": 1.5, "conference_room_device": 0.5,
+    "kiosk": 0.5, "virtual_desktop": 1.0, "headless_browser": 1.0,
+    "recorder_bot": 0.5, "android_webview": 5.0, "ios_webview": 2.5
+};
+const OS_KEYS = [
+    "windows_11_26h1", "windows_11_25h2", "windows_11_24h2", "windows_11_23h2", "windows_11_22h2",
+    "windows_10_22h2", "windows_10_21h2", "windows_10_20h2", "windows_8_1", "windows_8", "windows_7",
+    "windows_server_2025", "windows_server_2022", "windows_server_2019", "windows_server_2016",
+    "macos_15_sequoia", "macos_14_sonoma", "macos_13_ventura", "macos_12_monterey", "macos_11_big_sur", "macos_10_15_catalina",
+    "macos_26_tahoe", "macos_25_shasta", "macos_24_hood", "macos_23_lassen",
+    "linux_ubuntu_24_04_lts", "linux_ubuntu_22_04_lts", "linux_debian_12", "linux_debian_11", "linux_fedora_40", "linux_fedora_39",
+    "linux_centos_stream_9", "linux_rhel_9", "linux_rhel_8", "linux_arch_latest", "linux_ubuntu_server_24_04",
+    "ios_18", "ios_17", "ios_16", "ios_15", "ipados_18", "ipados_17", "ipados_16", "android_15", "android_14", "android_13", "android_12",
+    "android_11", "android_10", "android_go_15", "harmonyos_4", "harmonyos_next", "fireos_8", "tizen_os_8", "webos_24", "tvos_18", "visionos_2",
+    "freebsd_14", "openbsd_7_5", "netbsd_10", "solaris_illumos_latest", "yocto_linux_5_0", "openwrt_23_05", "ios_webview_os",
+    "pwa_runtime_desktop", "pwa_runtime_tablet", "pwa_runtime_mobile", "headless_os", "virtual_os", "unknown_other"
+];
+const DEFAULT_OS_WEIGHTS = {};
+OS_KEYS.forEach(k => { DEFAULT_OS_WEIGHTS[k] = 1.0; });
+
+function toggleAccordion(id) {
+    const panel = document.getElementById(id);
+    panel.classList.toggle('show');
+}
+
+function populateGrids() {
+    const populate = (gridId, weights, type) => {
+        const grid = document.getElementById(gridId);
+        grid.innerHTML = '';
+        Object.keys(weights).forEach(key => {
+            const labelText = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            const div = document.createElement('div');
+            div.className = 'checkbox-item';
+            div.innerHTML = `<input type="checkbox" class="cb-${type}" value="${key}" checked onchange="updateSerializedInputs('${type}')"> <label>${labelText}</label>`;
+            grid.appendChild(div);
+        });
+    };
+    populate('grid-network', DEFAULT_NETWORK_WEIGHTS, 'network');
+    populate('grid-browser', DEFAULT_BROWSER_WEIGHTS, 'browser');
+    populate('grid-device', DEFAULT_DEVICE_WEIGHTS, 'device');
+    populate('grid-os', DEFAULT_OS_WEIGHTS, 'os');
+}
+
+function selectAllOptions(type) {
+    const cbs = document.querySelectorAll(`.cb-${type}`);
+    cbs.forEach(cb => { cb.checked = true; });
+    updateSerializedInputs(type);
+}
+
+function selectNoneOptions(type) {
+    const cbs = document.querySelectorAll(`.cb-${type}`);
+    cbs.forEach(cb => { cb.checked = false; });
+    updateSerializedInputs(type);
+}
+
+function updateSerializedInputs(type) {
+    const cbs = document.querySelectorAll(`.cb-${type}`);
+    const selected = [];
+    cbs.forEach(cb => {
+        if (cb.checked) selected.push(cb.value);
+    });
+
+    const badge = document.getElementById(`badge-${type}`);
+    badge.textContent = `${selected.length} selected`;
+
+    let defaultWeights = DEFAULT_NETWORK_WEIGHTS;
+    let inputId = 'formNetworkConditions';
+    if (type === 'browser') { defaultWeights = DEFAULT_BROWSER_WEIGHTS; inputId = 'formBrowserDistribution'; }
+    if (type === 'device') { defaultWeights = DEFAULT_DEVICE_WEIGHTS; inputId = 'formDeviceDistribution'; }
+    if (type === 'os') { defaultWeights = DEFAULT_OS_WEIGHTS; inputId = 'formOsDistribution'; }
+
+    let sum = 0.0;
+    selected.forEach(k => { sum += (defaultWeights[k] || 1.0); });
+
+    const serializedParts = [];
+    selected.forEach(k => {
+        const relativeWeight = sum > 0 ? (((defaultWeights[k] || 1.0) / sum) * 100.0) : 0.0;
+        serializedParts.push(`${k}:${relativeWeight.toFixed(2)}`);
+    });
+
+    document.getElementById(inputId).value = serializedParts.join(',');
+}
+
+function loadCheckboxesFromSerialized(type) {
+    let inputId = 'formNetworkConditions';
+    if (type === 'browser') inputId = 'formBrowserDistribution';
+    if (type === 'device') inputId = 'formDeviceDistribution';
+    if (type === 'os') inputId = 'formOsDistribution';
+
+    const val = document.getElementById(inputId).value || '';
+    const keysInSerialized = new Set();
+    val.split(',').forEach(item => {
+        const parts = item.split(':');
+        if (parts[0]) keysInSerialized.add(parts[0].trim().toLowerCase());
+    });
+
+    const cbs = document.querySelectorAll(`.cb-${type}`);
+    cbs.forEach(cb => {
+        cb.checked = keysInSerialized.has(cb.value);
+    });
+
+    const badge = document.getElementById(`badge-${type}`);
+    badge.textContent = `${keysInSerialized.size} selected`;
 }

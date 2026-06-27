@@ -95,6 +95,83 @@ DESKTOP_RESOLUTIONS = [
     {"screen": "2560x1440", "viewport": "2560x1300"}
 ]
 
+def extract_name_version(key):
+    # Normalize key
+    key_norm = key.strip().lower()
+    
+    # List of known browsers
+    browsers = ["firefox_esr", "duckduckgo_mobile", "uc_browser_mobile", "chrome_mobile", "safari_mobile", "firefox_mobile", "opera_mobile", "edge_mobile", "samsung_internet", "samsung", "yandex_browser", "vivaldi", "chrome", "edge", "firefox", "safari", "brave", "opera", "chromium"]
+    for b in browsers:
+        if key_norm.startswith(b + "_") or key_norm == b:
+            version = key[len(b)+1:] if len(key) > len(b) else None
+            mapped_b = "samsung" if b == "samsung_internet" else b
+            if mapped_b == "chromium": mapped_b = "chrome"
+            return mapped_b, version
+            
+    # List of OS families
+    os_prefixes = ["windows_server", "windows_11", "windows_10", "windows_8", "windows_7", "windows", "macos", "ios", "ipados", "android_go", "android_tv", "google_tv", "android_webview_os", "android", "harmonyos", "fireos", "kaios", "tizen_os", "webos", "tvos", "roku_os", "fire_tv_os", "watchos", "wearos", "visionos", "android_xr", "freebsd", "openbsd", "netbsd", "dragonfly_bsd", "solaris_illumos", "aix", "hp_ux", "qnx", "vxworks", "freertos", "zephyr", "threadx", "yocto_linux", "openwrt", "embedded_linux", "ios_webview_os", "pwa_runtime", "headless_os", "virtual_os", "unknown_other"]
+    linux_prefixes = ["linux_ubuntu_server", "linux_ubuntu", "linux_debian_server", "linux_debian", "linux_rhel_server", "linux_rhel", "linux_rocky_server", "linux_rocky", "linux_almalinux_server", "linux_almalinux", "linux_centos_stream", "linux_centos", "linux_arch", "linux_manjaro", "linux_opensuse", "linux_suse_enterprise", "linux_mint", "linux_pop_os", "linux_elementary", "linux_zorin", "linux_kali", "linux_parrot", "linux_deepin", "linux_oracle", "linux_amazon", "linux_alpine", "linux_gentoo", "linux_nixos"]
+    
+    for prefix in os_prefixes + linux_prefixes:
+        if key_norm.startswith(prefix + "_") or key_norm == prefix:
+            version = key[len(prefix)+1:] if len(key) > len(prefix) else None
+            family = "windows"
+            if "macos" in prefix: family = "macos"
+            elif any(k in prefix for k in ["linux", "ubuntu", "debian", "fedora", "centos", "arch", "mint", "alpine", "suse", "rhel", "rocky", "gentoo", "nixos"]): family = "linux"
+            elif any(k in prefix for k in ["ios", "ipados", "watchos", "visionos"]): family = "ios"
+            elif any(k in prefix for k in ["android", "harmony", "fire", "wear"]): family = "android"
+            elif any(k in prefix for k in ["freebsd", "openbsd", "netbsd", "bsd"]): family = "linux"
+            return family, version
+            
+    return key, None
+
+def is_os_compatible_with_device(os_key, device_key):
+    os_k = os_key.lower()
+    dev_k = device_key.lower()
+    
+    if dev_k in ("iphone", "ios_webview", "ipad", "ipad_pro", "ipad_air", "ipad_standard", "ipad_mini", "ipad_legacy"):
+        return "ios" in os_k or "ipados" in os_k or "watchos" in os_k or "visionos" in os_k
+    if dev_k in ("android_phone", "android_tablet", "android_foldable", "phablet", "android_webview"):
+        return "android" in os_k or "harmony" in os_k or "fire" in os_k or "kaios" in os_k
+    if dev_k == "chromebook":
+        return "chromeos" in os_k
+    if dev_k in ("smart_tv", "conference_room_device", "kiosk"):
+        return any(tv in os_k for tv in ["android_tv", "google_tv", "tizen", "webos", "tvos", "roku", "fire_tv", "openwrt", "embedded_linux"])
+    if dev_k == "virtual_desktop":
+        return "virtual_os" in os_k or "windows" in os_k or "linux" in os_k
+    if dev_k == "headless_browser":
+        return "headless" in os_k or "linux" in os_k
+        
+    return "windows" in os_k or "macos" in os_k or "linux" in os_k or "freebsd" in os_k or "openbsd" in os_k or "netbsd" in os_k or "solaris" in os_k or "aix" in os_k or "hp_ux" in os_k or "yocto" in os_k or "pwa_runtime_desktop" in os_k or "unknown" in os_k
+
+def is_browser_compatible_with_os(browser_key, os_key, device_key):
+    b_k = browser_key.lower()
+    o_k = os_key.lower()
+    dev_k = device_key.lower()
+    
+    if dev_k == "android_webview" or "android_webview" in b_k:
+        return "android_webview" in b_k or "chrome_mobile" in b_k
+    if dev_k == "ios_webview" or "ios_webview" in b_k:
+        return "ios_webview" in b_k or "safari_mobile" in b_k
+        
+    if "ios" in o_k or "ipados" in o_k:
+        return "safari_mobile" in b_k or "chrome_mobile" in b_k or "firefox_mobile" in b_k or "duckduckgo_mobile" in b_k or "uc_browser" in b_k or "ios_webview" in b_k
+    if "android" in o_k or "harmony" in o_k or "fire" in o_k:
+        return "chrome_mobile" in b_k or "samsung" in b_k or "firefox_mobile" in b_k or "opera_mobile" in b_k or "uc_browser" in b_k or "android_webview" in b_k
+    if "chromeos" in o_k:
+        return "chrome" in b_k or "chromium" in b_k
+    if "headless" in o_k:
+        return "chrome" in b_k or "firefox" in b_k or "chromium" in b_k
+        
+    is_desktop_os = "windows" in o_k or "macos" in o_k or "linux" in o_k or "freebsd" in o_k or "openbsd" in o_k or "netbsd" in o_k or "solaris" in o_k
+    if is_desktop_os:
+        if "macos" in o_k:
+            return "safari" in b_k or "chrome" in b_k or "firefox" in b_k or "edge" in b_k or "brave" in b_k or "opera" in b_k or "vivaldi" in b_k or "yandex" in b_k or "chromium" in b_k
+        else:
+            return ("chrome" in b_k or "firefox" in b_k or "edge" in b_k or "brave" in b_k or "opera" in b_k or "vivaldi" in b_k or "yandex" in b_k or "chromium" in b_k) and "safari" not in b_k
+            
+    return True
+
 class DeviceManager:
     def __init__(self, device_dist=None, browser_dist=None, os_dist=None):
         self.device_dist = self._parse_distribution(device_dist, {"desktop": 70, "mobile": 20, "tablet": 10})
@@ -124,37 +201,57 @@ class DeviceManager:
         # 1. Sample Device Type
         device_choices = list(self.device_dist.keys())
         device_weights = list(self.device_dist.values())
-        device_type = random.choices(device_choices, weights=device_weights)[0]
+        sampled_device = random.choices(device_choices, weights=device_weights)[0]
+        
+        # Maps device keys to broad device types (desktop, mobile, tablet)
+        device_type = "desktop"
+        if sampled_device in ("android_phone", "iphone", "phablet", "android_webview", "ios_webview", "mobile"):
+            device_type = "mobile"
+        elif sampled_device in ("android_tablet", "ipad", "android_foldable", "ipad_pro", "ipad_air", "ipad_standard", "ipad_mini", "tablet"):
+            device_type = "tablet"
 
-        # 2. Filter OS options based on Device Type
-        valid_os = []
-        if device_type == "desktop":
-            valid_os = ["windows", "macos", "linux"]
-        else: # mobile or tablet
-            valid_os = ["ios", "android"]
-
-        filtered_os_weights = [self.os_dist.get(o, 0) for o in valid_os]
-        if sum(filtered_os_weights) == 0:
-            filtered_os_weights = [1.0] * len(valid_os)
-        os_type = random.choices(valid_os, weights=filtered_os_weights)[0]
-
-        # 3. Filter Browser options based on Device Type & OS
-        valid_browsers = []
-        if device_type == "desktop":
-            if os_type == "macos":
-                valid_browsers = ["safari", "chrome", "firefox", "edge", "brave", "opera"]
+        # 2. Filter OS options based on sampled device
+        valid_os_choices = []
+        valid_os_weights = []
+        for os_k, weight in self.os_dist.items():
+            if is_os_compatible_with_device(os_k, sampled_device):
+                valid_os_choices.append(os_k)
+                valid_os_weights.append(weight)
+                
+        if not valid_os_choices or sum(valid_os_weights) == 0:
+            # Fallbacks
+            if device_type == "desktop":
+                valid_os_choices = ["windows_11_24h2"]
+                valid_os_weights = [1.0]
+            elif sampled_device in ("iphone", "ipad"):
+                valid_os_choices = ["ios_18"]
+                valid_os_weights = [1.0]
             else:
-                valid_browsers = ["chrome", "firefox", "edge", "brave", "opera"]
-        else: # mobile or tablet
-            if os_type == "ios":
-                valid_browsers = ["safari_mobile", "chrome_mobile", "firefox_mobile"]
-            else: # android
-                valid_browsers = ["chrome_mobile", "samsung", "firefox_mobile", "opera_mobile"]
-
-        filtered_browser_weights = [self.browser_dist.get(b, 0) for b in valid_browsers]
-        if sum(filtered_browser_weights) == 0:
-            filtered_browser_weights = [1.0] * len(valid_browsers)
-        browser_type = random.choices(valid_browsers, weights=filtered_browser_weights)[0]
+                valid_os_choices = ["android_15"]
+                valid_os_weights = [1.0]
+                
+        sampled_os_key = random.choices(valid_os_choices, weights=valid_os_weights)[0]
+        os_type, os_version = extract_name_version(sampled_os_key)
+        
+        # 3. Filter Browser options based on OS & Device
+        valid_browser_choices = []
+        valid_browser_weights = []
+        for b_k, weight in self.browser_dist.items():
+            if is_browser_compatible_with_os(b_k, sampled_os_key, sampled_device):
+                valid_browser_choices.append(b_k)
+                valid_browser_weights.append(weight)
+                
+        if not valid_browser_choices or sum(valid_browser_weights) == 0:
+            # Fallbacks
+            if device_type == "desktop":
+                valid_browser_choices = ["chrome_149"]
+                valid_browser_weights = [1.0]
+            else:
+                valid_browser_choices = ["chrome_mobile_149"]
+                valid_browser_weights = [1.0]
+                
+        sampled_browser_key = random.choices(valid_browser_choices, weights=valid_browser_weights)[0]
+        browser_type, browser_version = extract_name_version(sampled_browser_key)
 
         # 4. Construct specific hardware parameters & screen resolutions
         device_model = ""
@@ -164,12 +261,12 @@ class DeviceManager:
         dpr = 1.0
         screen_res = "1920x1080"
         viewport = "1920x940"
-        sampled_os_ver = ""
+        
+        # Determine actual OS version/format string
+        sampled_os_ver = os_version or "10.0"
         
         if device_type == "desktop":
-            # Laptop profiles
             laptop = random.choice(LAPTOP_PROFILES)
-            # Filter brand matching OS type (e.g. MacBook only on macos)
             if os_type == "macos":
                 laptop = next((p for p in LAPTOP_PROFILES if p["brand"] == "MacBook"), laptop)
             else:
@@ -184,10 +281,11 @@ class DeviceManager:
             res_info = random.choice(DESKTOP_RESOLUTIONS)
             screen_res = res_info["screen"]
             viewport = res_info["viewport"]
-            sampled_os_ver = random.choice(OS_VERSIONS[os_type])
             
         elif device_type == "mobile":
-            mobile = random.choice(MOBILE_PROFILES[os_type])
+            # Map mobile profiles
+            profiles = MOBILE_PROFILES.get(os_type, MOBILE_PROFILES["android"])
+            mobile = random.choice(profiles)
             device_model = mobile["model"]
             cpu_class = mobile["cpu"]
             ram_class = mobile["ram"]
@@ -195,10 +293,10 @@ class DeviceManager:
             dpr = mobile["dpr"]
             screen_res = mobile["screen"]
             viewport = mobile["viewport"]
-            sampled_os_ver = mobile["os_version"]
             
         elif device_type == "tablet":
-            tablet = random.choice(TABLET_PROFILES[os_type])
+            profiles = TABLET_PROFILES.get(os_type, TABLET_PROFILES["android"])
+            tablet = random.choice(profiles)
             device_model = tablet["model"]
             cpu_class = tablet["cpu"]
             ram_class = tablet["ram"]
@@ -206,13 +304,25 @@ class DeviceManager:
             dpr = tablet["dpr"]
             screen_res = tablet["screen"]
             viewport = tablet["viewport"]
-            sampled_os_ver = tablet["os_version"]
 
-        # Parse OS Details for User-Agent template substitution
-        os_details = sampled_os_ver
-        if os_type == "windows" and ";" not in os_details:
-            os_details = f"{os_details}; Win64; x64"
+        # Parse OS Details for User-Agent template
+        os_details = sampled_os_key.replace("_", " ")
+        if os_type == "windows":
+            # Format realistic NT version
+            nt_ver = "10.0"
+            if "windows_8_1" in sampled_os_key: nt_ver = "6.3"
+            elif "windows_8" in sampled_os_key: nt_ver = "6.2"
+            elif "windows_7" in sampled_os_key: nt_ver = "6.1"
+            os_details = f"Windows NT {nt_ver}; Win64; x64"
             
+        elif os_type == "macos":
+            # Macintosh; Intel Mac OS X 10_15_7
+            ver_clean = sampled_os_ver.replace(".", "_")
+            os_details = f"Macintosh; Intel Mac OS X {ver_clean}"
+            
+        elif os_type == "linux":
+            os_details = f"X11; Linux x86_64"
+
         return {
             "device_type": device_type,
             "os_type": os_type,
@@ -220,6 +330,7 @@ class DeviceManager:
             "os_details": os_details,
             "device_model": device_model,
             "browser_type": browser_type,
+            "browser_version_spec": browser_version,
             "screen_resolution": screen_res,
             "viewport": viewport,
             "device_pixel_ratio": dpr,
