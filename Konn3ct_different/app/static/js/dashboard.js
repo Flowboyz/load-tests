@@ -303,6 +303,8 @@ async function loadSessionHistory() {
                 'failed': 'badge-failed'
             }[sess.status] || 'badge-stopped';
 
+            const isFinished = sess.status === 'completed' || sess.status === 'stopped' || sess.status === 'failed';
+
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>#${sess.id}</td>
@@ -313,9 +315,9 @@ async function loadSessionHistory() {
                 <td>
                     <div class="btn-group">
                         <button class="btn btn-sm btn-secondary" onclick="viewHistoricalLogs(${sess.id})" title="View Logs"><i class="fa-solid fa-terminal"></i> Logs</button>
-                        ${sess.report_docx_path ? `<a class="btn btn-sm btn-secondary" href="/api/sessions/${sess.id}/download/docx" title="Download Word"><i class="fa-solid fa-file-word text-cyan"></i> DOCX</a>` : ''}
-                        ${sess.report_pdf_path ? `<a class="btn btn-sm btn-secondary" href="/api/sessions/${sess.id}/download/pdf" title="Download PDF"><i class="fa-solid fa-file-pdf text-red"></i> PDF</a>` : ''}
-                        ${sess.report_csv_path ? `<a class="btn btn-sm btn-secondary" href="/api/sessions/${sess.id}/download/csv" title="Download CSV"><i class="fa-solid fa-file-csv text-green"></i> CSV</a>` : ''}
+                        ${isFinished ? `<a class="btn btn-sm btn-secondary" href="/api/sessions/${sess.id}/download/docx" title="Download Word"><i class="fa-solid fa-file-word text-cyan"></i> DOCX</a>` : ''}
+                        ${isFinished ? `<a class="btn btn-sm btn-secondary" href="/api/sessions/${sess.id}/download/pdf" title="Download PDF"><i class="fa-solid fa-file-pdf text-red"></i> PDF</a>` : ''}
+                        ${isFinished ? `<a class="btn btn-sm btn-secondary" href="/api/sessions/${sess.id}/download/csv" title="Download CSV"><i class="fa-solid fa-file-csv text-green"></i> CSV</a>` : ''}
                     </div>
                 </td>
                 <td>

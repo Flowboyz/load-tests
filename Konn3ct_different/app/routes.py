@@ -187,9 +187,10 @@ def stop_test(session_id):
 @token_required
 def get_session_logs(session_id):
     session = TestSession.query.get_or_404(session_id)
-    log_path = session.report_log_path
+    session_dir = get_session_dir(session_id)
+    log_path = os.path.join(session_dir, "report_log.jsonl")
     
-    if not log_path or not os.path.exists(log_path):
+    if not os.path.exists(log_path):
         return jsonify([])
         
     logs = []
@@ -233,52 +234,57 @@ def download_report(session_id, fmt):
     session = TestSession.query.get_or_404(session_id)
     fmt = fmt.lower()
     
+    session_dir = get_session_dir(session_id)
+    log_path = os.path.join(session_dir, "report_log.jsonl")
+    docx_path = os.path.join(session_dir, "report.docx")
+    pdf_path = os.path.join(session_dir, "report.pdf")
+    csv_path = os.path.join(session_dir, "session_action_lifecycle.csv")
+    
     if fmt == 'json':
-        if not session.report_log_path or not os.path.exists(session.report_log_path):
+        if not os.path.exists(log_path):
             return jsonify({'message': 'JSON log file not found!'}), 404
-        return send_file(session.report_log_path, as_attachment=True, download_name=f"session_{session_id}_logs.jsonl")
+        return send_file(log_path, as_attachment=True, download_name=f"session_{session_id}_logs.jsonl")
         
     elif fmt == 'csv':
-        if not session.report_csv_path or not os.path.exists(session.report_csv_path):
+        if not os.path.exists(csv_path):
             from app.runner import compile_report_log
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            compile_report_log(project_root, session.report_log_path, session.report_docx_path)
+            compile_report_log(project_root, log_path, docx_path)
             
-        if not session.report_csv_path or not os.path.exists(session.report_csv_path):
-            session_dir = get_session_dir(session_id)
+        if not os.path.exists(csv_path):
             fallback = os.path.join(session_dir, "session_action_lifecycle.csv")
             if os.path.exists(fallback):
-                session.report_csv_path = fallback
-                db.session.commit()
+                csv_path = fallback
             else:
                 return jsonify({'message': 'CSV report file not found!'}), 404
-        return send_file(session.report_csv_path, as_attachment=True, download_name=f"session_{session_id}_action_log.csv")
+        return send_file(csv_path, as_attachment=True, download_name=f"session_{session_id}_action_log.csv")
         
     elif fmt == 'docx':
-        if not session.report_docx_path or not os.path.exists(session.report_docx_path):
+        if not os.path.exists(docx_path):
             from app.runner import compile_report_log
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            compile_report_log(project_root, session.report_log_path, session.report_docx_path)
+            compile_report_log(project_root, log_path, docx_path)
             
-        if not session.report_docx_path or not os.path.exists(session.report_docx_path):
+        if not os.path.exists(docx_path):
             return jsonify({'message': 'DOCX report file not found!'}), 404
-        return send_file(session.report_docx_path, as_attachment=True, download_name=f"session_{session_id}_report.docx")
+        return send_file(docx_path, as_attachment=True, download_name=f"session_{session_id}_report.docx")
         
     elif fmt == 'pdf':
-        if not session.report_docx_path or not os.path.exists(session.report_docx_path):
+        if not os.path.exists(docx_path):
             from app.runner import compile_report_log
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            compile_report_log(project_root, session.report_log_path, session.report_docx_path)
+            compile_report_log(project_root, log_path, docx_path)
             
-        if not session.report_pdf_path or not os.path.exists(session.report_pdf_path):
+        if not os.path.exists(pdf_path):
             from app.runner import convert_docx_to_pdf
-            pdf = convert_docx_to_pdf(session.report_docx_path, get_session_dir(session_id))
+            pdf = convert_docx_to_pdf(docx_path, session_dir)
             if pdf and os.path.exists(pdf):
+                pdf_path = pdf
                 session.report_pdf_path = pdf
                 db.session.commit()
                 return send_file(pdf, as_attachment=True, download_name=f"session_{session_id}_report.pdf")
             return jsonify({'message': 'PDF report is not available or PDF conversion failed on this server.'}), 404
-        return send_file(session.report_pdf_path, as_attachment=True, download_name=f"session_{session_id}_report.pdf")
+        return send_file(pdf_path, as_attachment=True, download_name=f"session_{session_id}_report.pdf")
         
     else:
         return jsonify({'message': 'Invalid download format! Must be JSON, CSV, DOCX, or PDF.'}), 400
