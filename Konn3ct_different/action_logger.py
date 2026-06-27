@@ -61,7 +61,7 @@ class ActionLogger:
             flush=True,
         )
 
-    async def log_action(self, bot_id, bot_name, email, action_type, action_value, status, latency_ms=None, fingerprint=None):
+    async def log_action(self, bot_id, bot_name, email, action_type, action_value, status, latency_ms=None, fingerprint=None, **extra):
         """
         Logs a structured action event to console and records it in the JSONL log file.
         """
@@ -91,19 +91,39 @@ class ActionLogger:
         # Format message based on status
         if status == "sent":
             msg = f"Sent {action_type} → {action_value} (awaiting confirmation…)"
-        elif status == "confirmed":
-            lat_str = f", propagation: {latency_ms:.1f}ms" if latency_ms else ""
-            msg = f"{action_type.capitalize()} → {action_value} (✅ confirmed by server{lat_str})"
+        elif status == "acknowledged":
+            lat_str = f", ack: {latency_ms:.1f}ms" if latency_ms else ""
+            msg = f"{action_type.capitalize()} → {action_value} (✅ acknowledged{lat_str})"
             colour = "green"
-        elif status == "timed_out":
-            msg = f"NO CONFIRMATION received for {action_type} → {action_value} after 5s — server may have not applied it!"
-            colour = "red"
-            icon = "⚠️"
+        elif status == "broadcasted":
+            lat_str = f", broadcast: {latency_ms:.1f}ms" if latency_ms else ""
+            msg = f"{action_type.capitalize()} → {action_value} (📡 broadcasted{lat_str})"
+            colour = "green"
+        elif status == "observed":
+            lat_str = f" (propagation: {latency_ms:.1f}ms)" if latency_ms else ""
+            msg = f"Observed {action_type} → {action_value}{lat_str}"
+            colour = "blue"
+            icon = "👀"
         elif status.startswith("observed:"):
             lat_str = f" (propagation: {latency_ms:.1f}ms)" if latency_ms else ""
             msg = f"Observed: {status.split(':', 1)[1]} performed {action_type} → {action_value}{lat_str}"
             colour = "blue"
             icon = "👀"
+        elif status == "rendered":
+            lat_str = f" (rendered: {latency_ms:.1f}ms)" if latency_ms else ""
+            msg = f"Rendered: {action_type} → {action_value}{lat_str}"
+            colour = "green"
+            icon = "🖥️"
+        elif status in ("timed_out", "timed-out", "timeout"):
+            stage = extra.get("timeout_stage", "unknown")
+            msg = f"TIMEOUT: {action_type} → {action_value} at stage '{stage}'"
+            colour = "red"
+            icon = "⚠️"
+        elif status == "unsupported":
+            reason = extra.get("unsupported_reason", "unknown")
+            msg = f"UNSUPPORTED: {action_type} on this browser/OS. Reason: {reason}"
+            colour = "yellow"
+            icon = "🚫"
         else:
             msg = f"Action {action_type} failed: {action_value}"
             colour = "red"
@@ -122,7 +142,8 @@ class ActionLogger:
                 action_value=action_value,
                 status=status,
                 latency_ms=latency_ms,
-                fingerprint=fingerprint
+                fingerprint=fingerprint,
+                **extra
             )
 
     async def record_event(self, event_type, bot_id=None, name=None, email=None, **extra):

@@ -3,6 +3,7 @@
 BROWSER_FINGERPRINTS = {
     "chrome": {
         "name": "Chrome",
+        "engine": "Blink",
         "versions": ["120.0.0.0", "121.0.0.0", "122.0.0.0", "123.0.0.0", "124.0.0.0"],
         "user_agent_template": "Mozilla/5.0 ({os_details}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Safari/537.36",
         "webrtc_implementation": "Chrome WebRTC (m120+)",
@@ -14,6 +15,7 @@ BROWSER_FINGERPRINTS = {
     },
     "safari": {
         "name": "Safari",
+        "engine": "WebKit",
         "versions": ["16.4", "17.0", "17.2", "17.4", "17.5"],
         "user_agent_template": "Mozilla/5.0 ({os_details}) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{version} Safari/605.1.15",
         "webrtc_implementation": "WebKit WebRTC",
@@ -25,6 +27,7 @@ BROWSER_FINGERPRINTS = {
     },
     "firefox": {
         "name": "Firefox",
+        "engine": "Gecko",
         "versions": ["121.0", "122.0", "123.0", "124.0", "125.0"],
         "user_agent_template": "Mozilla/5.0 ({os_details}; rv:{version}) Gecko/20100101 Firefox/{version}",
         "webrtc_implementation": "Mozilla WebRTC (libwebrtc)",
@@ -36,6 +39,7 @@ BROWSER_FINGERPRINTS = {
     },
     "edge": {
         "name": "Edge",
+        "engine": "Blink",
         "versions": ["120.0.0.0", "121.0.0.0", "122.0.0.0", "123.0.0.0"],
         "user_agent_template": "Mozilla/5.0 ({os_details}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Safari/537.36 Edg/{version}",
         "webrtc_implementation": "Chrome WebRTC (m120+)",
@@ -47,6 +51,7 @@ BROWSER_FINGERPRINTS = {
     },
     "brave": {
         "name": "Brave",
+        "engine": "Blink",
         "versions": ["1.61.0", "1.62.0", "1.63.0", "1.64.0"],
         "user_agent_template": "Mozilla/5.0 ({os_details}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Brave/{version}",
         "webrtc_implementation": "Chrome WebRTC (Brave shield enabled)",
@@ -58,6 +63,7 @@ BROWSER_FINGERPRINTS = {
     },
     "opera": {
         "name": "Opera",
+        "engine": "Blink",
         "versions": ["106.0.0.0", "107.0.0.0", "108.0.0.0"],
         "user_agent_template": "Mozilla/5.0 ({os_details}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 OPR/{version}",
         "webrtc_implementation": "Chrome WebRTC",
@@ -69,6 +75,7 @@ BROWSER_FINGERPRINTS = {
     },
     "chrome_mobile": {
         "name": "Chrome Mobile",
+        "engine": "Blink",
         "versions": ["120.0.0.0", "121.0.0.0", "122.0.0.0"],
         "user_agent_template": "Mozilla/5.0 (Linux; Android {os_version}; {device_model}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Mobile Safari/537.36",
         "webrtc_implementation": "Chrome Mobile WebRTC",
@@ -80,6 +87,7 @@ BROWSER_FINGERPRINTS = {
     },
     "safari_mobile": {
         "name": "Safari Mobile",
+        "engine": "WebKit",
         "versions": ["16.4", "17.0", "17.2", "17.4"],
         "user_agent_template": "Mozilla/5.0 (iPhone; CPU iPhone OS {os_version_underscore} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{version} Mobile/15E148 Safari/605.1.15",
         "webrtc_implementation": "WebKit Mobile WebRTC",
@@ -91,6 +99,7 @@ BROWSER_FINGERPRINTS = {
     },
     "samsung": {
         "name": "Samsung Internet",
+        "engine": "Blink",
         "versions": ["22.0", "23.0", "24.0"],
         "user_agent_template": "Mozilla/5.0 (Linux; Android {os_version}; {device_model}) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/{version} Chrome/115.0.0.0 Mobile Safari/537.36",
         "webrtc_implementation": "Chromium-based Samsung WebRTC",
@@ -102,6 +111,7 @@ BROWSER_FINGERPRINTS = {
     },
     "firefox_mobile": {
         "name": "Firefox Mobile",
+        "engine": "Gecko",
         "versions": ["120.0", "121.0", "122.0"],
         "user_agent_template": "Mozilla/5.0 (Android {os_version}; Mobile; rv:{version}) Gecko/{version} Firefox/{version}",
         "webrtc_implementation": "Mozilla Mobile WebRTC",
@@ -113,6 +123,7 @@ BROWSER_FINGERPRINTS = {
     },
     "opera_mobile": {
         "name": "Opera Mobile",
+        "engine": "Blink",
         "versions": ["78.0", "79.0", "80.0"],
         "user_agent_template": "Mozilla/5.0 (Linux; Android {os_version}; {device_model}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Mobile Safari/537.36 OPR/{version}",
         "webrtc_implementation": "Chromium-based Opera Mobile WebRTC",

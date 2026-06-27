@@ -21,3 +21,17 @@ _report_data.json
 .DS_Store
 .env
 .env.local
+
+# SQLite Database
+konn3ct.db
+*.db
+
+# Generated load test session directories
+sessions/
+
+# Generated PDF reports
+*.pdf
+
+# IDE directories
+.vscode/
+.idea/

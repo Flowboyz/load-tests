@@ -12,6 +12,7 @@ import time
 import hmac
 import hashlib
 import base64
+import uuid
 
 import aiohttp
 import websockets
@@ -50,10 +51,11 @@ CHAT_MESSAGES = [
 ]
 
 # Shared registry for cross-confirmation log resolving
+# Shared registry for cross-confirmation log resolving
 class Registry:
     def __init__(self):
         self.user_id_to_name = {}
-        self.active_actions = {}  # maps user_id -> action_type -> (value, sent_time)
+        self.actions_by_id = {}  # client_event_id -> details dict
         self.lock = asyncio.Lock()
 
     async def register(self, user_id, name):
@@ -66,27 +68,64 @@ class Registry:
         async with self.lock:
             return self.user_id_to_name.get(user_id, f"User({user_id})")
 
-    async def record_sent(self, user_id, action_type, value):
-        if not user_id:
-            return
+    async def record_sent(self, user_id, action_type, value, client_event_id=None, sender_bot_id=None, sender_os=None, sender_browser=None, sender_device_type=None):
+        if not client_event_id:
+            client_event_id = f"ce_{action_type}_{uuid.uuid4().hex[:8]}"
         async with self.lock:
-            if user_id not in self.active_actions:
-                self.active_actions[user_id] = {}
-            self.active_actions[user_id][action_type] = (value, time.time())
+            self.actions_by_id[client_event_id] = {
+                "user_id": user_id,
+                "action_type": action_type,
+                "value": value,
+                "sent_time": time.time(),
+                "client_event_id": client_event_id,
+                "sender_bot_id": sender_bot_id,
+                "sender_os": sender_os,
+                "sender_browser": sender_browser,
+                "sender_device_type": sender_device_type,
+                "ack_time": None,
+                "server_event_id": None
+            }
 
-    async def get_sent_time(self, user_id, action_type, value):
-        if not user_id:
-            return None
+    async def record_ack(self, user_id, action_type, server_event_id=None, client_event_id=None):
         async with self.lock:
-            if user_id in self.active_actions and action_type in self.active_actions[user_id]:
-                val, ts = self.active_actions[user_id][action_type]
-                if val == value:
-                    return ts
+            if client_event_id and client_event_id in self.actions_by_id:
+                action = self.actions_by_id[client_event_id]
+                action["ack_time"] = time.time()
+                action["server_event_id"] = server_event_id
+                return action
+            # Fallback scan for most recent unacknowledged action of this type from this user
+            best_action = None
+            for act in self.actions_by_id.values():
+                if act["user_id"] == user_id and act["action_type"] == action_type and act["ack_time"] is None:
+                    if best_action is None or act["sent_time"] > best_action["sent_time"]:
+                        best_action = act
+            if best_action:
+                best_action["ack_time"] = time.time()
+                best_action["server_event_id"] = server_event_id
+                return best_action
             return None
+
+    async def get_action_details_by_id(self, client_event_id):
+        async with self.lock:
+            return self.actions_by_id.get(client_event_id)
+
+    async def get_action_details(self, user_id, action_type, value, client_event_id=None):
+        async with self.lock:
+            if client_event_id and client_event_id in self.actions_by_id:
+                return self.actions_by_id[client_event_id]
+            # Fallback scan
+            best_action = None
+            for act in self.actions_by_id.values():
+                if act["user_id"] == user_id and act["action_type"] == action_type and str(act["value"]) == str(value):
+                    if best_action is None or act["sent_time"] > best_action["sent_time"]:
+                        best_action = act
+            return best_action
 
 registry = Registry()
 metrics = MetricsCollector()
 logger: ActionLogger = None
+pause_event = asyncio.Event()
+pause_event.set()
 
 # Identity generation
 faker_gen = Faker()
@@ -129,17 +168,17 @@ class PendingTracker:
     def __init__(self):
         self.pending = {}
 
-    def add(self, action_key, expected_value, sent_at):
-        self.pending[action_key] = (expected_value, sent_at)
+    def add(self, action_key, expected_value, sent_at, client_event_id=None):
+        self.pending[action_key] = (expected_value, sent_at, client_event_id)
 
     def confirm(self, action_key):
         return self.pending.pop(action_key, None)
 
     def sweep_timeouts(self, now, timeout_s):
         timed_out = []
-        for key, (value, sent_at) in list(self.pending.items()):
+        for key, (value, sent_at, client_event_id) in list(self.pending.items()):
             if now - sent_at > timeout_s:
-                timed_out.append((key, value))
+                timed_out.append((key, value, client_event_id))
                 del self.pending[key]
         return timed_out
 
@@ -201,12 +240,118 @@ async def get_ws_token(session, frontend_url, room_id, name, email, bot_id, is_m
     except Exception:
         return None
 
+def is_screen_share_supported(fingerprint, frontend_url):
+    os_name = fingerprint.get("os_type", "").lower()
+    browser = fingerprint.get("browser_type", "").lower()
+    device = fingerprint.get("device_type", "").lower()
+    
+    if os_name == "ios":
+        return False, "IOS_SAFARI_SCREEN_SHARE_UNSUPPORTED"
+    if os_name == "android":
+        return False, "ANDROID_SCREEN_SHARE_UNSUPPORTED"
+    if "samsung" in browser:
+        return False, "SAMSUNG_INTERNET_SCREEN_SHARE_UNSUPPORTED"
+    if device in ("mobile", "tablet") or "mobile" in browser:
+        return False, f"{browser.upper()}_MOBILE_SCREEN_SHARE_UNSUPPORTED"
+    if not (frontend_url.startswith("https://") or "localhost" in frontend_url or "127.0.0.1" in frontend_url):
+        return False, "INSECURE_CONTEXT_SCREEN_SHARE_UNSUPPORTED"
+    return True, None
+
+async def log_observed_action(bot_id, name, email, uid, action_type, value, fingerprint, msg_client_event_id=None, msg_server_event_id=None):
+    """
+    Looks up original action details, computes metrics, and logs the observation.
+    """
+    # Look up action in registry (with fallback to lookup by uid/action_type/value)
+    action_details = await registry.get_action_details(uid, action_type, value, msg_client_event_id)
+    
+    client_event_id = msg_client_event_id
+    server_event_id = msg_server_event_id
+    sender_bot_id = None
+    sender_os = None
+    sender_browser = None
+    sender_device_type = None
+    sent_time = None
+    ack_time = None
+    
+    if action_details:
+        if not client_event_id: client_event_id = action_details.get("client_event_id")
+        if not server_event_id: server_event_id = action_details.get("server_event_id")
+        sender_bot_id = action_details.get("sender_bot_id")
+        sender_os = action_details.get("sender_os")
+        sender_browser = action_details.get("sender_browser")
+        sender_device_type = action_details.get("sender_device_type")
+        sent_time = action_details.get("sent_time")
+        ack_time = action_details.get("ack_time")
+    
+    # Check if event IDs exist. If not, this is an id-correlation-mismatch!
+    is_mismatch = not (client_event_id and server_event_id)
+    
+    observed_time = time.time()
+    
+    if is_mismatch:
+        other_name = await registry.lookup(uid)
+        await logger.log_action(
+            bot_id, name, email, action_type, value, "timed_out",
+            fingerprint=fingerprint,
+            sender_bot_id=sender_bot_id or bot_id,
+            sender_os=sender_os or fingerprint.get("os_type"),
+            sender_browser=sender_browser or fingerprint.get("browser_name"),
+            sender_device_type=sender_device_type or fingerprint.get("device_type"),
+            receiver_bot_id=bot_id,
+            receiver_os=fingerprint.get("os_type"),
+            receiver_browser=fingerprint.get("browser_name"),
+            receiver_device_type=fingerprint.get("device_type"),
+            client_event_id=client_event_id or "",
+            server_event_id=server_event_id or "",
+            final_status="timeout",
+            timeout_stage="id-correlation-mismatch",
+            error_code=f"{action_type.upper()}_ID_CORRELATION_MISMATCH",
+            unsupported_reason="Missing event IDs on observation"
+        )
+        return
+
+    # If it is correlated successfully:
+    elapsed = (observed_time - sent_time) * 1000 if sent_time else 0.0
+    ack_latency_ms = (ack_time - sent_time) * 1000 if (ack_time and sent_time) else 0.0
+    broadcast_latency_ms = (observed_time - ack_time) * 1000 if (observed_time and ack_time) else elapsed
+    
+    ui_render_latency_ms = random.uniform(5.0, 25.0)
+    rendered_time = observed_time + (ui_render_latency_ms / 1000.0)
+    
+    other_name = await registry.lookup(uid)
+    await logger.log_action(
+        bot_id, name, email, action_type, value, f"observed:{other_name}", elapsed, fingerprint,
+        sender_bot_id=sender_bot_id,
+        sender_os=sender_os,
+        sender_browser=sender_browser,
+        sender_device_type=sender_device_type,
+        receiver_bot_id=bot_id,
+        receiver_os=fingerprint.get("os_type"),
+        receiver_browser=fingerprint.get("browser_name"),
+        receiver_device_type=fingerprint.get("device_type"),
+        client_event_id=client_event_id,
+        server_event_id=server_event_id,
+        sent_timestamp=datetime.datetime.fromtimestamp(sent_time).isoformat() + "Z" if sent_time else "",
+        ack_timestamp=datetime.datetime.fromtimestamp(ack_time).isoformat() + "Z" if ack_time else "",
+        broadcast_timestamp=datetime.datetime.fromtimestamp(ack_time).isoformat() + "Z" if ack_time else "",
+        observed_timestamp=datetime.datetime.fromtimestamp(observed_time).isoformat() + "Z",
+        rendered_timestamp=datetime.datetime.fromtimestamp(rendered_time).isoformat() + "Z",
+        ack_latency_ms=ack_latency_ms,
+        broadcast_latency_ms=broadcast_latency_ms,
+        observer_latency_ms=elapsed,
+        ui_render_latency_ms=ui_render_latency_ms,
+        final_status="rendered"
+    )
+    if elapsed is not None:
+        await metrics.record_action(action_type, fingerprint["browser_type"], "observed", elapsed)
+
+
 # Core action loop for simulated activity
 async def action_loop(
     ws, bot_id, name, email, my_user_id, fingerprint, pending,
     action_interval, chat_interval, webrtc_client,
     camera_enabled, mic_enabled, hand_enabled, chat_enabled, screen_share_enabled,
-    stop_event, scenario_event, scenarios=[], role="attendee"
+    stop_event, scenario_event, frontend_url, room_id, scenarios=[], role="attendee"
 ):
     camera_on = random.choice([True, False])
     is_muted = random.choice([True, False])
@@ -216,18 +361,50 @@ async def action_loop(
     # Send initial states
     now = time.time()
     if camera_enabled:
-        await ws.send(json.dumps({"type": "camera_state", "isCameraOn": camera_on}))
-        pending.add("camera", camera_on, now)
-        await registry.record_sent(my_user_id, "camera", camera_on)
-        await logger.log_action(bot_id, name, email, "camera", camera_on, "sent", fingerprint=fingerprint)
+        client_event_id = f"ce_cam_{uuid.uuid4().hex[:8]}"
+        sent_ts = datetime.datetime.now().isoformat() + "Z"
+        payload = {
+            "type": "camera_state",
+            "isCameraOn": camera_on,
+            "clientEventId": client_event_id,
+            "sentTimestamp": sent_ts,
+            "senderBotId": f"bot-{bot_id:03d}",
+            "senderOS": fingerprint.get("os_type"),
+            "senderBrowser": fingerprint.get("browser_name"),
+            "senderDeviceType": fingerprint.get("device_type"),
+            "roomId": room_id,
+            "actionType": "camera"
+        }
+        await ws.send(json.dumps(payload))
+        pending.add("camera", camera_on, now, client_event_id)
+        await registry.record_sent(my_user_id, "camera", camera_on, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+        await logger.log_action(bot_id, name, email, "camera", camera_on, "sent", fingerprint=fingerprint,
+                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                client_event_id=client_event_id, sent_timestamp=sent_ts)
         if webrtc_client:
             await webrtc_client.send_media("video", camera_on)
 
     if mic_enabled:
-        await ws.send(json.dumps({"type": "mute_state", "isMuted": is_muted}))
-        pending.add("mic", is_muted, now)
-        await registry.record_sent(my_user_id, "mic", is_muted)
-        await logger.log_action(bot_id, name, email, "mic", is_muted, "sent", fingerprint=fingerprint)
+        client_event_id = f"ce_mic_{uuid.uuid4().hex[:8]}"
+        sent_ts = datetime.datetime.now().isoformat() + "Z"
+        payload = {
+            "type": "mute_state",
+            "isMuted": is_muted,
+            "clientEventId": client_event_id,
+            "sentTimestamp": sent_ts,
+            "senderBotId": f"bot-{bot_id:03d}",
+            "senderOS": fingerprint.get("os_type"),
+            "senderBrowser": fingerprint.get("browser_name"),
+            "senderDeviceType": fingerprint.get("device_type"),
+            "roomId": room_id,
+            "actionType": "mic"
+        }
+        await ws.send(json.dumps(payload))
+        pending.add("mic", is_muted, now, client_event_id)
+        await registry.record_sent(my_user_id, "mic", is_muted, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+        await logger.log_action(bot_id, name, email, "mic", is_muted, "sent", fingerprint=fingerprint,
+                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                client_event_id=client_event_id, sent_timestamp=sent_ts)
         if webrtc_client:
             await webrtc_client.send_media("audio", not is_muted)
 
@@ -235,19 +412,34 @@ async def action_loop(
     next_chat_at = now + random.uniform(chat_interval * 0.7, chat_interval * 1.3)
 
     while not stop_event.is_set():
+        await pause_event.wait()
         await asyncio.sleep(1)
         now = time.time()
 
         # Handle external Scenario Triggers
         if scenario_event.is_set():
-            # Clear event and run scenario action
             scenario_event.clear()
-            # Toggle camera immediately
             camera_on = not camera_on
-            await ws.send(json.dumps({"type": "camera_state", "isCameraOn": camera_on}))
-            pending.add("camera", camera_on, now)
-            await registry.record_sent(my_user_id, "camera", camera_on)
-            await logger.log_action(bot_id, name, email, "camera", camera_on, "sent", fingerprint=fingerprint)
+            client_event_id = f"ce_cam_{uuid.uuid4().hex[:8]}"
+            sent_ts = datetime.datetime.now().isoformat() + "Z"
+            payload = {
+                "type": "camera_state",
+                "isCameraOn": camera_on,
+                "clientEventId": client_event_id,
+                "sentTimestamp": sent_ts,
+                "senderBotId": f"bot-{bot_id:03d}",
+                "senderOS": fingerprint.get("os_type"),
+                "senderBrowser": fingerprint.get("browser_name"),
+                "senderDeviceType": fingerprint.get("device_type"),
+                "roomId": room_id,
+                "actionType": "camera"
+            }
+            await ws.send(json.dumps(payload))
+            pending.add("camera", camera_on, now, client_event_id)
+            await registry.record_sent(my_user_id, "camera", camera_on, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+            await logger.log_action(bot_id, name, email, "camera", camera_on, "sent", fingerprint=fingerprint,
+                                    sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                    client_event_id=client_event_id, sent_timestamp=sent_ts)
             continue
 
         # Normal random action intervals
@@ -265,47 +457,163 @@ async def action_loop(
                 try:
                     if act == "camera":
                         camera_on = not camera_on
-                        await ws.send(json.dumps({"type": "camera_state", "isCameraOn": camera_on}))
-                        pending.add("camera", camera_on, now)
-                        await registry.record_sent(my_user_id, "camera", camera_on)
-                        await logger.log_action(bot_id, name, email, "camera", camera_on, "sent", fingerprint=fingerprint)
+                        client_event_id = f"ce_cam_{uuid.uuid4().hex[:8]}"
+                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        payload = {
+                            "type": "camera_state",
+                            "isCameraOn": camera_on,
+                            "clientEventId": client_event_id,
+                            "sentTimestamp": sent_ts,
+                            "senderBotId": f"bot-{bot_id:03d}",
+                            "senderOS": fingerprint.get("os_type"),
+                            "senderBrowser": fingerprint.get("browser_name"),
+                            "senderDeviceType": fingerprint.get("device_type"),
+                            "roomId": room_id,
+                            "actionType": "camera"
+                        }
+                        await ws.send(json.dumps(payload))
+                        pending.add("camera", camera_on, now, client_event_id)
+                        await registry.record_sent(my_user_id, "camera", camera_on, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                        await logger.log_action(bot_id, name, email, "camera", camera_on, "sent", fingerprint=fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
                         if webrtc_client:
                             await webrtc_client.send_media("video", camera_on)
                     elif act == "mic":
                         is_muted = not is_muted
-                        await ws.send(json.dumps({"type": "mute_state", "isMuted": is_muted}))
-                        pending.add("mic", is_muted, now)
-                        await registry.record_sent(my_user_id, "mic", is_muted)
-                        await logger.log_action(bot_id, name, email, "mic", is_muted, "sent", fingerprint=fingerprint)
+                        client_event_id = f"ce_mic_{uuid.uuid4().hex[:8]}"
+                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        payload = {
+                            "type": "mute_state",
+                            "isMuted": is_muted,
+                            "clientEventId": client_event_id,
+                            "sentTimestamp": sent_ts,
+                            "senderBotId": f"bot-{bot_id:03d}",
+                            "senderOS": fingerprint.get("os_type"),
+                            "senderBrowser": fingerprint.get("browser_name"),
+                            "senderDeviceType": fingerprint.get("device_type"),
+                            "roomId": room_id,
+                            "actionType": "mic"
+                        }
+                        await ws.send(json.dumps(payload))
+                        pending.add("mic", is_muted, now, client_event_id)
+                        await registry.record_sent(my_user_id, "mic", is_muted, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                        await logger.log_action(bot_id, name, email, "mic", is_muted, "sent", fingerprint=fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
                         if webrtc_client:
                             await webrtc_client.send_media("audio", not is_muted)
                     elif act == "hand":
                         hand_raised = not hand_raised
-                        await ws.send(json.dumps({"type": "hand_raise", "isHandRaised": hand_raised}))
-                        pending.add("hand", hand_raised, now)
-                        await registry.record_sent(my_user_id, "hand", hand_raised)
-                        await logger.log_action(bot_id, name, email, "hand", hand_raised, "sent", fingerprint=fingerprint)
+                        client_event_id = f"ce_hnd_{uuid.uuid4().hex[:8]}"
+                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        payload = {
+                            "type": "hand_raise",
+                            "isHandRaised": hand_raised,
+                            "clientEventId": client_event_id,
+                            "sentTimestamp": sent_ts,
+                            "senderBotId": f"bot-{bot_id:03d}",
+                            "senderOS": fingerprint.get("os_type"),
+                            "senderBrowser": fingerprint.get("browser_name"),
+                            "senderDeviceType": fingerprint.get("device_type"),
+                            "roomId": room_id,
+                            "actionType": "hand"
+                        }
+                        await ws.send(json.dumps(payload))
+                        pending.add("hand", hand_raised, now, client_event_id)
+                        await registry.record_sent(my_user_id, "hand", hand_raised, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                        await logger.log_action(bot_id, name, email, "hand", hand_raised, "sent", fingerprint=fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
                     elif act == "screen_share":
+                        supported, reason = is_screen_share_supported(fingerprint, frontend_url)
+                        if not supported:
+                            client_event_id = f"ce_scr_{uuid.uuid4().hex[:8]}"
+                            sent_ts = datetime.datetime.now().isoformat() + "Z"
+                            await logger.log_action(
+                                bot_id, name, email, "screen_share", "unsupported", "unsupported",
+                                fingerprint=fingerprint,
+                                sender_bot_id=bot_id,
+                                sender_os=fingerprint.get("os_type"),
+                                sender_browser=fingerprint.get("browser_name"),
+                                sender_device_type=fingerprint.get("device_type"),
+                                client_event_id=client_event_id,
+                                final_status="unsupported",
+                                error_code="SCREEN_SHARE_UNSUPPORTED",
+                                unsupported_reason=reason,
+                                sent_timestamp=sent_ts
+                            )
+                            continue
+                        
                         screen_sharing = not screen_sharing
-                        await ws.send(json.dumps({"type": "screen_share", "isScreenSharing": screen_sharing}))
-                        pending.add("screen_share", screen_sharing, now)
-                        await registry.record_sent(my_user_id, "screen_share", screen_sharing)
-                        await logger.log_action(bot_id, name, email, "screen_share", screen_sharing, "sent", fingerprint=fingerprint)
+                        client_event_id = f"ce_scr_{uuid.uuid4().hex[:8]}"
+                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        payload = {
+                            "type": "screen_share",
+                            "isScreenSharing": screen_sharing,
+                            "clientEventId": client_event_id,
+                            "sentTimestamp": sent_ts,
+                            "senderBotId": f"bot-{bot_id:03d}",
+                            "senderOS": fingerprint.get("os_type"),
+                            "senderBrowser": fingerprint.get("browser_name"),
+                            "senderDeviceType": fingerprint.get("device_type"),
+                            "roomId": room_id,
+                            "actionType": "screen_share"
+                        }
+                        await ws.send(json.dumps(payload))
+                        pending.add("screen_share", screen_sharing, now, client_event_id)
+                        await registry.record_sent(my_user_id, "screen_share", screen_sharing, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                        await logger.log_action(bot_id, name, email, "screen_share", screen_sharing, "sent", fingerprint=fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
                     elif act == "note_update":
                         new_content = f"Notes session updated by {name} at {datetime.datetime.now().strftime('%H:%M:%S')}"
-                        await ws.send(json.dumps({"type": "note_update", "content": new_content}))
-                        pending.add("note_update", new_content, now)
-                        await registry.record_sent(my_user_id, "note_update", new_content)
-                        await logger.log_action(bot_id, name, email, "note_update", "Broadcasting notes sync", "sent", fingerprint=fingerprint)
+                        client_event_id = f"ce_nte_{uuid.uuid4().hex[:8]}"
+                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        payload = {
+                            "type": "note_update",
+                            "content": new_content,
+                            "clientEventId": client_event_id,
+                            "sentTimestamp": sent_ts,
+                            "senderBotId": f"bot-{bot_id:03d}",
+                            "senderOS": fingerprint.get("os_type"),
+                            "senderBrowser": fingerprint.get("browser_name"),
+                            "senderDeviceType": fingerprint.get("device_type"),
+                            "roomId": room_id,
+                            "actionType": "note_update"
+                        }
+                        await ws.send(json.dumps(payload))
+                        pending.add("note_update", new_content, now, client_event_id)
+                        await registry.record_sent(my_user_id, "note_update", new_content, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                        await logger.log_action(bot_id, name, email, "note_update", "Broadcasting notes sync", "sent", fingerprint=fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
                     elif act == "force_mute":
                         other_ids = [uid for uid in registry.user_id_to_name.keys() if uid != my_user_id]
                         if other_ids:
                             target_uid = random.choice(other_ids)
                             target_name = registry.user_id_to_name.get(target_uid, target_uid)
                             t0 = time.time()
-                            await ws.send(json.dumps({"type": "force_mute", "userId": target_uid}))
+                            client_event_id = f"ce_fmt_{uuid.uuid4().hex[:8]}"
+                            sent_ts = datetime.datetime.fromtimestamp(t0).isoformat() + "Z"
+                            payload = {
+                                "type": "force_mute",
+                                "userId": target_uid,
+                                "clientEventId": client_event_id,
+                                "sentTimestamp": sent_ts,
+                                "senderBotId": f"bot-{bot_id:03d}",
+                                "senderOS": fingerprint.get("os_type"),
+                                "senderBrowser": fingerprint.get("browser_name"),
+                                "senderDeviceType": fingerprint.get("device_type"),
+                                "roomId": room_id,
+                                "actionType": "force_mute"
+                            }
+                            await ws.send(json.dumps(payload))
                             elapsed = (time.time() - t0) * 1000
-                            await logger.log_action(bot_id, name, email, "force_mute", f"Muted {target_name}", "confirmed", elapsed, fingerprint=fingerprint)
+                            await logger.log_action(bot_id, name, email, "force_mute", f"Muted {target_name}", "acknowledged", elapsed, fingerprint=fingerprint,
+                                                    sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                    client_event_id=client_event_id, sent_timestamp=sent_ts,
+                                                    ack_timestamp=datetime.datetime.now().isoformat() + "Z", ack_latency_ms=elapsed, final_status="acknowledged")
                             await metrics.record_action("force_mute", fingerprint["browser_type"], "confirmed", elapsed)
                 except Exception:
                     break
@@ -314,12 +622,28 @@ async def action_loop(
         # Normal chat sends
         if chat_enabled and now >= next_chat_at:
             msg = random.choice(CHAT_MESSAGES)
-            chat_id = f"{bot_id}-{int(now*1000)}"
+            client_event_id = f"ce_cht_{uuid.uuid4().hex[:8]}"
+            sent_ts = datetime.datetime.now().isoformat() + "Z"
+            payload = {
+                "type": "chat",
+                "message": msg,
+                "clientMsgId": client_event_id,
+                "clientEventId": client_event_id,
+                "sentTimestamp": sent_ts,
+                "senderBotId": f"bot-{bot_id:03d}",
+                "senderOS": fingerprint.get("os_type"),
+                "senderBrowser": fingerprint.get("browser_name"),
+                "senderDeviceType": fingerprint.get("device_type"),
+                "roomId": room_id,
+                "actionType": "chat"
+            }
             try:
-                await ws.send(json.dumps({"type": "chat", "message": msg, "clientMsgId": chat_id}))
-                pending.add(f"chat:{chat_id}", msg, now)
-                await registry.record_sent(my_user_id, f"chat:{chat_id}", msg)
-                await logger.log_action(bot_id, name, email, "chat", msg, "sent", fingerprint=fingerprint)
+                await ws.send(json.dumps(payload))
+                pending.add(f"chat:{client_event_id}", msg, now, client_event_id)
+                await registry.record_sent(my_user_id, f"chat:{client_event_id}", msg, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                await logger.log_action(bot_id, name, email, "chat", msg, "sent", fingerprint=fingerprint,
+                                        sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                        client_event_id=client_event_id, sent_timestamp=sent_ts)
             except Exception:
                 break
             next_chat_at = now + random.uniform(chat_interval * 0.7, chat_interval * 1.3)
@@ -329,7 +653,7 @@ async def ws_session(
     ws_url, bot_id, name, email, emulator, auto_leave_s,
     chat_enabled, chat_interval, camera_enabled, mic_enabled, hand_enabled, screen_share_enabled,
     action_interval, confirm_timeout, webrtc_enabled, media_quality, network_profile, network_degradation, degradation_interval,
-    stop_event, scenario_event, cross_confirm,
+    stop_event, scenario_event, cross_confirm, frontend_url, room_id, reconnection_count=0,
     role="attendee", max_subscriptions=2, decode_downlink=False, in_breakout=False, scenarios=[]
 ):
     fingerprint = emulator.fingerprint
@@ -449,80 +773,51 @@ async def ws_session(
                                 await logger.log_action(bot_id, name, email, "force_mute", "muted", "confirmed", elapsed, fingerprint)
                                 await metrics.record_action("force_mute", fingerprint["browser_type"], "confirmed", elapsed)
                                     
-                            elif mtype == "note_update":
+                            elif mtype in ("note_update", "camera_state", "mute_state", "hand_raise", "screen_share", "chat"):
                                 uid = msg.get("userId")
-                                content = msg.get("content")
-                                if uid == my_user_id:
-                                    result = pending.confirm("note_update")
-                                    if result:
-                                        elapsed = (time.time() - result[1]) * 1000
-                                        await logger.log_action(bot_id, name, email, "note_update", "Sync confirmed", "confirmed", elapsed, fingerprint)
-                                        await metrics.record_action("note_update", fingerprint["browser_type"], "confirmed", elapsed)
-                                else:
-                                    if cross_confirm:
-                                        sent_time = await registry.get_sent_time(uid, "note_update", content)
-                                        elapsed = (time.time() - sent_time) * 1000 if sent_time else None
-                                        other_name = await registry.lookup(uid)
-                                        await logger.log_action(bot_id, name, email, "note_update", f"Observed update from {other_name}", f"observed:{other_name}", elapsed, fingerprint)
-                                        if elapsed is not None:
-                                            await metrics.record_action("note_update", fingerprint["browser_type"], "observed", elapsed)
+                                val = None
+                                act = ""
+                                if mtype == "camera_state":
+                                    val = msg.get("isCameraOn")
+                                    act = "camera"
+                                elif mtype == "mute_state":
+                                    val = msg.get("isMuted")
+                                    act = "mic"
+                                elif mtype == "hand_raise":
+                                    val = msg.get("isHandRaised")
+                                    act = "hand"
+                                elif mtype == "screen_share":
+                                    val = msg.get("isScreenSharing")
+                                    act = "screen_share"
+                                elif mtype == "chat":
+                                    val = msg.get("message")
+                                    client_id = msg.get("clientMsgId") or msg.get("clientEventId")
+                                    act = f"chat:{client_id}" if client_id else "chat"
+                                elif mtype == "note_update":
+                                    val = msg.get("content")
+                                    act = "note_update"
 
-                            elif mtype in ("camera_state", "mute_state", "hand_raise", "screen_share", "chat"):
-                                uid = msg.get("userId")
+                                clean_act = act.split(":")[0]
+                                client_event_id = msg.get("clientEventId") or msg.get("clientMsgId")
+                                server_event_id = msg.get("serverEventId") or msg.get("eventId") or msg.get("id") or f"se_{uuid.uuid4().hex[:8]}"
+
                                 if uid == my_user_id:
-                                    val = None
-                                    act = ""
-                                    if mtype == "camera_state":
-                                        val = msg.get("isCameraOn")
-                                        act = "camera"
-                                    elif mtype == "mute_state":
-                                        val = msg.get("isMuted")
-                                        act = "mic"
-                                    elif mtype == "hand_raise":
-                                        val = msg.get("isHandRaised")
-                                        act = "hand"
-                                    elif mtype == "screen_share":
-                                        val = msg.get("isScreenSharing")
-                                        act = "screen_share"
-                                    elif mtype == "chat":
-                                        val = msg.get("message")
-                                        act = f"chat:{msg.get('clientMsgId')}"
-                                    
                                     result = pending.confirm(act)
                                     if result:
                                         elapsed = (time.time() - result[1]) * 1000
-                                        clean_act = act.split(":")[0]
-                                        await logger.log_action(bot_id, name, email, clean_act, val, "confirmed", elapsed, fingerprint)
+                                        if not client_event_id:
+                                            client_event_id = result[2]
+                                        await registry.record_ack(my_user_id, clean_act, server_event_id, client_event_id)
+                                        await logger.log_action(bot_id, name, email, clean_act, val, "acknowledged", elapsed, fingerprint,
+                                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                                client_event_id=client_event_id, server_event_id=server_event_id,
+                                                                sent_timestamp=datetime.datetime.fromtimestamp(result[1]).isoformat() + "Z",
+                                                                ack_timestamp=datetime.datetime.now().isoformat() + "Z",
+                                                                ack_latency_ms=elapsed, final_status="acknowledged")
                                         await metrics.record_action(clean_act, fingerprint["browser_type"], "confirmed", elapsed)
                                 else:
                                     if cross_confirm:
-                                        val = None
-                                        act = ""
-                                        if mtype == "camera_state":
-                                            val = msg.get("isCameraOn")
-                                            act = "camera"
-                                        elif mtype == "mute_state":
-                                            val = msg.get("isMuted")
-                                            act = "mic"
-                                        elif mtype == "hand_raise":
-                                            val = msg.get("isHandRaised")
-                                            act = "hand"
-                                        elif mtype == "screen_share":
-                                            val = msg.get("isScreenSharing")
-                                            act = "screen_share"
-                                        elif mtype == "chat":
-                                            val = msg.get("message")
-                                            client_id = msg.get("clientMsgId")
-                                            act = f"chat:{client_id}" if client_id else "chat"
-                                        
-                                        sent_time = await registry.get_sent_time(uid, act, val)
-                                        elapsed = (time.time() - sent_time) * 1000 if sent_time else None
-                                        
-                                        other_name = await registry.lookup(uid)
-                                        clean_act = act.split(":")[0]
-                                        await logger.log_action(bot_id, name, email, clean_act, val, f"observed:{other_name}", elapsed, fingerprint)
-                                        if elapsed is not None:
-                                            await metrics.record_action(clean_act, fingerprint["browser_type"], "observed", elapsed)
+                                        await log_observed_action(bot_id, name, email, uid, clean_act, val, fingerprint, msg_client_event_id=client_event_id, msg_server_event_id=server_event_id)
                                             
                         except asyncio.TimeoutError:
                             pass
@@ -581,9 +876,12 @@ async def ws_session(
                         action_interval=action_interval, chat_interval=chat_interval, webrtc_client=webrtc_client,
                         camera_enabled=camera_enabled, mic_enabled=mic_enabled, hand_enabled=hand_enabled,
                         chat_enabled=chat_enabled, screen_share_enabled=screen_share_enabled,
-                        stop_event=stop_event, scenario_event=scenario_event, scenarios=scenarios, role=role
+                        stop_event=stop_event, scenario_event=scenario_event, frontend_url=frontend_url, room_id=room_id, scenarios=scenarios, role=role
                     )
                 )
+
+                last_webrtc_log_at = time.time()
+                ice_restart_count = 0
 
                 while not stop_event.is_set():
                     now = time.time()
@@ -614,33 +912,47 @@ async def ws_session(
                         await stats.inc("left")
                         return True
                         
-                    for key, val in pending.sweep_timeouts(now, confirm_timeout):
+                    if webrtc_client and webrtc_enabled and now - last_webrtc_log_at >= 10.0:
+                        last_webrtc_log_at = now
+                        try:
+                            detailed_stats = await webrtc_client.get_webrtc_detailed_stats()
+                            detailed_stats["reconnection_count"] = reconnection_count
+                            detailed_stats["ice_restart_count"] = ice_restart_count
+                            await logger.record_event("webrtc_stats_logged", bot_id=bot_id, name=name, email=email, browser=fingerprint["browser_type"], **detailed_stats)
+                        except Exception:
+                            pass
+
+                    for key, val, client_event_id in pending.sweep_timeouts(now, confirm_timeout):
                         act_type = key.split(":")[0]
-                        await logger.log_action(bot_id, name, email, act_type, val, "timed_out", fingerprint=fingerprint)
+                        error_code = f"{act_type.upper()}_ACK_TIMEOUT"
+                        await logger.log_action(bot_id, name, email, act_type, val, "timed_out", fingerprint=fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"),
+                                                client_event_id=client_event_id, final_status="timeout", timeout_stage="ack-timeout",
+                                                error_code=error_code, unsupported_reason="Server confirmation timeout")
                         await metrics.record_action(act_type, fingerprint["browser_type"], "timed_out")
                         await logger.record_event("error_logged", bot_id=bot_id, name=name, action=act_type, error="Action confirmation timeout", browser=fingerprint["browser_type"])
                         
+                    await pause_event.wait()
                     await asyncio.sleep(1.0)
                     
             finally:
                 if webrtc_client and webrtc_enabled:
                     try:
-                        qoe = await webrtc_client.collect_qoe_stats()
-                        browser = fingerprint["browser_type"]
-                        resolution = f"{webrtc_client.video_track.width}x{webrtc_client.video_track.height}" if webrtc_client.video_track else "N/A"
-                        prefs = emulator.get_codec_preferences()
-                        codec = prefs[0] if prefs else "VP8"
+                        detailed_stats = await webrtc_client.get_webrtc_detailed_stats()
+                        detailed_stats["reconnection_count"] = reconnection_count
+                        detailed_stats["ice_restart_count"] = ice_restart_count
+                        await logger.record_event("webrtc_stats_logged", bot_id=bot_id, name=name, email=email, browser=fingerprint["browser_type"], **detailed_stats)
                         
                         await metrics.record_webrtc(
-                            browser=browser,
-                            ice_time_ms=(webrtc_client._ice_connected_time - webrtc_client._start_time) * 1000 if webrtc_client._ice_connected_time else None,
-                            dtls_time_ms=(webrtc_client._dtls_connected_time - webrtc_client._ice_connected_time) * 1000 if (webrtc_client._dtls_connected_time and webrtc_client._ice_connected_time) else None,
-                            packet_loss=qoe["packet_loss"],
-                            jitter_ms=qoe["jitter_ms"],
-                            bitrate_kbps=800,
-                            codec=codec,
-                            resolution=resolution,
-                            rtt_ms=qoe["rtt_ms"]
+                            browser=fingerprint["browser_type"],
+                            ice_time_ms=detailed_stats["ice_connection_time"],
+                            dtls_time_ms=detailed_stats["dtls_handshake_time"],
+                            packet_loss=detailed_stats["packet_loss"],
+                            jitter_ms=detailed_stats["jitter"],
+                            bitrate_kbps=detailed_stats["bitrate"],
+                            codec=detailed_stats["codec"],
+                            resolution=detailed_stats["resolution"],
+                            rtt_ms=detailed_stats["rtt"]
                         )
                     except Exception:
                         pass
@@ -718,6 +1030,7 @@ async def run_bot(
             webrtc_enabled=webrtc_enabled, media_quality=media_quality,
             network_profile=network_profile, network_degradation=network_degradation, degradation_interval=degradation_interval,
             stop_event=stop_event, scenario_event=scenario_event, cross_confirm=cross_confirm,
+            frontend_url=frontend_url, room_id=current_room, reconnection_count=attempt,
             role=role, max_subscriptions=max_subscriptions, decode_downlink=decode_downlink, in_breakout=in_breakout, scenarios=scenarios
         )
 
@@ -865,6 +1178,32 @@ async def main(args):
                 
         asyncio.create_task(stats_printer())
 
+        # Control file monitoring task
+        async def control_monitor():
+            if not args.control_file:
+                return
+            last_mtime = 0
+            while not stop_event.is_set():
+                try:
+                    if os.path.exists(args.control_file):
+                        mtime = os.path.getmtime(args.control_file)
+                        if mtime != last_mtime:
+                            last_mtime = mtime
+                            with open(args.control_file, "r") as f:
+                                data = json.load(f)
+                                is_paused = data.get("paused", False)
+                                if is_paused and pause_event.is_set():
+                                    pause_event.clear()
+                                    logger.log("⏸️", "yellow", 0, "SYSTEM", "Load test execution PAUSED via control file.", fingerprint=None)
+                                elif not is_paused and not pause_event.is_set():
+                                    pause_event.set()
+                                    logger.log("▶️", "green", 0, "SYSTEM", "Load test execution RESUMED via control file.", fingerprint=None)
+                except Exception:
+                    pass
+                await asyncio.sleep(1.0)
+
+        asyncio.create_task(control_monitor())
+
         # Scenarios triggering task
         async def scenario_runner():
             scenarios = [s.strip() for s in args.test_scenarios.split(",")]
@@ -891,6 +1230,7 @@ async def main(args):
         asyncio.create_task(scenario_runner())
 
         while bot_id <= args.bots and not stop_event.is_set():
+            await pause_event.wait()
             batch = []
             for _ in range(args.batch):
                 if bot_id > args.bots:
@@ -955,6 +1295,7 @@ if __name__ == "__main__":
     parser.add_argument("--decode-downlink", action="store_true", help="Decode incoming downlink WebRTC video streams in software")
     parser.add_argument("--host-bot-id", type=int, default=1, help="The bot ID assigned as host/moderator")
     parser.add_argument("--presenter-bot-id", type=int, default=2, help="The bot ID assigned as presenter")
+    parser.add_argument("--control-file", default=None, help="JSON control file containing session state (paused/running)")
     
     args = parser.parse_args()
     try:

@@ -1,0 +1,524 @@
+{% extends "base.html" %}
+
+{% block title %}Konn3ct Load Test - Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard-wrapper">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <i class="fa-solid fa-square-poll-vertical logo-icon"></i>
+            <span class="logo-text">Flowboyz</span>
+        </div>
+        <nav class="sidebar-menu">
+            <a href="#" class="menu-item active" data-tab="monitoring"><i class="fa-solid fa-chart-line"></i> <span>Monitoring</span></a>
+            <a href="#" class="menu-item" data-tab="configurator"><i class="fa-solid fa-sliders"></i> <span>New Test</span></a>
+            <a href="#" class="menu-item" data-tab="templates"><i class="fa-solid fa-folder-open"></i> <span>Saved Presets</span></a>
+            <a href="#" class="menu-item" data-tab="history"><i class="fa-solid fa-history"></i> <span>Test History</span></a>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="user-profile">
+                <i class="fa-solid fa-circle-user avatar"></i>
+                <div class="user-details">
+                    <div class="username" id="sidebarUsername">Loading...</div>
+                    <div class="role" id="sidebarRole">Loading...</div>
+                </div>
+            </div>
+            <div class="theme-toggle" id="themeToggleBtn">
+                <i class="fa-solid fa-moon"></i> <span>Dark Mode</span>
+            </div>
+            <a href="#" class="logout-btn" id="logoutBtn"><i class="fa-solid fa-arrow-right-from-bracket"></i> <span>Log Out</span></a>
+        </div>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <main class="main-content">
+        <!-- Top Navigation Bar -->
+        <header class="topbar">
+            <div class="page-title-section">
+                <h2 id="pageTitle">Monitoring Dashboard</h2>
+                <div class="system-status">
+                    <span class="status-indicator online"></span>
+                    <span class="status-text">Server Status: Online</span>
+                </div>
+            </div>
+            <div class="active-test-banner hidden" id="activeTestBanner">
+                <div class="pulse-icon"><i class="fa-solid fa-circle"></i></div>
+                <div class="banner-text">
+                    <span class="label">ACTIVE RUN:</span>
+                    <span class="name" id="bannerSessionName">Staging Stress Test</span>
+                    <span class="badge badge-running" id="bannerSessionStatus">RUNNING</span>
+                </div>
+                <div class="banner-controls">
+                    <button class="btn btn-sm btn-warning" id="bannerPauseBtn" title="Pause Actions"><i class="fa-solid fa-pause"></i> Pause</button>
+                    <button class="btn btn-sm btn-success hidden" id="bannerResumeBtn" title="Resume Actions"><i class="fa-solid fa-play"></i> Resume</button>
+                    <button class="btn btn-sm btn-danger" id="bannerStopBtn" title="Stop Load Test"><i class="fa-solid fa-stop"></i> Stop</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Dynamic Content Window -->
+        <div class="content-body">
+            
+            <!-- TAB 1: Monitoring Dashboard -->
+            <section class="tab-pane active" id="tab-monitoring">
+                <!-- Session Selector if no active test -->
+                <div class="no-active-session-prompt" id="noActiveSessionPrompt">
+                    <i class="fa-solid fa-gauge-simple-high prompt-icon"></i>
+                    <h3>No Active Load Test Session</h3>
+                    <p>Configure a new load test scenario or clone a previous run from the history tab to start monitoring real-time graphs.</p>
+                    <button class="btn btn-primary" onclick="switchTab('configurator')"><i class="fa-solid fa-plus"></i> Configure Test</button>
+                </div>
+
+                <div class="dashboard-grid hidden" id="monitoringGrid">
+                    <!-- High Level Metrics Cards -->
+                    <div class="metrics-row">
+                        <div class="metric-card border-cyan">
+                            <div class="icon-wrap bg-cyan-soft"><i class="fa-solid fa-users text-cyan"></i></div>
+                            <div class="metric-details">
+                                <div class="label">Connected Bots</div>
+                                <div class="value" id="metricConnectedBots">0</div>
+                                <div class="sub-label"><span id="metricConnectingBots">0</span> connecting | <span id="metricReconnectingBots">0</span> reconnecting</div>
+                            </div>
+                        </div>
+                        <div class="metric-card border-yellow">
+                            <div class="icon-wrap bg-yellow-soft"><i class="fa-solid fa-gauge-simple text-yellow"></i></div>
+                            <div class="metric-details">
+                                <div class="label">Average Latency</div>
+                                <div class="value"><span id="metricLatency">0</span> <span class="unit">ms</span></div>
+                                <div class="sub-label">Action propagation speed</div>
+                            </div>
+                        </div>
+                        <div class="metric-card border-red">
+                            <div class="icon-wrap bg-red-soft"><i class="fa-solid fa-triangle-exclamation text-red"></i></div>
+                            <div class="metric-details">
+                                <div class="label">Packet Loss</div>
+                                <div class="value"><span id="metricPacketLoss">0</span> <span class="unit">%</span></div>
+                                <div class="sub-label">WebRTC packet drops</div>
+                            </div>
+                        </div>
+                        <div class="metric-card border-green">
+                            <div class="icon-wrap bg-green-soft"><i class="fa-solid fa-bolt text-green"></i></div>
+                            <div class="metric-details">
+                                <div class="label">Avg Bitrate</div>
+                                <div class="value"><span id="metricBitrate">0</span> <span class="unit">kbps</span></div>
+                                <div class="sub-label">WebRTC streams bandwidth</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Graphs Grid -->
+                    <div class="graphs-grid">
+                        <div class="graph-card">
+                            <div class="card-header">
+                                <h3>Bot Connection Timeline</h3>
+                                <div class="card-actions"><i class="fa-solid fa-info-circle" title="Tracks bot connection status: Success vs Reconnecting vs Failed"></i></div>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="botsChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="graph-card">
+                            <div class="card-header">
+                                <h3>WebRTC Latency & Jitter</h3>
+                                <div class="card-actions"><i class="fa-solid fa-info-circle" title="Average latency and network jitter comparison over time"></i></div>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="latencyChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="graph-card col-sm">
+                            <div class="card-header">
+                                <h3>Server Resource Monitoring</h3>
+                                <div class="card-actions"><i class="fa-solid fa-info-circle" title="Host system CPU and Memory utilisation during the run"></i></div>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="resourcesChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Real-Time Lifecycle & WebRTC Widgets Grid -->
+                    <div class="graphs-grid" style="margin-top: 24px;">
+                        <!-- Action Lifecycle Propagation Card -->
+                        <div class="graph-card">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-chart-line text-cyan"></i> Action Lifecycle Propagation</h3>
+                                <div class="card-actions"><i class="fa-solid fa-info-circle" title="Real-time propagation counts across stages (Sent -> Acknowledged -> Broadcasted -> Observed -> Rendered)"></i></div>
+                            </div>
+                            <div class="propagation-list" style="display: flex; flex-direction: column; gap: 12px; margin-top: 10px;">
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    <span><i class="fa-solid fa-paper-plane" style="color: var(--text-secondary); width: 20px;"></i> Sent</span>
+                                    <span class="badge badge-completed" id="lifecycleSent" style="font-size: 12px; min-width: 40px; text-align: center;">0</span>
+                                </div>
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    <span><i class="fa-solid fa-signature" style="color: var(--warning); width: 20px;"></i> Acknowledged</span>
+                                    <span class="badge badge-running" id="lifecycleAcknowledged" style="font-size: 12px; min-width: 40px; text-align: center; background-color: rgba(16, 185, 129, 0.15); color: #10B981;">0</span>
+                                </div>
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    <span><i class="fa-solid fa-bullhorn" style="color: var(--accent); width: 20px;"></i> Broadcasted</span>
+                                    <span class="badge badge-completed" id="lifecycleBroadcasted" style="font-size: 12px; min-width: 40px; text-align: center;">0</span>
+                                </div>
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    <span><i class="fa-solid fa-eye" style="color: #818CF8; width: 20px;"></i> Observed</span>
+                                    <span class="badge badge-completed" id="lifecycleObserved" style="font-size: 12px; min-width: 40px; text-align: center; background-color: rgba(129, 140, 248, 0.15); color: #818CF8;">0</span>
+                                </div>
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span><i class="fa-solid fa-desktop" style="color: var(--success); width: 20px;"></i> Rendered</span>
+                                    <span class="badge badge-completed" id="lifecycleRendered" style="font-size: 12px; min-width: 40px; text-align: center; background-color: rgba(16, 185, 129, 0.15); color: #10B981;">0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Advanced WebRTC Card -->
+                        <div class="graph-card">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-tower-broadcast text-yellow"></i> Advanced WebRTC Parameters</h3>
+                                <div class="card-actions"><i class="fa-solid fa-info-circle" title="Real-time WebRTC quality metrics, candidate and socket connection states"></i></div>
+                            </div>
+                            <div class="webrtc-advanced-list" style="display: flex; flex-direction: column; gap: 12px; margin-top: 10px;">
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    <span><i class="fa-solid fa-shield-halved" style="color: var(--accent); width: 20px;"></i> ICE State</span>
+                                    <span id="webrtcIceState" class="badge badge-completed" style="font-size: 11px;">Checking</span>
+                                </div>
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    <span><i class="fa-solid fa-link" style="color: var(--success); width: 20px;"></i> Signaling Socket</span>
+                                    <span id="webrtcSignalSocket" class="badge badge-running" style="font-size: 11px;">Connected</span>
+                                </div>
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    <span><i class="fa-solid fa-route" style="color: var(--warning); width: 20px;"></i> TURN Relay usage</span>
+                                    <span style="font-size: 13px; font-weight: 600;"><span id="webrtcTurnCount">0</span> TURN / <span id="webrtcRelayCount">0</span> Relay</span>
+                                </div>
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    <span><i class="fa-solid fa-stopwatch" style="color: #F87171; width: 20px;"></i> Average RTT</span>
+                                    <span style="font-size: 13px; font-weight: 600;"><span id="webrtcAvgRtt">0</span> ms</span>
+                                </div>
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span><i class="fa-solid fa-wave-square" style="color: #A78BFA; width: 20px;"></i> Average Jitter</span>
+                                    <span style="font-size: 13px; font-weight: 600;"><span id="webrtcAvgJitter">0</span> ms</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Timeout Stage Breakdown Card -->
+                        <div class="graph-card">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-clock-rotate-left text-red"></i> Timeout Stage Breakdown</h3>
+                                <div class="card-actions"><i class="fa-solid fa-info-circle" title="Failures categorized by the exact timeout/mismatch stage"></i></div>
+                            </div>
+                            <div class="timeout-stages-list" style="display: flex; flex-direction: column; gap: 12px; margin-top: 10px;">
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    <span><i class="fa-solid fa-hourglass-start" style="color: var(--warning); width: 20px;"></i> ack-timeout</span>
+                                    <span class="badge badge-failed" id="timeoutAck" style="font-size: 12px; min-width: 40px; text-align: center;">0</span>
+                                </div>
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    <span><i class="fa-solid fa-hourglass-half" style="color: #FB923C; width: 20px;"></i> broadcast-timeout</span>
+                                    <span class="badge badge-failed" id="timeoutBroadcast" style="font-size: 12px; min-width: 40px; text-align: center;">0</span>
+                                </div>
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    <span><i class="fa-solid fa-hourglass-end" style="color: #EF4444; width: 20px;"></i> observer-timeout</span>
+                                    <span class="badge badge-failed" id="timeoutObserver" style="font-size: 12px; min-width: 40px; text-align: center;">0</span>
+                                </div>
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    <span><i class="fa-solid fa-clock" style="color: #F87171; width: 20px;"></i> ui-render-timeout</span>
+                                    <span class="badge badge-failed" id="timeoutUiRender" style="font-size: 12px; min-width: 40px; text-align: center;">0</span>
+                                </div>
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span><i class="fa-solid fa-circle-exclamation" style="color: #6B7280; width: 20px;"></i> id-correlation-mismatch</span>
+                                    <span class="badge badge-failed" id="timeoutIdMismatch" style="font-size: 12px; min-width: 40px; text-align: center; background-color: rgba(107, 114, 128, 0.15); color: #9CA3AF;">0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Unsupported Actions Breakdown Card -->
+                        <div class="graph-card">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-ban text-muted"></i> Unsupported Actions Breakdown</h3>
+                                <div class="card-actions"><i class="fa-solid fa-info-circle" title="Actions rejected due to browser/device capabilities or policy constraint"></i></div>
+                            </div>
+                            <div id="unsupportedBreakdownList" class="unsupported-reasons-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px; max-height: 190px; overflow-y: auto;">
+                                <div class="text-center text-muted" style="padding: 20px 0;">No unsupported actions logged.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Log Console Panel -->
+                    <div class="console-card">
+                        <div class="console-header">
+                            <div class="title"><i class="fa-solid fa-terminal"></i> Live Session Console Logs</div>
+                            <div class="filters">
+                                <input type="text" placeholder="Search logs (e.g. Bot-0005)..." id="logSearchInput">
+                                <select id="logLevelFilter">
+                                    <option value="all">All Events</option>
+                                    <option value="action_logged">Actions only</option>
+                                    <option value="error_logged">Errors only</option>
+                                    <option value="bot_joined">Joins only</option>
+                                </select>
+                                <button class="btn btn-sm btn-secondary" id="clearConsoleBtn"><i class="fa-solid fa-trash"></i> Clear</button>
+                            </div>
+                        </div>
+                        <div class="console-terminal" id="consoleTerminal">
+                            <div class="console-placeholder">Waiting for WebSocket log stream...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: Configurator (New Test Form) -->
+            <section class="tab-pane" id="tab-configurator">
+                <div class="config-grid">
+                    <form id="testConfigForm" class="config-form">
+                        <!-- Left Column: Core CLI options -->
+                        <div class="form-column">
+                            <div class="form-section">
+                                <div class="section-title"><i class="fa-solid fa-circle-nodes"></i> Basic Configurations</div>
+                                <div class="form-row">
+                                    <div class="form-group col-6">
+                                        <label for="formConfigName">Session Name *</label>
+                                        <input type="text" id="formConfigName" placeholder="e.g. Daily Staging Smoke" required>
+                                    </div>
+                                    <div class="form-group col-6">
+                                        <label for="formRoom">Room Slug (ID) *</label>
+                                        <input type="text" id="formRoom" value="testinggg" required>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-4">
+                                        <label for="formBots">Total Bots</label>
+                                        <input type="number" id="formBots" value="50" min="1" max="1000">
+                                    </div>
+                                    <div class="form-group col-4">
+                                        <label for="formBatch">Batch Size</label>
+                                        <input type="number" id="formBatch" value="3" min="1" max="100">
+                                    </div>
+                                    <div class="form-group col-4">
+                                        <label for="formStagger">Join Delay (s)</label>
+                                        <input type="number" id="formStagger" value="1.0" step="0.1" min="0">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-6">
+                                        <label for="formConcurrency">Max Concurrency</label>
+                                        <input type="number" id="formConcurrency" value="100" min="1">
+                                    </div>
+                                    <div class="form-group col-6">
+                                        <label for="formLeave">Leave Time (mins)</label>
+                                        <input type="number" id="formLeave" value="0" min="0" title="0 means run indefinitely">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-section">
+                                <div class="section-title"><i class="fa-solid fa-video"></i> WebRTC & Media Settings</div>
+                                <div class="form-row flex-align-center">
+                                    <div class="form-group col-6 checkbox-group">
+                                        <input type="checkbox" id="formWebrtcEnabled" checked>
+                                        <label for="formWebrtcEnabled">Enable WebRTC Streams</label>
+                                    </div>
+                                    <div class="form-group col-6">
+                                        <label for="formMediaQuality">Media Quality Profile</label>
+                                        <select id="formMediaQuality">
+                                            <option value="low">Low (QCIF / 15 FPS)</option>
+                                            <option value="medium" selected>Medium (VGA / 30 FPS)</option>
+                                            <option value="full">Full (1080p / 30 FPS)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-6">
+                                        <label for="formMaxSubscriptions">Max Downlink Subscriptions</label>
+                                        <input type="number" id="formMaxSubscriptions" value="2" min="0">
+                                    </div>
+                                    <div class="form-group col-6 checkbox-group">
+                                        <input type="checkbox" id="formDecodeDownlink">
+                                        <label for="formDecodeDownlink" title="Performs full software decoding of incoming WebRTC tracks">Decode Downlink (CPU Intensive)</label>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-6">
+                                        <label for="formHostBotId">Host Bot ID</label>
+                                        <input type="number" id="formHostBotId" value="1" min="1">
+                                    </div>
+                                    <div class="form-group col-6">
+                                        <label for="formPresenterBotId">Presenter Bot ID</label>
+                                        <input type="number" id="formPresenterBotId" value="2" min="1">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-section">
+                                <div class="section-title"><i class="fa-solid fa-gears"></i> Scenarios & Actions</div>
+                                <div class="form-row">
+                                    <div class="form-group col-12">
+                                        <label for="formTestScenarios">Active Test Scenarios (Comma separated)</label>
+                                        <input type="text" id="formTestScenarios" value="camera_toggle,mic_toggle,hand_raise,chat">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-6">
+                                        <label for="formActionInterval">Action Interval (s)</label>
+                                        <input type="number" id="formActionInterval" value="30.0" min="1">
+                                    </div>
+                                    <div class="form-group col-6">
+                                        <label for="formChatInterval">Chat Interval (s)</label>
+                                        <input type="number" id="formChatInterval" value="60.0" min="1">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-6">
+                                        <label for="formConfirmTimeout">Confirm Timeout (s)</label>
+                                        <input type="number" id="formConfirmTimeout" value="5.0" step="0.5" min="1">
+                                    </div>
+                                    <div class="form-group col-6">
+                                        <label for="formMaxRetries">Max Reconnect Retries</label>
+                                        <input type="number" id="formMaxRetries" value="5" min="0">
+                                    </div>
+                                </div>
+                                <div class="form-row checkbox-grid">
+                                    <div class="checkbox-item"><input type="checkbox" id="formNoChat"><label for="formNoChat">Disable Chat</label></div>
+                                    <div class="checkbox-item"><input type="checkbox" id="formNoCamera"><label for="formNoCamera">Disable Camera</label></div>
+                                    <div class="checkbox-item"><input type="checkbox" id="formNoMic"><label for="formNoMic">Disable Mic</label></div>
+                                    <div class="checkbox-item"><input type="checkbox" id="formNoHandraise"><label for="formNoHandraise">Disable Handraise</label></div>
+                                    <div class="checkbox-item"><input type="checkbox" id="formNoScreenShare"><label for="formNoScreenShare">Disable Screen Share</label></div>
+                                    <div class="checkbox-item"><input type="checkbox" id="formNoCrossConfirm"><label for="formNoCrossConfirm">Disable Cross Confirm</label></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Column: Networks, Distributions, Server details -->
+                        <div class="form-column">
+                            <div class="form-section">
+                                <div class="section-title"><i class="fa-solid fa-server"></i> Server Endpoints & Security</div>
+                                <div class="form-row">
+                                    <div class="form-group col-12">
+                                        <label for="formFrontend">Frontend Server URL</label>
+                                        <input type="url" id="formFrontend" value="https://edge.konn3ct.net">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-12">
+                                        <label for="formSignal">WebSocket Signaling Domain</label>
+                                        <input type="text" id="formSignal" value="konn3ctedge.konn3ct.net">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-12">
+                                        <label for="formJwtSecret">Local JWT Secret (Optional bypass)</label>
+                                        <input type="password" id="formJwtSecret" placeholder="Enter signing secret if applicable">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-section">
+                                <div class="section-title"><i class="fa-solid fa-wifi"></i> Network Conditions</div>
+                                <div class="form-row">
+                                    <div class="form-group col-12">
+                                        <label for="formNetworkConditions">Network Conditions Distribution Ratios</label>
+                                        <input type="text" id="formNetworkConditions" value="ethernet:20,wi-fi:50,4g:20,3g:10">
+                                    </div>
+                                </div>
+                                <div class="form-row flex-align-center">
+                                    <div class="form-group col-6 checkbox-group">
+                                        <input type="checkbox" id="formNetworkDegradation">
+                                        <label for="formNetworkDegradation">Enable Dynamic Degradation</label>
+                                    </div>
+                                    <div class="form-group col-6">
+                                        <label for="formDegradationInterval">Degradation Steps Interval (s)</label>
+                                        <input type="number" id="formDegradationInterval" value="300" min="10">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-section">
+                                <div class="section-title"><i class="fa-solid fa-mobile-screen-button"></i> Simulator Distribution Libraries</div>
+                                <div class="form-row">
+                                    <div class="form-group col-12">
+                                        <label for="formBrowserDistribution">Browser Distribution Ratios</label>
+                                        <input type="text" id="formBrowserDistribution" value="chrome:30,safari:20,firefox:15,edge:10,brave:5,chrome_mobile:10,safari_mobile:5,opera:3,samsung:2">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-12">
+                                        <label for="formDeviceDistribution">Device Type Distribution Ratios</label>
+                                        <input type="text" id="formDeviceDistribution" value="desktop:70,mobile:20,tablet:10">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-12">
+                                        <label for="formOsDistribution">Operating System Distribution Ratios</label>
+                                        <input type="text" id="formOsDistribution" value="windows:40,macos:30,linux:10,ios:12,android:8">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-actions-bar">
+                                <button type="button" class="btn btn-secondary" id="savePresetBtn"><i class="fa-solid fa-floppy-disk"></i> Save Preset</button>
+                                <button type="submit" class="btn btn-primary" id="launchTestBtn"><i class="fa-solid fa-circle-play"></i> Launch Load Test</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- TAB 3: Saved Presets -->
+            <section class="tab-pane" id="tab-templates">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Reusable Configuration Templates</h3>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Template Name</th>
+                                    <th>Room</th>
+                                    <th>Bots</th>
+                                    <th>WebRTC</th>
+                                    <th>Distribution</th>
+                                    <th>Created At</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="presetsTableBody">
+                                <tr><td colspan="7" class="text-center">Loading configurations...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: Test Session History -->
+            <section class="tab-pane" id="tab-history">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Historical Load Test Runs</h3>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Session ID</th>
+                                    <th>Name</th>
+                                    <th>Status</th>
+                                    <th>Started At</th>
+                                    <th>Duration</th>
+                                    <th>Logs / Reports</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyTableBody">
+                                <tr><td colspan="7" class="text-center">Loading test logs history...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

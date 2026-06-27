@@ -1,0 +1,284 @@
+import os
+import csv
+import time
+from datetime import datetime
+from flask import Blueprint, request, jsonify, send_file, current_app
+from app.models import db, Configuration, TestSession, SessionMetric
+from app.auth import token_required, roles_accepted
+from app.runner import start_session, pause_session, resume_session, stop_session, get_session_dir
+
+api_bp = Blueprint('api', __name__)
+
+# --- Configuration Template Routes ---
+
+@api_bp.route('/configurations', methods=['GET'])
+@token_required
+def get_configurations():
+    configs = Configuration.query.order_by(Configuration.created_at.desc()).all()
+    return jsonify([c.to_dict() for c in configs])
+
+@api_bp.route('/configurations', methods=['POST'])
+@token_required
+@roles_accepted('Admin', 'Operator')
+def create_configuration():
+    data = request.get_json() or {}
+    name = data.get('name')
+    if not name:
+        return jsonify({'message': 'Configuration name is required!'}), 400
+        
+    if Configuration.query.filter_by(name=name).first():
+        return jsonify({'message': 'A configuration with this name already exists!'}), 400
+        
+    # Exclude id and timestamps from creation data
+    clean_data = {k: v for k, v in data.items() if k not in ('id', 'created_at', 'updated_at')}
+    
+    cfg = Configuration(**clean_data)
+    db.session.add(cfg)
+    db.session.commit()
+    return jsonify(cfg.to_dict()), 201
+
+@api_bp.route('/configurations/<int:cfg_id>', methods=['GET'])
+@token_required
+def get_configuration(cfg_id):
+    cfg = Configuration.query.get_or_404(cfg_id)
+    return jsonify(cfg.to_dict())
+
+@api_bp.route('/configurations/<int:cfg_id>', methods=['PUT'])
+@token_required
+@roles_accepted('Admin', 'Operator')
+def update_configuration(cfg_id):
+    cfg = Configuration.query.get_or_404(cfg_id)
+    data = request.get_json() or {}
+    
+    for key, value in data.items():
+        if hasattr(cfg, key) and key not in ('id', 'created_at', 'updated_at'):
+            setattr(cfg, key, value)
+            
+    db.session.commit()
+    return jsonify(cfg.to_dict())
+
+@api_bp.route('/configurations/<int:cfg_id>', methods=['DELETE'])
+@token_required
+@roles_accepted('Admin')
+def delete_configuration(cfg_id):
+    cfg = Configuration.query.get_or_404(cfg_id)
+    db.session.delete(cfg)
+    db.session.commit()
+    return jsonify({'message': 'Configuration template deleted!'})
+
+
+# --- Test Session Execution Routes ---
+
+@api_bp.route('/sessions', methods=['GET'])
+@token_required
+def get_sessions():
+    sessions = TestSession.query.order_by(TestSession.started_at.desc() if TestSession.started_at else TestSession.id.desc()).all()
+    return jsonify([s.to_dict() for s in sessions])
+
+@api_bp.route('/sessions/<int:session_id>', methods=['GET'])
+@token_required
+def get_session(session_id):
+    session = TestSession.query.get_or_404(session_id)
+    return jsonify(session.to_dict())
+
+@api_bp.route('/sessions/start', methods=['POST'])
+@token_required
+@roles_accepted('Admin', 'Operator')
+def start_test():
+    data = request.get_json() or {}
+    config_id = data.get('config_id')
+    session_name = data.get('session_name')
+    
+    if not session_name:
+        session_name = f"Test Run - {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
+        
+    cfg = None
+    if config_id:
+        cfg = Configuration.query.get(config_id)
+        if not cfg:
+            return jsonify({'message': 'Configuration template not found!'}), 404
+            
+    # Allow ad-hoc params overrides
+    if not cfg:
+        # Create a transient configuration for this session
+        name = f"Ad-hoc Temp {int(time.time())}"
+        clean_data = {k: v for k, v in data.items() if k not in ('config_id', 'session_name')}
+        cfg = Configuration(name=name, **clean_data)
+        db.session.add(cfg)
+        db.session.commit()
+
+    # Create new session entry
+    new_sess = TestSession(
+        config_id=cfg.id,
+        name=session_name,
+        status="pending"
+    )
+    db.session.add(new_sess)
+    db.session.commit()
+    
+    # Trigger background runner process
+    from flask import current_app
+    socketio = current_app.extensions.get('socketio')
+    start_session(current_app._get_current_object(), socketio, new_sess.id)
+    
+    return jsonify(new_sess.to_dict()), 201
+
+@api_bp.route('/sessions/<int:session_id>/pause', methods=['POST'])
+@token_required
+@roles_accepted('Admin', 'Operator')
+def pause_test(session_id):
+    session = TestSession.query.get_or_404(session_id)
+    if session.status != "running":
+        return jsonify({'message': 'Only running sessions can be paused!'}), 400
+        
+    success = pause_session(session_id)
+    if success:
+        session.status = "paused"
+        db.session.commit()
+        return jsonify({'message': 'Test session paused.'})
+    return jsonify({'message': 'Failed to pause test session.'}), 500
+
+@api_bp.route('/sessions/<int:session_id>/resume', methods=['POST'])
+@token_required
+@roles_accepted('Admin', 'Operator')
+def resume_test(session_id):
+    session = TestSession.query.get_or_404(session_id)
+    if session.status != "paused":
+        return jsonify({'message': 'Only paused sessions can be resumed!'}), 400
+        
+    success = resume_session(session_id)
+    if success:
+        session.status = "running"
+        db.session.commit()
+        return jsonify({'message': 'Test session resumed.'})
+    return jsonify({'message': 'Failed to resume test session.'}), 500
+
+@api_bp.route('/sessions/<int:session_id>/stop', methods=['POST'])
+@token_required
+@roles_accepted('Admin', 'Operator')
+def stop_test(session_id):
+    session = TestSession.query.get_or_404(session_id)
+    if session.status not in ("running", "paused"):
+        return jsonify({'message': 'Session is not active!'}), 400
+        
+    success = stop_session(session_id)
+    
+    session.status = "stopped"
+    session.ended_at = datetime.utcnow()
+    db.session.commit()
+    
+    from flask import current_app
+    socketio = current_app.extensions.get('socketio')
+    if socketio:
+        socketio.emit('session_status_changed', {
+            'session_id': session_id,
+            'status': 'stopped'
+        })
+        
+    if success:
+        return jsonify({'message': 'Test session stopped gracefully.'})
+    else:
+        return jsonify({'message': 'Test session stopped (force database override).'})
+
+
+# --- Logs & Performance Historical Data Routes ---
+
+@api_bp.route('/sessions/<int:session_id>/logs', methods=['GET'])
+@token_required
+def get_session_logs(session_id):
+    session = TestSession.query.get_or_404(session_id)
+    log_path = session.report_log_path
+    
+    if not log_path or not os.path.exists(log_path):
+        return jsonify([])
+        
+    logs = []
+    limit = request.args.get('limit', 200, type=int)
+    search_query = request.args.get('search', '', type=str).lower()
+    
+    import json
+    with open(log_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            try:
+                evt = json.loads(line.strip())
+                # Format a friendly text representation for human reading
+                ts = evt.get("ts", "")
+                etype = evt.get("event", "")
+                bot_id = evt.get("bot_id")
+                name = evt.get("name")
+                
+                # Basic string filtering
+                raw_str = line.lower()
+                if search_query and search_query not in raw_str:
+                    continue
+                    
+                logs.append(evt)
+            except Exception:
+                pass
+                
+    return jsonify(logs[-limit:])
+
+@api_bp.route('/sessions/<int:session_id>/metrics', methods=['GET'])
+@token_required
+def get_session_metrics(session_id):
+    metrics = SessionMetric.query.filter_by(session_id=session_id).order_by(SessionMetric.timestamp.asc()).all()
+    return jsonify([m.to_dict() for m in metrics])
+
+
+# --- Report Download Routes ---
+
+@api_bp.route('/sessions/<int:session_id>/download/<string:fmt>', methods=['GET'])
+@token_required
+def download_report(session_id, fmt):
+    session = TestSession.query.get_or_404(session_id)
+    fmt = fmt.lower()
+    
+    if fmt == 'json':
+        if not session.report_log_path or not os.path.exists(session.report_log_path):
+            return jsonify({'message': 'JSON log file not found!'}), 404
+        return send_file(session.report_log_path, as_attachment=True, download_name=f"session_{session_id}_logs.jsonl")
+        
+    elif fmt == 'csv':
+        if not session.report_csv_path or not os.path.exists(session.report_csv_path):
+            from app.runner import compile_report_log
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            compile_report_log(project_root, session.report_log_path, session.report_docx_path)
+            
+        if not session.report_csv_path or not os.path.exists(session.report_csv_path):
+            session_dir = get_session_dir(session_id)
+            fallback = os.path.join(session_dir, "session_action_lifecycle.csv")
+            if os.path.exists(fallback):
+                session.report_csv_path = fallback
+                db.session.commit()
+            else:
+                return jsonify({'message': 'CSV report file not found!'}), 404
+        return send_file(session.report_csv_path, as_attachment=True, download_name=f"session_{session_id}_action_log.csv")
+        
+    elif fmt == 'docx':
+        if not session.report_docx_path or not os.path.exists(session.report_docx_path):
+            from app.runner import compile_report_log
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            compile_report_log(project_root, session.report_log_path, session.report_docx_path)
+            
+        if not session.report_docx_path or not os.path.exists(session.report_docx_path):
+            return jsonify({'message': 'DOCX report file not found!'}), 404
+        return send_file(session.report_docx_path, as_attachment=True, download_name=f"session_{session_id}_report.docx")
+        
+    elif fmt == 'pdf':
+        if not session.report_docx_path or not os.path.exists(session.report_docx_path):
+            from app.runner import compile_report_log
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            compile_report_log(project_root, session.report_log_path, session.report_docx_path)
+            
+        if not session.report_pdf_path or not os.path.exists(session.report_pdf_path):
+            from app.runner import convert_docx_to_pdf
+            pdf = convert_docx_to_pdf(session.report_docx_path, get_session_dir(session_id))
+            if pdf and os.path.exists(pdf):
+                session.report_pdf_path = pdf
+                db.session.commit()
+                return send_file(pdf, as_attachment=True, download_name=f"session_{session_id}_report.pdf")
+            return jsonify({'message': 'PDF report is not available or PDF conversion failed on this server.'}), 404
+        return send_file(session.report_pdf_path, as_attachment=True, download_name=f"session_{session_id}_report.pdf")
+        
+    else:
+        return jsonify({'message': 'Invalid download format! Must be JSON, CSV, DOCX, or PDF.'}), 400
