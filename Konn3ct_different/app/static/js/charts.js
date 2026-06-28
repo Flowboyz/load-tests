@@ -139,26 +139,26 @@ function initCharts() {
     });
 }
 
-function updateCharts(timeStr, metrics) {
+function updateCharts(timeStr, metrics, shift = true) {
     if (!botsChart || !latencyChart || !resourcesChart) return;
-
+ 
     // Helper to push and shift label/data
     const pushData = (chart, index, val) => {
         chart.data.datasets[index].data.push(val);
-        if (chart.data.datasets[index].data.length > MAX_CHART_POINTS) {
+        if (shift && chart.data.datasets[index].data.length > MAX_CHART_POINTS) {
             chart.data.datasets[index].data.shift();
         }
     };
-
+ 
     const pushLabel = (chart, label) => {
         if (chart.data.labels.length === 0 || chart.data.labels[chart.data.labels.length - 1] !== label) {
             chart.data.labels.push(label);
-            if (chart.data.labels.length > MAX_CHART_POINTS) {
+            if (shift && chart.data.labels.length > MAX_CHART_POINTS) {
                 chart.data.labels.shift();
             }
         }
     };
-
+ 
     // Bots Connection Chart updates
     pushLabel(botsChart, timeStr);
     pushData(botsChart, 0, metrics.connected_bots);
@@ -166,18 +166,44 @@ function updateCharts(timeStr, metrics) {
     pushData(botsChart, 2, metrics.failed_bots);
     pushData(botsChart, 3, metrics.reconnecting_bots);
     botsChart.update('none'); // Update without animation for rendering performance
-
+ 
     // Latency Chart updates
     pushLabel(latencyChart, timeStr);
     pushData(latencyChart, 0, metrics.avg_latency);
     pushData(latencyChart, 1, metrics.jitter);
     latencyChart.update('none');
-
+ 
     // Resources Chart updates
     pushLabel(resourcesChart, timeStr);
     pushData(resourcesChart, 0, metrics.cpu_usage);
     pushData(resourcesChart, 1, metrics.ram_usage);
     resourcesChart.update('none');
+}
+
+function exportChart(chartType) {
+    let chartInstance = null;
+    let filename = "";
+    
+    if (chartType === 'bots') {
+        chartInstance = botsChart;
+        filename = "bot_connection_timeline.png";
+    } else if (chartType === 'latency') {
+        chartInstance = latencyChart;
+        filename = "webrtc_latency_jitter.png";
+    } else if (chartType === 'resources') {
+        chartInstance = resourcesChart;
+        filename = "server_resource_monitoring.png";
+    }
+    
+    if (!chartInstance) return;
+    
+    const url = chartInstance.toBase64Image();
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
 }
 
 function clearCharts() {

@@ -65,6 +65,8 @@ def run_test_process(app, socketio, session_id):
         # Update session details
         session.status = "running"
         session.started_at = datetime.utcnow()
+        session.last_resume_time = datetime.utcnow()
+        session.accumulated_duration = 0
         session.report_log_path = report_log
         session.report_docx_path = report_docx
         session.report_csv_path = report_csv
@@ -163,6 +165,14 @@ def run_test_process(app, socketio, session_id):
                 stream_metrics_and_logs, app, socketio, session_id, report_log, stop_event, process
             )
             
+            # Emit status change to running
+            if socketio:
+                socketio.emit('session_status_changed', {
+                    'session_id': session_id,
+                    'status': 'running',
+                    'elapsed_seconds': 0
+                }, room=f"session_{session_id}")
+            
             # Wait for process to complete
             stdout_data, _ = process.communicate()
             
@@ -182,6 +192,7 @@ def run_test_process(app, socketio, session_id):
             
             # Update database with completion status
             final_status = "failed"
+            accumulated_secs = 0
             with app.app_context():
                 session = TestSession.query.get(session_id)
                 if session:
@@ -197,7 +208,12 @@ def run_test_process(app, socketio, session_id):
                             if stdout_data:
                                 session.error_message += stdout_data[-1000:]
                     
+                    if session.last_resume_time:
+                        elapsed = (datetime.utcnow() - session.last_resume_time).total_seconds()
+                        session.accumulated_duration += int(elapsed)
+                    session.last_resume_time = None
                     session.ended_at = datetime.utcnow()
+                    accumulated_secs = session.accumulated_duration
                     
                     # Post-Process: Compile report if it doesn't exist
                     try:
@@ -223,8 +239,9 @@ def run_test_process(app, socketio, session_id):
             # Emit complete event
             socketio.emit('session_status_changed', {
                 'session_id': session_id,
-                'status': final_status
-            })
+                'status': final_status,
+                'elapsed_seconds': accumulated_secs
+            }, room=f"session_{session_id}")
 
 def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, process):
     """
@@ -266,17 +283,31 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
         "timeout_stages": {"ack-timeout": 0, "broadcast-timeout": 0, "observer-timeout": 0, "ui-render-timeout": 0, "id-correlation-mismatch": 0},
         "unsupported_reasons": {},
         "turn_count": 0,
-        "relay_count": 0
+        "relay_count": 0,
+        "global_peak_latency": 0.0
     }
     
     joined_ids = set()
     failed_ids = set()
+
+    # Batching variables for raw events
+    buffered_raw_events = []
+    last_raw_emit_time = time.time()
 
     with open(log_path, 'r', encoding='utf-8') as f:
         # Read existing file to start
         while not stop_event.is_set():
             line = f.readline()
             if not line:
+                # Flush remaining raw events
+                if buffered_raw_events:
+                    socketio.emit('session_raw_events_batch', {
+                        'session_id': session_id,
+                        'events': buffered_raw_events
+                    }, room=f"session_{session_id}")
+                    buffered_raw_events = []
+                    last_raw_emit_time = time.time()
+
                 # No new line. Sleep briefly, then calculate system resource and broadcast
                 socketio.sleep(1.0)
                 
@@ -294,10 +325,15 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                 avg_bitrate = sum(metrics_state["bitrates"]) / len(metrics_state["bitrates"]) if metrics_state["bitrates"] else 0
                 avg_rtt = avg_lat
                 
-                # Write to database (SessionMetric)
+                # Write to database (SessionMetric) and fetch current elapsed time
+                elapsed_secs = 0
                 with app.app_context():
                     session = TestSession.query.get(session_id)
                     if session and session.status == "running":
+                        elapsed_secs = session.accumulated_duration
+                        if session.last_resume_time:
+                            elapsed_secs += int((datetime.utcnow() - session.last_resume_time).total_seconds())
+
                         metric_entry = SessionMetric(
                             session_id=session_id,
                             connected_bots=metrics_state["connected_bots"],
@@ -318,6 +354,7 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                         socketio.emit('session_metrics', {
                             'session_id': session_id,
                             'metrics': metric_entry.to_dict(),
+                            'elapsed_seconds': elapsed_secs,
                             'lifecycle_summary': {
                                 'status_counts': metrics_state["status_counts"],
                                 'timeout_stages': metrics_state["timeout_stages"],
@@ -328,7 +365,8 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                                     'jitter': avg_jitter,
                                     'bitrate': avg_bitrate,
                                     'turn_count': metrics_state["turn_count"],
-                                    'relay_count': metrics_state["relay_count"]
+                                    'relay_count': metrics_state["relay_count"],
+                                    'peak_latency': metrics_state["global_peak_latency"]
                                 }
                             }
                         }, room=f"session_{session_id}")
@@ -344,11 +382,15 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                 event = json.loads(line.strip())
                 etype = event.get("event")
                 
-                # Emit raw event for console log viewer
-                socketio.emit('session_raw_event', {
-                    'session_id': session_id,
-                    'event': event
-                }, room=f"session_{session_id}")
+                # Buffer raw event for console log viewer
+                buffered_raw_events.append(event)
+                if len(buffered_raw_events) >= 50 or (time.time() - last_raw_emit_time > 0.2):
+                    socketio.emit('session_raw_events_batch', {
+                        'session_id': session_id,
+                        'events': buffered_raw_events
+                    }, room=f"session_{session_id}")
+                    buffered_raw_events = []
+                    last_raw_emit_time = time.time()
                 
                 # Process metrics
                 bot_id = event.get("bot_id")
@@ -378,6 +420,8 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                     
                     if lat is not None:
                         metrics_state["latencies"].append(lat)
+                        if lat > metrics_state["global_peak_latency"]:
+                            metrics_state["global_peak_latency"] = lat
                         
                     # Update propagation lifecycle counts
                     resolved_status = final_status or status
@@ -408,7 +452,10 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                     turn_usage = event.get("turn_usage")
                     cand_type = event.get("candidate_pair_type")
                     
-                    if rtt is not None: metrics_state["latencies"].append(rtt)
+                    if rtt is not None:
+                        metrics_state["latencies"].append(rtt)
+                        if rtt > metrics_state["global_peak_latency"]:
+                            metrics_state["global_peak_latency"] = rtt
                     if loss is not None: metrics_state["packet_losses"].append(loss)
                     if jitter is not None: metrics_state["jitters"].append(jitter)
                     if bitrate is not None: metrics_state["bitrates"].append(bitrate)

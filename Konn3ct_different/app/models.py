@@ -102,6 +102,10 @@ class TestSession(db.Model):
     started_at = db.Column(db.DateTime, nullable=True)
     ended_at = db.Column(db.DateTime, nullable=True)
     
+    # Session Timer attributes
+    accumulated_duration = db.Column(db.Integer, default=0, nullable=False)
+    last_resume_time = db.Column(db.DateTime, nullable=True)
+    
     # Output file paths
     report_log_path = db.Column(db.String(255), nullable=True)
     report_docx_path = db.Column(db.String(255), nullable=True)
@@ -113,6 +117,10 @@ class TestSession(db.Model):
     config = db.relationship('Configuration', backref='sessions')
 
     def to_dict(self):
+        elapsed = self.accumulated_duration
+        if self.status == 'running' and self.last_resume_time:
+            elapsed += int((datetime.utcnow() - self.last_resume_time).total_seconds())
+            
         return {
             "id": self.id,
             "config_id": self.config_id,
@@ -125,7 +133,10 @@ class TestSession(db.Model):
             "report_docx_path": self.report_docx_path,
             "report_pdf_path": self.report_pdf_path,
             "report_csv_path": self.report_csv_path,
-            "error_message": self.error_message
+            "error_message": self.error_message,
+            "accumulated_duration": self.accumulated_duration,
+            "last_resume_time": self.last_resume_time.isoformat() if self.last_resume_time else None,
+            "elapsed_seconds": elapsed
         }
 
 class SessionMetric(db.Model):

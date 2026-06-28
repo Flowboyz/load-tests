@@ -318,7 +318,7 @@
                             <div class="metric-details">
                                 <div class="label">Connected Bots</div>
                                 <div class="value" id="metricConnectedBots">0</div>
-                                <div class="sub-label"><span id="metricConnectingBots">0</span> connecting | <span id="metricReconnectingBots">0</span> reconnecting</div>
+                                <div class="sub-label"><span id="metricConnectingBots">0</span> connecting | <span id="metricReconnectingBots">0</span> reconnecting | <span id="metricFailedBots" class="text-red" style="font-weight: 600; color: var(--error);">0</span> failed</div>
                             </div>
                         </div>
                         <div class="metric-card border-yellow">
@@ -326,7 +326,7 @@
                             <div class="metric-details">
                                 <div class="label">Average Latency</div>
                                 <div class="value"><span id="metricLatency">0</span> <span class="unit">ms</span></div>
-                                <div class="sub-label">Action propagation speed</div>
+                                <div class="sub-label">Peak: <span id="metricPeakLatency">0</span> ms | Avg action propagation</div>
                             </div>
                         </div>
                         <div class="metric-card border-red">
@@ -345,14 +345,33 @@
                                 <div class="sub-label">WebRTC streams bandwidth</div>
                             </div>
                         </div>
+                        <div class="metric-card" style="border-left: 4px solid var(--success);">
+                            <div class="icon-wrap bg-green-soft"><i class="fa-solid fa-square-check text-green"></i></div>
+                            <div class="metric-details">
+                                <div class="label">Success Rate</div>
+                                <div class="value"><span id="metricSuccessRate">100.0</span> <span class="unit">%</span></div>
+                                <div class="sub-label">Action success percentage</div>
+                            </div>
+                        </div>
+                        <div class="metric-card" style="border-left: 4px solid #8B5CF6;">
+                            <div class="icon-wrap" style="background-color: rgba(139, 92, 246, 0.15);"><i class="fa-solid fa-gauge-high" style="color: #8B5CF6;"></i></div>
+                            <div class="metric-details">
+                                <div class="label">Events Rate</div>
+                                <div class="value"><span id="metricEventsRate">0</span> <span class="unit">/s</span></div>
+                                <div class="sub-label">Messages processed per second</div>
+                            </div>
+                        </div>
                     </div>
-
+ 
                     <!-- Graphs Grid -->
                     <div class="graphs-grid">
                         <div class="graph-card">
                             <div class="card-header">
                                 <h3>Bot Connection Timeline</h3>
-                                <div class="card-actions"><i class="fa-solid fa-info-circle" title="Tracks bot connection status: Success vs Reconnecting vs Failed"></i></div>
+                                <div class="card-actions">
+                                    <button class="btn-chart-export" onclick="exportChart('bots')" title="Export Chart to PNG"><i class="fa-solid fa-download"></i></button>
+                                    <i class="fa-solid fa-info-circle" title="Tracks bot connection status: Success vs Reconnecting vs Failed"></i>
+                                </div>
                             </div>
                             <div class="chart-container">
                                 <canvas id="botsChart"></canvas>
@@ -361,7 +380,10 @@
                         <div class="graph-card">
                             <div class="card-header">
                                 <h3>WebRTC Latency & Jitter</h3>
-                                <div class="card-actions"><i class="fa-solid fa-info-circle" title="Average latency and network jitter comparison over time"></i></div>
+                                <div class="card-actions">
+                                    <button class="btn-chart-export" onclick="exportChart('latency')" title="Export Chart to PNG"><i class="fa-solid fa-download"></i></button>
+                                    <i class="fa-solid fa-info-circle" title="Average latency and network jitter comparison over time"></i>
+                                </div>
                             </div>
                             <div class="chart-container">
                                 <canvas id="latencyChart"></canvas>
@@ -370,7 +392,10 @@
                         <div class="graph-card col-sm">
                             <div class="card-header">
                                 <h3>Server Resource Monitoring</h3>
-                                <div class="card-actions"><i class="fa-solid fa-info-circle" title="Host system CPU and Memory utilisation during the run"></i></div>
+                                <div class="card-actions">
+                                    <button class="btn-chart-export" onclick="exportChart('resources')" title="Export Chart to PNG"><i class="fa-solid fa-download"></i></button>
+                                    <i class="fa-solid fa-info-circle" title="Host system CPU and Memory utilisation during the run"></i>
+                                </div>
                             </div>
                             <div class="chart-container">
                                 <canvas id="resourcesChart"></canvas>
@@ -498,6 +523,7 @@
                                     <option value="error_logged">Errors only</option>
                                     <option value="bot_joined">Joins only</option>
                                 </select>
+                                <button class="btn btn-sm btn-secondary" id="toggleScrollBtn"><i class="fa-solid fa-pause"></i> Pause Scroll</button>
                                 <button class="btn btn-sm btn-secondary" id="clearConsoleBtn"><i class="fa-solid fa-trash"></i> Clear</button>
                             </div>
                         </div>

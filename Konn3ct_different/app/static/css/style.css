@@ -886,3 +886,21 @@ body {
     align-items: center;
     gap: 8px;
 }
+
+/* Chart Export Button styling */
+.btn-chart-export {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    margin-right: 8px;
+}
+
+.btn-chart-export:hover {
+    color: var(--accent);
+    background-color: var(--border-color);
+}

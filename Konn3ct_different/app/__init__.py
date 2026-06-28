@@ -20,6 +20,28 @@ def create_app(db_uri=None):
     app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     
+    # Run self-healing SQLite migrations
+    import sqlite3
+    if db_uri.startswith("sqlite:///"):
+        db_path = db_uri.replace("sqlite:///", "")
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='test_sessions'")
+            if cursor.fetchone():
+                cursor.execute("PRAGMA table_info(test_sessions)")
+                columns = [col[1] for col in cursor.fetchall()]
+                if "accumulated_duration" not in columns:
+                    cursor.execute("ALTER TABLE test_sessions ADD COLUMN accumulated_duration INTEGER DEFAULT 0")
+                    print("Self-healing: added accumulated_duration column to test_sessions table")
+                if "last_resume_time" not in columns:
+                    cursor.execute("ALTER TABLE test_sessions ADD COLUMN last_resume_time DATETIME")
+                    print("Self-healing: added last_resume_time column to test_sessions table")
+                conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Self-healing SQLite migration failed: {e}")
+
     # Initialize plugins
     db.init_app(app)
     socketio.init_app(app)

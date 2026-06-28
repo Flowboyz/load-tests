@@ -4,6 +4,22 @@ let socket = null;
 let currentActiveSessionId = null;
 let currentUser = null;
 
+// New Dashboard Global States for Buffering, Searching and Accurate Timing
+window.consoleLogsBuffer = [];
+window.maxConsoleLogs = 1000;
+window.botsFingerprints = {};
+window.botsMetadata = {};
+window.autoScroll = true;
+window.searchDebounce = null;
+window.eventCountLastSecond = 0;
+window.eventsRateInterval = null;
+
+// Timer Globals
+let sessionTimerInterval = null;
+let localTimerStartRealTime = null;
+let localTimerBaseSeconds = 0;
+let localElapsedSeconds = 0;
+
 // Tab Routing Configuration
 const TABS = ['monitoring', 'configurator', 'templates', 'history'];
 
@@ -36,6 +52,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateSerializedInputs('browser');
     updateSerializedInputs('device');
     updateSerializedInputs('os');
+
+    // 9. Setup Console Live Filters & Events rate ticker
+    setupConsoleFilters();
+    startEventsRateCounter();
 });
 
 // Theme Management
@@ -338,7 +358,7 @@ async function checkForRunningSession() {
         if (!response.ok) return;
         const data = await response.json();
         
-        const active = data.find(s => s.status === 'running' || s.status === 'paused');
+        const active = data.find(s => s.status === 'running' || s.status === 'paused' || s.status === 'pending');
         if (active) {
             setupActiveSession(active.id, active.name, active.status);
         }
@@ -348,16 +368,16 @@ async function checkForRunningSession() {
 }
 
 // Set UI state for active load test session
-let sessionTimerInterval = null;
-let sessionStartTime = null;
-
-// Set UI state for active load test session
 async function setupActiveSession(sessionId, sessionName, status) {
     currentActiveSessionId = sessionId;
     
     // Hide placeholder, show live dashboard grids
     document.getElementById('noActiveSessionPrompt').classList.add('hidden');
     document.getElementById('monitoringGrid').classList.remove('hidden');
+    
+    // Disable Launch Button on form configurator
+    const launchBtn = document.getElementById('launchTestBtn');
+    if (launchBtn) launchBtn.disabled = true;
     
     // Show Top bar controls
     const banner = document.getElementById('activeTestBanner');
@@ -372,6 +392,7 @@ async function setupActiveSession(sessionId, sessionName, status) {
         if (res.ok) {
             const sess = await res.json();
             if (sess.config) {
+                window.activeSessionTotalBots = sess.config.bots;
                 const activeTimeoutEl = document.getElementById('webrtcActiveTimeout');
                 if (activeTimeoutEl) {
                     activeTimeoutEl.textContent = (sess.config.confirm_timeout || 5.0).toFixed(1);
@@ -397,13 +418,13 @@ async function setupActiveSession(sessionId, sessionName, status) {
                 const lResponse = await fetch(`/api/sessions/${sessionId}/logs?limit=2000`);
                 if (lResponse.ok) {
                     const logs = await lResponse.json();
+                    
+                    window.consoleLogsBuffer = [];
+                    logs.forEach(evt => pushToConsoleBuffer(evt));
+                    renderAllConsoleLogs();
+                    
                     const currentLifecycle = aggregateLifecycleFromLogs(logs);
                     updateMetricsCards(mData[mData.length - 1], currentLifecycle);
-                    
-                    // Render existing logs in console terminal
-                    const consoleEl = document.getElementById('consoleTerminal');
-                    consoleEl.innerHTML = '';
-                    logs.forEach(evt => renderConsoleLog(evt));
                 } else {
                     updateMetricsCards(mData[mData.length - 1], null);
                 }
@@ -432,8 +453,7 @@ function startSessionTimer(sessionId) {
         })
         .then(sess => {
             if (!sess) return;
-            sessionStartTime = sess.started_at ? new Date(sess.started_at) : new Date();
-            updateTimerDisplay(sess.status);
+            syncTimer(sess.elapsed_seconds || 0, sess.status);
             
             if (sess.status === 'running') {
                 sessionTimerInterval = setInterval(() => {
@@ -444,34 +464,39 @@ function startSessionTimer(sessionId) {
         .catch(err => console.error("Error starting session timer: ", err));
 }
 
-function updateTimerDisplay(status) {
+function syncTimer(backendSeconds, status) {
+    localTimerBaseSeconds = backendSeconds;
+    localTimerStartRealTime = Date.now();
+    localElapsedSeconds = backendSeconds;
+    renderTimerDisplay(localElapsedSeconds);
+}
+
+function renderTimerDisplay(secsCount) {
     const timerEl = document.getElementById('bannerSessionTimer');
-    if (!timerEl || !sessionStartTime) return;
+    if (!timerEl) return;
     
-    if (status !== 'running' && status !== 'paused') {
-        timerEl.textContent = '00:00';
-        clearInterval(sessionTimerInterval);
-        sessionTimerInterval = null;
-        return;
-    }
-    
-    const now = new Date();
-    let diffMs = now.getTime() - sessionStartTime.getTime();
-    if (diffMs < 0) diffMs = 0;
-    
-    let diffSecs = Math.floor(diffMs / 1000);
-    
-    const hrs = Math.floor(diffSecs / 3600);
-    const mins = Math.floor((diffSecs % 3600) / 60);
-    const secs = diffSecs % 60;
+    const hrs = Math.floor(secsCount / 3600);
+    const mins = Math.floor((secsCount % 3600) / 60);
+    const secs = secsCount % 60;
     
     let timeStr = "";
     if (hrs > 0) {
         timeStr += String(hrs).padStart(2, '0') + ":";
     }
     timeStr += String(mins).padStart(2, '0') + ":" + String(secs).padStart(2, '0');
-    
     timerEl.textContent = timeStr;
+}
+
+function updateTimerDisplay(status) {
+    if (status !== 'running') {
+        clearInterval(sessionTimerInterval);
+        sessionTimerInterval = null;
+        return;
+    }
+    
+    const deltaSecs = Math.floor((Date.now() - localTimerStartRealTime) / 1000);
+    localElapsedSeconds = localTimerBaseSeconds + deltaSecs;
+    renderTimerDisplay(localElapsedSeconds);
 }
 
 function updateBannerStatusText(status) {
@@ -499,6 +524,18 @@ function updateBannerStatusText(status) {
             clearInterval(sessionTimerInterval);
             sessionTimerInterval = null;
         }
+    } else if (status === 'pending') {
+        badge.className = 'badge badge-stopped';
+        badge.style.backgroundColor = 'var(--warning-soft)';
+        badge.style.color = 'var(--warning)';
+        pauseBtn.classList.add('hidden');
+        resumeBtn.classList.add('hidden');
+        const timerEl = document.getElementById('bannerSessionTimer');
+        if (timerEl) timerEl.textContent = '00:00';
+        if (sessionTimerInterval) {
+            clearInterval(sessionTimerInterval);
+            sessionTimerInterval = null;
+        }
     }
 }
 
@@ -514,15 +551,59 @@ function initWebSocket(sessionId) {
         console.log("WebSocket connected. Joining session room: " + sessionId);
         socket.emit('join', { session_id: sessionId });
         
-        // Add log separator in console
+        // Update server status to online
+        const statusIndicator = document.querySelector('.status-indicator');
+        const statusText = document.querySelector('.status-text');
+        if (statusIndicator && statusText) {
+            statusIndicator.className = 'status-indicator online';
+            statusIndicator.style.backgroundColor = 'var(--success)';
+            statusIndicator.style.boxShadow = '0 0 8px var(--success)';
+            statusText.textContent = 'Server Status: Online';
+        }
+        
+        // Append system message in log terminal
         const consoleEl = document.getElementById('consoleTerminal');
-        consoleEl.innerHTML = `<div class="log-entry"><span class="ts">[SYSTEM]</span> <span class="tag">INFO:</span> <span class="info">Connected to real-time event streaming.</span></div>`;
+        const placeholder = consoleEl.querySelector('.console-placeholder');
+        if (placeholder) placeholder.remove();
+        
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.innerHTML = `<span class="ts">[SYSTEM]</span> <span class="info" style="color: var(--success); font-weight: 500;">Connected to real-time event streaming.</span>`;
+        consoleEl.appendChild(entry);
+        consoleEl.scrollTop = consoleEl.scrollHeight;
     });
 
-    // Listen for raw logs
-    socket.on('session_raw_event', (payload) => {
+    socket.on('disconnect', (reason) => {
+        console.warn("WebSocket disconnected: ", reason);
+        const statusIndicator = document.querySelector('.status-indicator');
+        const statusText = document.querySelector('.status-text');
+        if (statusIndicator && statusText) {
+            statusIndicator.className = 'status-indicator offline';
+            statusIndicator.style.backgroundColor = 'var(--error)';
+            statusIndicator.style.boxShadow = '0 0 8px var(--error)';
+            statusText.textContent = 'Server Status: Offline (Reconnecting...)';
+        }
+    });
+
+    socket.on('connect_error', (error) => {
+        console.error("WebSocket connection error: ", error);
+        const statusIndicator = document.querySelector('.status-indicator');
+        const statusText = document.querySelector('.status-text');
+        if (statusIndicator && statusText) {
+            statusIndicator.className = 'status-indicator offline';
+            statusIndicator.style.backgroundColor = 'var(--error)';
+            statusIndicator.style.boxShadow = '0 0 8px var(--error)';
+            statusText.textContent = 'Server Status: Offline (Connection Error)';
+        }
+    });
+
+    // Listen for raw logs in batch
+    socket.on('session_raw_events_batch', (payload) => {
         if (payload.session_id !== sessionId) return;
-        renderConsoleLog(payload.event);
+        payload.events.forEach(evt => {
+            pushToConsoleBuffer(evt);
+        });
+        renderAllConsoleLogs();
     });
 
     // Listen for fallback stdout console logs
@@ -539,12 +620,21 @@ function initWebSocket(sessionId) {
             <span class="info">${escapeHtml(payload.log)}</span>
         `;
         consoleEl.appendChild(entry);
-        consoleEl.scrollTop = consoleEl.scrollHeight;
+        if (window.autoScroll) {
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
     });
 
     // Listen for metrics updates
     socket.on('session_metrics', (payload) => {
         if (payload.session_id !== sessionId) return;
+        
+        // Sync local timer base
+        if (payload.elapsed_seconds !== undefined) {
+            localTimerBaseSeconds = payload.elapsed_seconds;
+            localTimerStartRealTime = Date.now();
+        }
+        
         updateMetricsCards(payload.metrics, payload.lifecycle_summary);
     });
 
@@ -560,23 +650,59 @@ function initWebSocket(sessionId) {
     });
 }
 
-// Log Terminal renderer
-function renderConsoleLog(evt) {
-    const consoleEl = document.getElementById('consoleTerminal');
+// Log Terminal data storage and filter helpers
+function pushToConsoleBuffer(evt) {
+    if (!evt) return;
     
-    // Clear placeholder
-    const placeholder = consoleEl.querySelector('.console-placeholder');
-    if (placeholder) placeholder.remove();
+    // Track event throughput
+    window.eventCountLastSecond++;
     
+    // Save bot fingerprints / metadata dynamically
     const etype = evt.event;
-    const filter = document.getElementById('logLevelFilter').value;
-    const search = document.getElementById('logSearchInput').value.toLowerCase();
+    if (etype === "bot_joined" && evt.bot_id) {
+        window.botsFingerprints[evt.bot_id] = evt.fingerprint || {};
+        window.botsMetadata[evt.bot_id] = {
+            name: evt.name,
+            email: evt.email,
+            role: "attendee"
+        };
+    } else if (etype === "action_logged" && evt.bot_id) {
+        if (!window.botsMetadata[evt.bot_id]) {
+            window.botsMetadata[evt.bot_id] = {
+                name: evt.name,
+                email: evt.email,
+                role: evt.role || "attendee"
+            };
+        } else if (evt.role) {
+            window.botsMetadata[evt.bot_id].role = evt.role;
+        }
+        const fp = evt.fingerprint;
+        if (fp) {
+            window.botsFingerprints[evt.bot_id] = fp;
+        }
+    }
     
-    // Filters check
-    if (filter !== 'all' && filter !== etype) return;
-    
+    window.consoleLogsBuffer.push(evt);
+    if (window.consoleLogsBuffer.length > window.maxConsoleLogs) {
+        window.consoleLogsBuffer.shift();
+    }
+}
+
+function getLogHtmlAndMessage(evt) {
+    const etype = evt.event;
     let logMsg = "";
     let statusClass = "info";
+    
+    const botId = evt.bot_id;
+    let metaStr = "";
+    if (botId) {
+        const fp = window.botsFingerprints[botId];
+        if (fp) {
+            const browser = fp.browser_name || fp.browser_type || "unknown";
+            const device = fp.device_type || "unknown";
+            metaStr = ` <span class="log-meta">[${browser} | ${device}]</span>`;
+        }
+    }
     
     if (etype === "test_started") {
         logMsg = `🚀 Load test started at ${evt.ts}`;
@@ -591,51 +717,137 @@ function renderConsoleLog(evt) {
         const value = evt.action_value;
         const latency = evt.latency_ms ? ` (propagation: ${evt.latency_ms.toFixed(1)}ms)` : "";
         if (evt.status === "confirmed") {
-            logMsg = `✅ Bot-${evt.bot_id} (${evt.name}) action confirmed: ${evt.action_type} → ${value}${latency}`;
+            logMsg = `✅ Bot-${evt.bot_id} (${evt.name}) action confirmed: ${evt.action_type} → ${value}${latency}${metaStr}`;
             statusClass = "info";
         } else if (evt.status.startsWith("observed:")) {
-            logMsg = `👀 Bot-${evt.bot_id} (${evt.name}) observed ${evt.status.split(":", 2)[1]} performing: ${evt.action_type} → ${value}${latency}`;
+            logMsg = `👀 Bot-${evt.bot_id} (${evt.name}) observed ${evt.status.split(":", 2)[1]} performing: ${evt.action_type} → ${value}${latency}${metaStr}`;
             statusClass = "tag";
         } else if (evt.status === "timed_out") {
-            logMsg = `⚠️ Bot-${evt.bot_id} (${evt.name}) action confirmation timeout on: ${evt.action_type}`;
+            logMsg = `⚠️ Bot-${evt.bot_id} (${evt.name}) action confirmation timeout on: ${evt.action_type}${metaStr}`;
             statusClass = "warn";
         } else {
-            logMsg = `❌ Bot-${evt.bot_id} (${evt.name}) action failed: ${evt.action_type}`;
+            logMsg = `❌ Bot-${evt.bot_id} (${evt.name}) action failed: ${evt.action_type}${metaStr}`;
             statusClass = "error";
         }
     } else if (etype === "error_logged") {
-        logMsg = `🚨 Bot-${evt.bot_id} (${evt.name}) error on action [${evt.action}]: ${evt.error}`;
+        logMsg = `🚨 Bot-${evt.bot_id} (${evt.name}) error on action [${evt.action}]: ${evt.error}${metaStr}`;
         statusClass = "error";
     } else if (etype === "test_finished") {
         logMsg = `📊 Load test finished. Summary written to log database.`;
         statusClass = "info";
     }
 
-    if (!logMsg) return;
-    
-    // Search check
-    if (search && !logMsg.toLowerCase().includes(search)) return;
+    if (!logMsg) return null;
 
     const timeStr = new Date(evt.ts).toLocaleTimeString();
-    
-    const entry = document.createElement('div');
-    entry.className = 'log-entry';
-    entry.innerHTML = `
+    const html = `
         <span class="ts">[${timeStr}]</span>
         <span class="${statusClass}">${logMsg}</span>
     `;
+    const plainText = `[${timeStr}] Bot-${evt.bot_id || ''} ${logMsg}`;
     
-    consoleEl.appendChild(entry);
+    return { html, text: plainText };
+}
+
+function renderAllConsoleLogs() {
+    const consoleEl = document.getElementById('consoleTerminal');
+    if (!consoleEl) return;
     
-    // Auto scroll to bottom
-    consoleEl.scrollTop = consoleEl.scrollHeight;
+    const filter = document.getElementById('logLevelFilter').value;
+    const search = document.getElementById('logSearchInput').value.toLowerCase();
+    
+    const fragment = document.createDocumentFragment();
+    let matchCount = 0;
+    
+    window.consoleLogsBuffer.forEach(evt => {
+        const etype = evt.event;
+        if (filter !== 'all' && filter !== etype) return;
+        
+        const logData = getLogHtmlAndMessage(evt);
+        if (!logData) return;
+        
+        if (search && !logData.text.toLowerCase().includes(search)) return;
+        
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.innerHTML = logData.html;
+        fragment.appendChild(entry);
+        matchCount++;
+    });
+    
+    // Detach or write innerHTML in single pass
+    consoleEl.innerHTML = '';
+    if (matchCount === 0) {
+        consoleEl.innerHTML = `<div class="console-placeholder">No matching logs found.</div>`;
+    } else {
+        consoleEl.appendChild(fragment);
+        if (window.autoScroll) {
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+    }
+}
+
+function setupConsoleFilters() {
+    // 1. Search filter input listener with 150ms debounce
+    const searchInput = document.getElementById('logSearchInput');
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            if (window.searchDebounce) clearTimeout(window.searchDebounce);
+            window.searchDebounce = setTimeout(() => {
+                renderAllConsoleLogs();
+            }, 150);
+        });
+    }
+
+    // 2. Dropdown type filter change
+    const levelFilter = document.getElementById('logLevelFilter');
+    if (levelFilter) {
+        levelFilter.addEventListener('change', () => {
+            renderAllConsoleLogs();
+        });
+    }
+
+    // 3. Scroll Toggle click
+    const toggleScrollBtn = document.getElementById('toggleScrollBtn');
+    if (toggleScrollBtn) {
+        toggleScrollBtn.addEventListener('click', () => {
+            window.autoScroll = !window.autoScroll;
+            if (window.autoScroll) {
+                toggleScrollBtn.innerHTML = '<i class="fa-solid fa-pause"></i> Pause Scroll';
+                toggleScrollBtn.classList.remove('btn-warning');
+                toggleScrollBtn.classList.add('btn-secondary');
+                const consoleEl = document.getElementById('consoleTerminal');
+                if (consoleEl) consoleEl.scrollTop = consoleEl.scrollHeight;
+            } else {
+                toggleScrollBtn.innerHTML = '<i class="fa-solid fa-play"></i> Resume Scroll';
+                toggleScrollBtn.classList.remove('btn-secondary');
+                toggleScrollBtn.classList.add('btn-warning');
+            }
+        });
+    }
+}
+
+function startEventsRateCounter() {
+    if (window.eventsRateInterval) {
+        clearInterval(window.eventsRateInterval);
+    }
+    
+    window.eventsRateInterval = setInterval(() => {
+        const eventsRateEl = document.getElementById('metricEventsRate');
+        if (eventsRateEl) {
+            eventsRateEl.textContent = window.eventCountLastSecond;
+        }
+        window.eventCountLastSecond = 0;
+    }, 1000);
 }
 
 // Live card values updater
 function updateMetricsCards(metrics, lifecycleSummary) {
-    document.getElementById('metricConnectedBots').textContent = metrics.connected_bots;
+    const totalBots = window.activeSessionTotalBots || 0;
+    document.getElementById('metricConnectedBots').textContent = `${metrics.connected_bots} / ${totalBots}`;
     document.getElementById('metricConnectingBots').textContent = metrics.connecting_bots;
     document.getElementById('metricReconnectingBots').textContent = metrics.reconnecting_bots;
+    document.getElementById('metricFailedBots').textContent = metrics.failed_bots;
     
     document.getElementById('metricLatency').textContent = metrics.avg_latency ? metrics.avg_latency.toFixed(1) : '0';
     document.getElementById('metricPacketLoss').textContent = metrics.packet_loss ? metrics.packet_loss.toFixed(2) : '0.00';
@@ -643,18 +855,29 @@ function updateMetricsCards(metrics, lifecycleSummary) {
 
     // Update real-time lifecycle widgets if available
     if (lifecycleSummary) {
-        // 1. Action Lifecycle Propagation
+        // Calculate and display Action Success Rate
         if (lifecycleSummary.status_counts) {
-            document.getElementById('lifecycleSent').textContent = lifecycleSummary.status_counts.sent || 0;
-            document.getElementById('lifecycleAcknowledged').textContent = lifecycleSummary.status_counts.acknowledged || 0;
-            document.getElementById('lifecycleBroadcasted').textContent = lifecycleSummary.status_counts.broadcasted || 0;
-            document.getElementById('lifecycleObserved').textContent = lifecycleSummary.status_counts.observed || 0;
-            document.getElementById('lifecycleRendered').textContent = lifecycleSummary.status_counts.rendered || 0;
+            const sc = lifecycleSummary.status_counts;
+            const totalActions = (sc.sent || 0) + (sc.acknowledged || 0) + (sc.broadcasted || 0) + (sc.observed || 0) + (sc.rendered || 0) + (sc['timed-out'] || 0) + (sc.failed || 0);
+            const successActions = (sc.acknowledged || 0) + (sc.broadcasted || 0) + (sc.observed || 0) + (sc.rendered || 0);
+            const successRate = totalActions > 0 ? ((successActions / totalActions) * 100.0) : 100.0;
+            
+            const rateEl = document.getElementById('metricSuccessRate');
+            if (rateEl) rateEl.textContent = successRate.toFixed(1);
+            
+            document.getElementById('lifecycleSent').textContent = sc.sent || 0;
+            document.getElementById('lifecycleAcknowledged').textContent = sc.acknowledged || 0;
+            document.getElementById('lifecycleBroadcasted').textContent = sc.broadcasted || 0;
+            document.getElementById('lifecycleObserved').textContent = sc.observed || 0;
+            document.getElementById('lifecycleRendered').textContent = sc.rendered || 0;
         }
 
-        // 2. Advanced WebRTC Parameters
+        // Update peak latency in Average Latency sublabel
         if (lifecycleSummary.webrtc_advanced) {
             const webrtc = lifecycleSummary.webrtc_advanced;
+            const peakEl = document.getElementById('metricPeakLatency');
+            if (peakEl) peakEl.textContent = webrtc.peak_latency ? webrtc.peak_latency.toFixed(0) : '0';
+            
             document.getElementById('webrtcAvgRtt').textContent = webrtc.rtt ? webrtc.rtt.toFixed(1) : '0';
             document.getElementById('webrtcAvgJitter').textContent = webrtc.jitter ? webrtc.jitter.toFixed(1) : '0';
             document.getElementById('webrtcTurnCount').textContent = webrtc.turn_count || 0;
@@ -730,10 +953,23 @@ function handleSessionFinished(status) {
         clearInterval(sessionTimerInterval);
         sessionTimerInterval = null;
     }
+    
+    // Clear events rate interval
+    if (window.eventsRateInterval) {
+        clearInterval(window.eventsRateInterval);
+        window.eventsRateInterval = null;
+    }
+    const eventsRateEl = document.getElementById('metricEventsRate');
+    if (eventsRateEl) eventsRateEl.textContent = '0';
+    
     const timerEl = document.getElementById('bannerSessionTimer');
     if (timerEl) timerEl.textContent = '00:00';
     
     currentActiveSessionId = null;
+    
+    // Enable Launch Button on form configurator
+    const launchBtn = document.getElementById('launchTestBtn');
+    if (launchBtn) launchBtn.disabled = false;
     
     // Hide controls
     document.getElementById('activeTestBanner').classList.add('hidden');
@@ -1064,7 +1300,9 @@ async function viewHistoricalLogs(sessId) {
             }
         }
 
-        logs.forEach(evt => renderConsoleLog(evt));
+        window.consoleLogsBuffer = [];
+        logs.forEach(evt => pushToConsoleBuffer(evt));
+        renderAllConsoleLogs();
     } catch (err) {
         alert("Failed to load historical logs.");
     }

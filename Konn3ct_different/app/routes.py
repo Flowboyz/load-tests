@@ -146,7 +146,21 @@ def pause_test(session_id):
     success = pause_session(session_id)
     if success:
         session.status = "paused"
+        if session.last_resume_time:
+            elapsed = (datetime.utcnow() - session.last_resume_time).total_seconds()
+            session.accumulated_duration += int(elapsed)
+        session.last_resume_time = None
         db.session.commit()
+        
+        from flask import current_app
+        socketio = current_app.extensions.get('socketio')
+        if socketio:
+            socketio.emit('session_status_changed', {
+                'session_id': session_id,
+                'status': 'paused',
+                'elapsed_seconds': session.accumulated_duration
+            }, room=f"session_{session_id}")
+            
         return jsonify({'message': 'Test session paused.'})
     return jsonify({'message': 'Failed to pause test session.'}), 500
 
@@ -161,7 +175,18 @@ def resume_test(session_id):
     success = resume_session(session_id)
     if success:
         session.status = "running"
+        session.last_resume_time = datetime.utcnow()
         db.session.commit()
+        
+        from flask import current_app
+        socketio = current_app.extensions.get('socketio')
+        if socketio:
+            socketio.emit('session_status_changed', {
+                'session_id': session_id,
+                'status': 'running',
+                'elapsed_seconds': session.accumulated_duration
+            }, room=f"session_{session_id}")
+            
         return jsonify({'message': 'Test session resumed.'})
     return jsonify({'message': 'Failed to resume test session.'}), 500
 
@@ -175,6 +200,10 @@ def stop_test(session_id):
         
     success = stop_session(session_id)
     
+    if session.status == "running" and session.last_resume_time:
+        elapsed = (datetime.utcnow() - session.last_resume_time).total_seconds()
+        session.accumulated_duration += int(elapsed)
+    session.last_resume_time = None
     session.status = "stopped"
     session.ended_at = datetime.utcnow()
     db.session.commit()
@@ -184,8 +213,9 @@ def stop_test(session_id):
     if socketio:
         socketio.emit('session_status_changed', {
             'session_id': session_id,
-            'status': 'stopped'
-        })
+            'status': 'stopped',
+            'elapsed_seconds': session.accumulated_duration
+        }, room=f"session_{session_id}")
         
     if success:
         return jsonify({'message': 'Test session stopped gracefully.'})
