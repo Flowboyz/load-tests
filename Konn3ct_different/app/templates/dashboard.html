@@ -284,7 +284,10 @@
                 <div class="banner-text">
                     <span class="label">ACTIVE RUN:</span>
                     <span class="name" id="bannerSessionName">Staging Stress Test</span>
-                    <span class="badge badge-running" id="bannerSessionStatus">RUNNING</span>
+                    <div style="display: flex; gap: 8px; align-items: center; margin-top: 2px;">
+                        <span class="badge badge-running" id="bannerSessionStatus">RUNNING</span>
+                        <span class="badge" style="background-color: var(--accent-soft); color: var(--accent); font-family: monospace; font-size: 11px; font-weight: 600;" id="bannerSessionTimer">00:00</span>
+                    </div>
                 </div>
                 <div class="banner-controls">
                     <button class="btn btn-sm btn-warning" id="bannerPauseBtn" title="Pause Actions"><i class="fa-solid fa-pause"></i> Pause</button>
@@ -425,6 +428,10 @@
                                 <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
                                     <span><i class="fa-solid fa-route" style="color: var(--warning); width: 20px;"></i> TURN Relay usage</span>
                                     <span style="font-size: 13px; font-weight: 600;"><span id="webrtcTurnCount">0</span> TURN / <span id="webrtcRelayCount">0</span> Relay</span>
+                                </div>
+                                <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                    <span><i class="fa-solid fa-hourglass-half" style="color: #F472B6; width: 20px;"></i> Confirm Timeout</span>
+                                    <span style="font-size: 13px; font-weight: 600; color: #F472B6;"><span id="webrtcActiveTimeout">5.0</span>s</span>
                                 </div>
                                 <div class="prop-stage" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
                                     <span><i class="fa-solid fa-stopwatch" style="color: #F87171; width: 20px;"></i> Average RTT</span>
@@ -581,6 +588,16 @@
                                         <input type="number" id="formPresenterBotId" value="2" min="1">
                                     </div>
                                 </div>
+                                <div class="form-row">
+                                    <div class="form-group col-6">
+                                        <label for="formConfirmTimeout">Confirm Timeout (s)</label>
+                                        <input type="number" id="formConfirmTimeout" value="5.0" step="0.5" min="1">
+                                    </div>
+                                    <div class="form-group col-6">
+                                        <label for="formMaxRetries">Max Reconnect Retries</label>
+                                        <input type="number" id="formMaxRetries" value="5" min="0">
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="form-section">
@@ -599,16 +616,6 @@
                                     <div class="form-group col-6">
                                         <label for="formChatInterval">Chat Interval (s)</label>
                                         <input type="number" id="formChatInterval" value="60.0" min="1">
-                                    </div>
-                                </div>
-                                <div class="form-row">
-                                    <div class="form-group col-6">
-                                        <label for="formConfirmTimeout">Confirm Timeout (s)</label>
-                                        <input type="number" id="formConfirmTimeout" value="5.0" step="0.5" min="1">
-                                    </div>
-                                    <div class="form-group col-6">
-                                        <label for="formMaxRetries">Max Reconnect Retries</label>
-                                        <input type="number" id="formMaxRetries" value="5" min="0">
                                     </div>
                                 </div>
                                 <div class="form-row checkbox-grid">

@@ -348,7 +348,11 @@ async function checkForRunningSession() {
 }
 
 // Set UI state for active load test session
-function setupActiveSession(sessionId, sessionName, status) {
+let sessionTimerInterval = null;
+let sessionStartTime = null;
+
+// Set UI state for active load test session
+async function setupActiveSession(sessionId, sessionName, status) {
     currentActiveSessionId = sessionId;
     
     // Hide placeholder, show live dashboard grids
@@ -362,8 +366,112 @@ function setupActiveSession(sessionId, sessionName, status) {
     
     updateBannerStatusText(status);
 
-    // Initialise WebSockets Socket.IO client connection
+    // 1. Fetch session config details to apply and show the timeout on the WebRTC card
+    try {
+        const res = await fetch(`/api/sessions/${sessionId}`);
+        if (res.ok) {
+            const sess = await res.json();
+            if (sess.config) {
+                const activeTimeoutEl = document.getElementById('webrtcActiveTimeout');
+                if (activeTimeoutEl) {
+                    activeTimeoutEl.textContent = (sess.config.confirm_timeout || 5.0).toFixed(1);
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Failed to load active session config: ", e);
+    }
+
+    // 2. Pre-populate metrics cards and charts with existing history
+    try {
+        const mResponse = await fetch(`/api/sessions/${sessionId}/metrics`);
+        if (mResponse.ok) {
+            const mData = await mResponse.json();
+            clearCharts();
+            mData.forEach(m => {
+                const timeStr = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                updateCharts(timeStr, m);
+            });
+            if (mData.length > 0) {
+                // Read logs to get final lifecycle counts
+                const lResponse = await fetch(`/api/sessions/${sessionId}/logs?limit=2000`);
+                if (lResponse.ok) {
+                    const logs = await lResponse.json();
+                    const currentLifecycle = aggregateLifecycleFromLogs(logs);
+                    updateMetricsCards(mData[mData.length - 1], currentLifecycle);
+                    
+                    // Render existing logs in console terminal
+                    const consoleEl = document.getElementById('consoleTerminal');
+                    consoleEl.innerHTML = '';
+                    logs.forEach(evt => renderConsoleLog(evt));
+                } else {
+                    updateMetricsCards(mData[mData.length - 1], null);
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Failed to load historical metrics: ", e);
+    }
+
+    // 3. Initialise WebSockets Socket.IO client connection
     initWebSocket(sessionId);
+    
+    // 4. Start the session timer ticking
+    startSessionTimer(sessionId);
+}
+
+function startSessionTimer(sessionId) {
+    if (sessionTimerInterval) {
+        clearInterval(sessionTimerInterval);
+        sessionTimerInterval = null;
+    }
+    
+    fetch(`/api/sessions/${sessionId}`)
+        .then(res => {
+            if (res.ok) return res.json();
+        })
+        .then(sess => {
+            if (!sess) return;
+            sessionStartTime = sess.started_at ? new Date(sess.started_at) : new Date();
+            updateTimerDisplay(sess.status);
+            
+            if (sess.status === 'running') {
+                sessionTimerInterval = setInterval(() => {
+                    updateTimerDisplay(sess.status);
+                }, 1000);
+            }
+        })
+        .catch(err => console.error("Error starting session timer: ", err));
+}
+
+function updateTimerDisplay(status) {
+    const timerEl = document.getElementById('bannerSessionTimer');
+    if (!timerEl || !sessionStartTime) return;
+    
+    if (status !== 'running' && status !== 'paused') {
+        timerEl.textContent = '00:00';
+        clearInterval(sessionTimerInterval);
+        sessionTimerInterval = null;
+        return;
+    }
+    
+    const now = new Date();
+    let diffMs = now.getTime() - sessionStartTime.getTime();
+    if (diffMs < 0) diffMs = 0;
+    
+    let diffSecs = Math.floor(diffMs / 1000);
+    
+    const hrs = Math.floor(diffSecs / 3600);
+    const mins = Math.floor((diffSecs % 3600) / 60);
+    const secs = diffSecs % 60;
+    
+    let timeStr = "";
+    if (hrs > 0) {
+        timeStr += String(hrs).padStart(2, '0') + ":";
+    }
+    timeStr += String(mins).padStart(2, '0') + ":" + String(secs).padStart(2, '0');
+    
+    timerEl.textContent = timeStr;
 }
 
 function updateBannerStatusText(status) {
@@ -375,15 +483,22 @@ function updateBannerStatusText(status) {
     const resumeBtn = document.getElementById('bannerResumeBtn');
     
     if (status === 'running') {
-        badge.classList.add('badge-running');
+        badge.className = 'badge badge-running';
         pauseBtn.classList.remove('hidden');
         resumeBtn.classList.add('hidden');
+        if (!sessionTimerInterval && currentActiveSessionId) {
+            startSessionTimer(currentActiveSessionId);
+        }
     } else if (status === 'paused') {
-        badge.classList.add('badge-running'); // Keep flashing
+        badge.className = 'badge badge-running'; // Keep flashing
         badge.style.backgroundColor = 'var(--warning-soft)';
         badge.style.color = 'var(--warning)';
         pauseBtn.classList.add('hidden');
         resumeBtn.classList.remove('hidden');
+        if (sessionTimerInterval) {
+            clearInterval(sessionTimerInterval);
+            sessionTimerInterval = null;
+        }
     }
 }
 
@@ -610,6 +725,13 @@ function handleSessionFinished(status) {
         socket.disconnect();
         socket = null;
     }
+    
+    if (sessionTimerInterval) {
+        clearInterval(sessionTimerInterval);
+        sessionTimerInterval = null;
+    }
+    const timerEl = document.getElementById('bannerSessionTimer');
+    if (timerEl) timerEl.textContent = '00:00';
     
     currentActiveSessionId = null;
     
