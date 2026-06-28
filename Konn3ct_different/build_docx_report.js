@@ -465,7 +465,6 @@ const avgFirstAudio = getAvg(webrtcPerfList.map(wp => wp.avg_first_audio_packet_
 const avgFirstVideo = getAvg(webrtcPerfList.map(wp => wp.avg_first_video_frame_time || 0));
 const avgIceRecovery = getAvg(webrtcPerfList.map(wp => wp.avg_ice_restart_recovery_time || 0));
 const avgSpeakerSwitch = getAvg(webrtcPerfList.map(wp => wp.avg_active_speaker_switch_delay || 0));
-
 const joinPerfList = Object.values(data.join_performance || {});
 const avgJoinTime = getAvg(joinPerfList.map(jp => jp.avg_join_time || 0));
 
@@ -490,175 +489,222 @@ const gates = [
     threshold: "≥99.5%",
     measured: `${signalSurvivalRate.toFixed(1)}%`,
     pass: signalSurvivalRate >= 99.5,
-    rec: "Optimize load balancer session affinity and increase socket ping keep-alive intervals to 25s."
+    rec_fe: "Configure the WebSocket client with exponential backoff connection retries, dynamic token refresh before timeout, and local event queueing during disconnected phases.",
+    rec_be: "Optimize load balancer session affinity cookie policies, tune connection broker socket keep-alive ping intervals to 25s, and adjust TCP backlog queue size.",
+    rec_lt: "Increase `--stagger` startup delay to distribute connection spikes and configure client container network limits to allow high socket counts."
   },
   {
     name: "WebRTC Connection Success Rate",
     threshold: "≥99.0%",
     measured: `${(data.config?.webrtc_enabled ? 99.8 : 0.0).toFixed(1)}%`,
     pass: data.config?.webrtc_enabled ? true : false,
-    rec: "WebRTC client signaling is disabled. Ensure '--webrtc-enabled' is passed and client certificates are correctly signed."
+    rec_fe: "Implement robust error event handlers on client PeerConnection state changes, and trigger signaling renegotiation if iceConnectionState becomes disconnected.",
+    rec_be: "Ensure media router port ranges (typically UDP 10000-20000) are open, and configure DTLS certificates to be signed and validated by correct authorities.",
+    rec_lt: "Pass `--webrtc-enabled` flag explicitly, and check that the host machine's open file descriptors limits (`ulimit -n`) are set to at least 65535."
   },
   {
     name: "ICE Connection Setup Time",
     threshold: "Avg <500ms",
     measured: `${avgIceTime.toFixed(0)} ms`,
     pass: avgIceTime < 500,
-    rec: "Deploy geo-routed STUN/TURN servers closer to client regions and enable ICE Lite on SFU endpoints."
+    rec_fe: "Filter out unused local host candidates (e.g. IPv6 or loopback) before sending iceCandidate signaling messages to decrease connection path options.",
+    rec_be: "Deploy geo-routed STUN/TURN clusters closer to client network hubs and enable ICE Lite on the SFU endpoint servers to bypass client-side checks.",
+    rec_lt: "Set `--confirm-timeout` to at least 15000ms to allow sufficient time for ICE candidates gathering under congested networks."
   },
   {
     name: "DTLS Handshake Time",
     threshold: "Avg <500ms",
     measured: `${avgDtlsTime.toFixed(0)} ms`,
     pass: avgDtlsTime < 500,
-    rec: "Optimize TLS cert chains on signaling and media servers to speed up cryptographic exchange."
+    rec_fe: "Prefetch media stream configuration parameters and initiate ICE gathering prior to signaling handshake, and cache cryptographic session contexts.",
+    rec_be: "Optimize DTLS certificate chains on media workers and tune router MTU UDP payload sizing to prevent fragmentation during the DTLS exchange.",
+    rec_lt: "Ensure the runner's UDP packet buffer sizes are aligned to prevent packet drops and limit concurrent signaling threads using `--concurrency`."
   },
   {
     name: "Chat Message Delivery Rate",
     threshold: "≥99.0%",
     measured: `${chatSuccessRate.toFixed(1)}%`,
     pass: chatSuccessRate >= 99.0,
-    rec: "Increase fan-out queue thresholds in signaling cluster Redis PubSub channels."
+    rec_fe: "Implement local delivery confirmation loops with matching client-side transaction IDs, and buffer chat payloads in a retry queue.",
+    rec_be: "Increase Redis Pub/Sub cluster shards, scale up message broker memory allocation limits, and run async signaling queue workers.",
+    rec_lt: "Increase `--chat-interval` parameter to prevent client simulation threads from overloading signaling message queues."
   },
   {
     name: "Camera Toggle Success Rate",
     threshold: "≥99.0%",
     measured: `${camSuccessRate.toFixed(1)}%`,
     pass: camSuccessRate >= 99.0,
-    rec: "Scale SFU media worker CPU headroom to handle rapid producer track additions."
+    rec_fe: "Introduce client-side input throttling, release hardware camera tracks cleanly, and display local virtual tracks immediately.",
+    rec_be: "Scale SFU media worker CPU core allocation and tune signaling acknowledgments to prevent track state synchronization bottlenecks.",
+    rec_lt: "Increase `--action-interval` dynamically to avoid overlapping camera toggle simulation events on the client threads."
   },
   {
     name: "Mic Toggle Success Rate",
     threshold: "≥99.0%",
     measured: `${micSuccessRate.toFixed(1)}%`,
     pass: micSuccessRate >= 99.0,
-    rec: "Upgrade client audio processor bindings to release hardware device channels cleanly."
+    rec_fe: "Call `.stop()` on microphone tracks and release WebAudio contexts to free hardware audio capture layers immediately.",
+    rec_be: "Optimize voice activity detection (VAD) parsing threads and expedite track state synchronization messages across media worker nodes.",
+    rec_lt: "Set `--media-quality` to 'audio-only' or configure lower audio sample rates to limit bandwidth consumption on the runner host."
   },
   {
     name: "Hand Raise Toggle Success Rate",
     threshold: "≥99.0%",
     measured: `${handSuccessRate.toFixed(1)}%`,
     pass: handSuccessRate >= 99.0,
-    rec: "Reduce signaling message queues processing lock contention."
+    rec_fe: "Debounce hand-raise click actions to prevent multiple fast clicks from flooding the server socket.",
+    rec_be: "Optimize database signaling lock contention and process non-blocking state updates in separate queues.",
+    rec_lt: "Throttle simulated hand-raise triggers in the test scenario config by adjusting task weights."
   },
   {
     name: "Screen Share Desktop Success",
     threshold: "≥98.0%",
     measured: `${scrSuccessRate.toFixed(1)}%`,
     pass: scrSuccessRate >= 98.0,
-    rec: "Configure screen capture permissions policy in web application headers for Chrome/Firefox."
+    rec_fe: "Gracefully catch NotAllowedError rejections and prompt users to enable system screen capture permissions.",
+    rec_be: "Configure standard Screen Capture Permissions-Policy HTTP headers on the web host server.",
+    rec_lt: "Configure test runner chromium launch arguments to bypass media stream confirmation (e.g. `--use-fake-ui-for-media-stream`)."
   },
   {
     name: "Mobile Screen Share Rejection",
     threshold: "100.0%",
     measured: "100.0%",
     pass: true,
-    rec: "Ensure mobile agents reject screen sharing immediately without raising errors or timeouts."
+    rec_fe: "Implement user agent checks to disable and hide screen sharing controls on mobile browsers.",
+    rec_be: "Enforce server-side rejection of screen share negotiation descriptors if client-type header is mobile.",
+    rec_lt: "Verify that simulated mobile agents run with appropriate device profiles that correctly trigger screen share rejections."
   },
   {
     name: "Join Meeting Latency (P95)",
     threshold: "<2,000ms",
     measured: `${avgJoinTime.toFixed(0)} ms`,
     pass: avgJoinTime < 2000,
-    rec: "Cache pre-join meeting states in Redis and optimize authorization queries."
+    rec_fe: "Lazy-load heavy dashboard bundles and optimize pre-fetch/cache calls during initial room routing.",
+    rec_be: "Cache pre-join meeting details in Redis and index authorization database queries.",
+    rec_lt: "Use `--batch` sizing control to serialize client logins and prevent login surges from overwhelming authentication servers."
   },
   {
     name: "First Audio Packet Received",
     threshold: "<3,000ms",
     measured: `${avgFirstAudio.toFixed(0)} ms`,
     pass: avgFirstAudio < 3000,
-    rec: "Pre-warm audio pipelines on client connection handshake."
+    rec_fe: "Pre-warm and initialize WebAudio player components on pre-join screens before complete connection handshake.",
+    rec_be: "Send silent audio packet sequences immediately upon connection creation to pre-warm server paths.",
+    rec_lt: "Increase client start stagger settings using `--stagger` to prevent connection spikes from queueing media processing."
   },
   {
     name: "First Video Frame Rendered",
     threshold: "<5,000ms",
     measured: `${avgFirstVideo.toFixed(0)} ms`,
     pass: avgFirstVideo < 5000,
-    rec: "Configure H.264/VP8 decoders to ignore leading non-keyframe packets."
+    rec_fe: "Ignore leading video frame packets preceding the first keyframe (I-frame) to prevent decoder lag.",
+    rec_be: "Instruct the SFU to force a keyframe request (PLI/FIR) immediately when a new video consumer joins.",
+    rec_lt: "Limit subscription bounds via `--max-subscriptions` to reduce downstream video decoder queues on client threads."
   },
   {
     name: "Audio Packet Loss",
     threshold: "Avg <1.0%",
     measured: `${(avgLoss * 100).toFixed(2)}%`,
     pass: avgLoss < 0.01,
-    rec: "Enable Opus FEC and scale TURN instances to reduce regional router queue packet drops."
+    rec_fe: "Enable Opus in-band Forward Error Correction (FEC) and enable packet loss concealment in jitter buffers.",
+    rec_be: "Scale TURN server instance nodes and configure QoS routing rules (DSCP EF) on regional gate networks.",
+    rec_lt: "Adjust `--media-quality` parameters to choose lower bitrate voice profiles, reducing output network bandwidth requirements."
   },
   {
     name: "Video Packet Loss",
     threshold: "Avg <2.0%",
     measured: `${(avgLoss * 100).toFixed(2)}%`,
     pass: avgLoss < 0.02,
-    rec: "Enable NACK/retransmissions and configure sender bandwidth estimation rules."
+    rec_fe: "Configure RTCP NACK/retransmissions and adjust video sender bandwidth parameters dynamically.",
+    rec_be: "Tune SFU RTX retransmission buffer sizes and scale up downstream media bandwidth allocation parameters.",
+    rec_lt: "Ensure simulator nodes have sufficient network egress throughput and limit the number of active video publishers."
   },
   {
     name: "WebRTC RTT (Latency)",
     threshold: "Avg <150ms",
     measured: `${avgRtt.toFixed(1)} ms`,
     pass: avgRtt < 150,
-    rec: "Deploy regional SFU instances closer to user clusters to shorten packet routes."
+    rec_fe: "Enable client-side measurement and auto-selection of the nearest edge node during initial handshake.",
+    rec_be: "Deploy regional SFU instances closer to user clusters to shorten packet routing paths.",
+    rec_lt: "Deploy simulator runners in the same cloud availability zone as the target media servers to eliminate external latency routing overhead."
   },
   {
     name: "WebRTC Jitter",
     threshold: "Avg <30ms",
     measured: `${avgJitter.toFixed(1)} ms`,
     pass: avgJitter < 30,
-    rec: "Deploy adaptive jitter buffer management on client player frameworks."
+    rec_fe: "Deploy adaptive jitter buffer management and dynamic speed-adjustment algorithms on client players.",
+    rec_be: "Optimize thread execution priority and minimize context-switch overhead on the media router.",
+    rec_lt: "Optimize simulator runner CPU allocation, as local thread scheduling delays on overloaded hosts can report false jitter."
   },
   {
     name: "Audio Freeze/Stall Ratio",
     threshold: "<0.5%",
     measured: `${(avgAudioFreeze * 100).toFixed(2)}%`,
     pass: avgAudioFreeze < 0.005,
-    rec: "Configure audio packets prioritisation in network QoS flags."
+    rec_fe: "Adjust audio playout delay thresholds and enable audio packet loss concealment algorithms.",
+    rec_be: "Prioritize audio streams over video packets in the SFU network output buffer controller.",
+    rec_lt: "Ensure that CPU utilization of the client simulator host remains below 80% to prevent local decoder starvation freezes."
   },
   {
     name: "Video Freeze/Stall Ratio",
     threshold: "<1.0%",
     measured: `${(avgVideoFreeze * 100).toFixed(2)}%`,
     pass: avgVideoFreeze < 0.01,
-    rec: "Adjust frame rendering buffer thresholds and request PLI when loss is detected."
+    rec_fe: "Adjust frame rendering buffer thresholds and request PLI when loss is detected.",
+    rec_be: "Instruct the SFU media worker to switch to a lower quality layer if the bandwidth estimate drops.",
+    rec_lt: "Reduce the count of active screen sharing and camera streams to fit the bandwidth limits of the testing node."
   },
   {
     name: "ICE Restart Recovery Delay",
     threshold: "<10.0s",
     measured: `${(avgIceRecovery / 1000).toFixed(1)}s`,
     pass: (avgIceRecovery / 1000) < 10.0,
-    rec: "Speed up ICE candidate aggregation cache on media bridge."
+    rec_fe: "Monitor iceconnectionstate changes and trigger ICE restart immediately upon connection drop.",
+    rec_be: "Speed up ICE candidate aggregation cache on media bridge.",
+    rec_lt: "Avoid high client simulator network congestions that might drop the binding request packets required for ICE restarts."
   },
   {
     name: "Active Speaker Switch Delay",
     threshold: "Avg <500ms",
     measured: `${avgSpeakerSwitch.toFixed(0)} ms`,
     pass: avgSpeakerSwitch < 500,
-    rec: "Increase audio level sampling frequency in media router voice activity detector."
+    rec_fe: "Process speaker active indicators in local web workers to reduce UI main thread blockage.",
+    rec_be: "Increase audio level sampling frequency and decrease window size in media router voice activity detector.",
+    rec_lt: "Ensure the presenter bot ID (`--presenter-bot-id`) is set correctly to ensure reliable test target measurement."
   },
   {
     name: "Server CPU Load",
     threshold: "Avg <60%",
     measured: `${(data.config?.bots > 50 ? 54.5 : 32.0).toFixed(1)}%`,
     pass: (data.config?.bots > 50 ? 54.5 : 32.0) < 60,
-    rec: "Distribute media worker threads across multiple processor cores using cluster modules."
+    rec_fe: "Choose VP8/H.264 video streams instead of high-compute AV1 to limit server decoding load.",
+    rec_be: "Distribute media worker threads across multiple processor cores using cluster modules.",
+    rec_lt: "Lower the simulator concurrent count (`--concurrency`) or adjust toggle action rates to reduce incoming media request load."
   },
   {
     name: "Server Memory Usage",
     threshold: "Avg <70%",
     measured: `${(data.config?.bots > 50 ? 45.0 : 28.0).toFixed(1)}%`,
     pass: (data.config?.bots > 50 ? 45.0 : 28.0) < 70,
-    rec: "Optimize Node.js garbage collection options and profile memory allocation leaks."
+    rec_fe: "Properly clean up and unbind HTML video tag elements to avoid memory leaks in the browser.",
+    rec_be: "Optimize Node.js garbage collection options and profile memory allocation leaks."
   },
   {
     name: "Database P95 Query Latency",
     threshold: "<100ms",
     measured: "18 ms",
     pass: true,
-    rec: "Add database index tables on roomId, sessionId, and user session records."
+    rec_fe: "Throttling/debouncing state synchronizations (such as user presence) from the client application.",
+    rec_be: "Add database index tables on roomId, sessionId, and user session records."
   },
   {
     name: "Redis Queue P95 Delay",
     threshold: "<10ms",
     measured: "2 ms",
     pass: true,
-    rec: "Run Redis in-memory and disable expensive disk snapshot logging during load."
+    rec_fe: "Reduce custom payload sizes of signaling messages transmitted over WebSockets.",
+    rec_be: "Run Redis in-memory and disable expensive disk snapshot logging during load."
   }
 ];
 
@@ -870,7 +916,13 @@ const doc = new Document({
       // 20. Developer Recommendations
       sectionHeading("20. Developer Recommendations"),
       ...(hasFailedGates ?
-        failedGates.map((g, idx) => paragraph(`${idx + 1}. [SLA Gate Failed: ${g.name}] (Measured: ${g.measured} vs Target: ${g.threshold}) - Recommendation: ${g.rec}`)) :
+        failedGates.flatMap((g, idx) => [
+          paragraph(`${idx + 1}. [SLA Gate Failed: ${g.name}] (Measured: ${g.measured} vs Target: ${g.threshold})`, { bold: true }),
+          paragraph(`   • Frontend Action: ${g.rec_fe}`),
+          paragraph(`   • Backend/Infrastructure Action: ${g.rec_be}`),
+          paragraph(`   • Load Tester Action: ${g.rec_lt}`),
+          paragraph("")
+        ]) :
         [paragraph("All SLA thresholds successfully satisfied. No developer adjustments are recommended at this time.")]
       ),
 
