@@ -2,12 +2,24 @@ import os
 import csv
 import time
 from datetime import datetime
-from flask import Blueprint, request, jsonify, send_file, current_app
+from flask import Blueprint, request, jsonify, send_file, current_app, Response
 from app.models import db, Configuration, TestSession, SessionMetric
 from app.auth import token_required, roles_accepted
 from app.runner import start_session, pause_session, resume_session, stop_session, get_session_dir
 
 api_bp = Blueprint('api', __name__)
+
+def stream_file_in_chunks(file_path, chunk_size=65536):
+    """Streams a file in binary chunks to prevent high memory usage and socket timeouts."""
+    try:
+        with open(file_path, 'rb') as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+    except Exception as e:
+        print(f"Error streaming file {file_path}: {e}")
 
 # --- Configuration Template Routes ---
 
@@ -243,7 +255,14 @@ def download_report(session_id, fmt):
     if fmt == 'json':
         if not os.path.exists(log_path):
             return jsonify({'message': 'JSON log file not found!'}), 404
-        return send_file(log_path, as_attachment=True, download_name=f"session_{session_id}_logs.jsonl")
+        return Response(
+            stream_file_in_chunks(log_path),
+            mimetype='application/jsonl',
+            headers={
+                "Content-Disposition": f"attachment; filename=session_{session_id}_logs.jsonl",
+                "Content-Length": os.path.getsize(log_path)
+            }
+        )
         
     elif fmt == 'csv':
         if not os.path.exists(csv_path):
@@ -257,7 +276,14 @@ def download_report(session_id, fmt):
                 csv_path = fallback
             else:
                 return jsonify({'message': 'CSV report file not found!'}), 404
-        return send_file(csv_path, as_attachment=True, download_name=f"session_{session_id}_action_log.csv")
+        return Response(
+            stream_file_in_chunks(csv_path),
+            mimetype='text/csv',
+            headers={
+                "Content-Disposition": f"attachment; filename=session_{session_id}_action_log.csv",
+                "Content-Length": os.path.getsize(csv_path)
+            }
+        )
         
     elif fmt == 'docx':
         if not os.path.exists(docx_path):
@@ -267,7 +293,14 @@ def download_report(session_id, fmt):
             
         if not os.path.exists(docx_path):
             return jsonify({'message': 'DOCX report file not found!'}), 404
-        return send_file(docx_path, as_attachment=True, download_name=f"session_{session_id}_report.docx")
+        return Response(
+            stream_file_in_chunks(docx_path),
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            headers={
+                "Content-Disposition": f"attachment; filename=session_{session_id}_report.docx",
+                "Content-Length": os.path.getsize(docx_path)
+            }
+        )
         
     elif fmt == 'pdf':
         if not os.path.exists(docx_path):
@@ -282,7 +315,14 @@ def download_report(session_id, fmt):
                 pdf_path = pdf
                 session.report_pdf_path = pdf
                 db.session.commit()
-                return send_file(pdf, as_attachment=True, download_name=f"session_{session_id}_report.pdf")
+                return Response(
+                    stream_file_in_chunks(pdf),
+                    mimetype='application/pdf',
+                    headers={
+                        "Content-Disposition": f"attachment; filename=session_{session_id}_report.pdf",
+                        "Content-Length": os.path.getsize(pdf)
+                    }
+                )
             return jsonify({
                 'message': (
                     'PDF conversion failed. This feature requires LibreOffice to be installed on the server. '
@@ -290,7 +330,14 @@ def download_report(session_id, fmt):
                     'install LibreOffice (soffice) and ensure it is added to your system PATH or installed in the default location.'
                 )
             }), 404
-        return send_file(pdf_path, as_attachment=True, download_name=f"session_{session_id}_report.pdf")
+        return Response(
+            stream_file_in_chunks(pdf_path),
+            mimetype='application/pdf',
+            headers={
+                "Content-Disposition": f"attachment; filename=session_{session_id}_report.pdf",
+                "Content-Length": os.path.getsize(pdf_path)
+            }
+        )
         
     else:
         return jsonify({'message': 'Invalid download format! Must be JSON, CSV, DOCX, or PDF.'}), 400

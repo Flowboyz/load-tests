@@ -20,6 +20,20 @@ def get_session_dir(session_id):
     os.makedirs(session_dir, exist_ok=True)
     return session_dir
 
+def get_python_executable(project_root):
+    """
+    Resolves the python interpreter path. Prefers the virtual environment's python
+    to guarantee all dependencies (docx, aiortc, etc.) are available.
+    """
+    if sys.platform == "win32":
+        venv_python = os.path.join(project_root, ".venv", "Scripts", "python.exe")
+    else:
+        venv_python = os.path.join(project_root, ".venv", "bin", "python")
+        
+    if os.path.exists(venv_python):
+        return venv_python
+    return sys.executable
+
 def run_test_process(app, socketio, session_id):
     """
     Background worker that runs the subprocess, tails logs, aggregates metrics, 
@@ -61,7 +75,7 @@ def run_test_process(app, socketio, session_id):
         py_guest_path = os.path.join(project_root, "py_guest.py")
         
         cmd = [
-            sys.executable, py_guest_path,
+            get_python_executable(project_root), py_guest_path,
             "--room", config.room,
             "--bots", str(config.bots),
             "--stagger", str(config.stagger),
@@ -432,7 +446,7 @@ def compile_report_log(project_root, log_path, docx_path):
     generate_report_script = os.path.join(project_root, "generate_report.py")
     try:
         subprocess.run(
-            [sys.executable, generate_report_script, log_path, "--output", docx_path],
+            [get_python_executable(project_root), generate_report_script, log_path, "--output", docx_path],
             check=True,
             capture_output=True
         )
