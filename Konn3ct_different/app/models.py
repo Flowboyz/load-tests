@@ -95,7 +95,7 @@ class Configuration(db.Model):
     camera_publishers = db.Column(db.Text, default='1,2,3,4,5')
     screen_share_publishers = db.Column(db.Text, default='2')
     mic_publishers = db.Column(db.Text, default='1,2,3,4,5')
-    viewer_bots = db.Column(db.Text, default='6-1000')
+    viewer_bots = db.Column(db.Text, default='6-10000')
     viewer_mode = db.Column(db.String(50), default='receive_only')
     auto_camera = db.Column(db.Boolean, default=False)
     auto_mic = db.Column(db.Boolean, default=False)

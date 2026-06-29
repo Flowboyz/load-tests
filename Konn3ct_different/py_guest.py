@@ -447,8 +447,8 @@ async def action_loop(
         if webrtc_client:
             await webrtc_client.send_media("screen", screen_sharing)
 
-    next_action_at = now + random.uniform(action_interval * 0.7, action_interval * 1.3)
-    next_chat_at = now + random.uniform(chat_interval * 0.7, chat_interval * 1.3)
+    next_action_at = now + random.uniform(2.0, min(10.0, action_interval))
+    next_chat_at = now + random.uniform(2.0, min(15.0, chat_interval))
 
     while not stop_event.is_set():
         await pause_event.wait()
