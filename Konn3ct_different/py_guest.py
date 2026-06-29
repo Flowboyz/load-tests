@@ -268,8 +268,7 @@ def is_screen_share_supported(fingerprint, frontend_url):
         return False, "SAMSUNG_INTERNET_SCREEN_SHARE_UNSUPPORTED"
     if device in ("mobile", "tablet") or "mobile" in browser:
         return False, f"{browser.upper()}_MOBILE_SCREEN_SHARE_UNSUPPORTED"
-    if not (frontend_url.startswith("https://") or "localhost" in frontend_url or "127.0.0.1" in frontend_url):
-        return False, "INSECURE_CONTEXT_SCREEN_SHARE_UNSUPPORTED"
+    # Insecure context check bypassed to allow screen sharing simulation over HTTP
     return True, None
 
 async def log_observed_action(bot_id, name, email, uid, action_type, value, fingerprint, msg_client_event_id=None, msg_server_event_id=None):
@@ -1059,13 +1058,22 @@ async def ws_session(
                         decode_downlink=decode_downlink, max_subscriptions=max_subscriptions
                     )
                     try:
+                        client_event_id = f"ce_wcon_{uuid.uuid4().hex[:8]}"
+                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        t_start = time.time()
+                        await logger.log_action(bot_id, name, email, "webrtc_connection", "CONNECTING", "sent", fingerprint=fingerprint, client_event_id=client_event_id, sent_timestamp=sent_ts)
+                        
                         success = await webrtc_client.connect(send_request)
+                        elapsed = (time.time() - t_start) * 1000
                     except Exception as exc:
                         success = False
+                        elapsed = (time.time() - t_start) * 1000
                         await logger.record_event("error_logged", bot_id=bot_id, name=name, action="webrtc_connection", error=str(exc), browser=fingerprint["browser_type"])
                         
                     if success:
-                        await logger.log_action(bot_id, name, email, "webrtc_connection", "CONNECTED", "confirmed", fingerprint=fingerprint)
+                        await logger.log_action(bot_id, name, email, "webrtc_connection", "CONNECTED", "confirmed", elapsed, fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
                         await metrics.record_join(fingerprint["browser_type"], True)
                         
                         try:
@@ -1080,7 +1088,9 @@ async def ws_session(
                         except Exception:
                             pass
                     else:
-                        await logger.log_action(bot_id, name, email, "webrtc_connection", "FAILED", "failed", fingerprint=fingerprint)
+                        await logger.log_action(bot_id, name, email, "webrtc_connection", "FAILED", "failed", elapsed, fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
                         await metrics.record_join(fingerprint["browser_type"], False)
                         await stats.inc("active", -1)
                         await stats.inc("failed")

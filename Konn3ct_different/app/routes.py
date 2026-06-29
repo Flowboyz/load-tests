@@ -198,8 +198,6 @@ def stop_test(session_id):
     if session.status not in ("running", "paused"):
         return jsonify({'message': 'Session is not active!'}), 400
         
-    success = stop_session(session_id)
-    
     if session.status == "running" and session.last_resume_time:
         elapsed = (datetime.utcnow() - session.last_resume_time).total_seconds()
         session.accumulated_duration += int(elapsed)
@@ -207,6 +205,8 @@ def stop_test(session_id):
     session.status = "stopped"
     session.ended_at = datetime.utcnow()
     db.session.commit()
+    
+    success = stop_session(session_id)
     
     from flask import current_app
     socketio = current_app.extensions.get('socketio')
