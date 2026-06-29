@@ -142,6 +142,8 @@ def run_test_process(app, socketio, session_id):
             cmd.append("--no-cross-confirm")
         if config.jwt_secret:
             cmd.extend(["--jwt-secret", config.jwt_secret])
+        # Always append chromium launch bypass flag compatibility argument
+        cmd.append("--use-fake-ui-for-media-stream")
             
         print(f"Launching bot session {session_id} with cmd: {' '.join(cmd)}")
         
@@ -240,16 +242,14 @@ def run_test_process(app, socketio, session_id):
                 session = TestSession.query.get(session_id)
                 if session:
                     if session.status not in ("stopped", "failed"):
-                        if process and process.returncode == 0:
+                        if success:
                             session.status = "completed"
                         else:
                             session.status = "failed"
-                            rc = process.returncode if process else 'N/A'
-                            session.error_message = f"Process exited with error code {rc}.\n"
+                            rcs = [str(proc.returncode) for proc in processes if proc]
+                            session.error_message = f"Processes exited with codes: {', '.join(rcs)}.\n"
                             if error_msg:
                                 session.error_message += error_msg + "\n"
-                            if stdout_data:
-                                session.error_message += stdout_data[-1000:]
                     
                     if session.last_resume_time:
                         elapsed = (datetime.utcnow() - session.last_resume_time).total_seconds()

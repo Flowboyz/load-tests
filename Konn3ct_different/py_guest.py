@@ -1423,8 +1423,8 @@ async def main(args):
                     bot_camera_enabled = False
                     bot_mic_enabled = False
                     bot_screen_share_enabled = False
-                    bot_hand_enabled = False
-                    bot_chat_enabled = False
+                    bot_hand_enabled = not args.no_handraise
+                    bot_chat_enabled = not args.no_chat
                 else:
                     # Check individual publisher ID mappings
                     bot_camera_enabled = (not args.no_camera) and is_bot_in_range(bot_id, args.camera_publishers)
@@ -1546,7 +1546,13 @@ async def main(args):
         print(f"{C['green']}  ✔  All {args.bots} bot(s) queued (IDs {start_id} to {end_id}) — press Ctrl+C to stop{C['reset']}\n")
 
         try:
-            await asyncio.gather(*tasks)
+            if args.leave > 0:
+                global_timeout = args.leave * 60 + 60
+                await asyncio.wait_for(asyncio.gather(*tasks), timeout=global_timeout)
+            else:
+                await asyncio.gather(*tasks)
+        except (asyncio.TimeoutError, TimeoutError):
+            print(f"\n{C['yellow']}⚠️  Global session timeout reached ({args.leave}m + 1m buffer). Forcing shutdown...{C['reset']}\n")
         except asyncio.CancelledError:
             pass
         finally:
@@ -1599,6 +1605,7 @@ if __name__ == "__main__":
     parser.add_argument("--host-bot-id", type=int, default=1, help="The bot ID assigned as host/moderator")
     parser.add_argument("--presenter-bot-id", type=int, default=2, help="The bot ID assigned as presenter")
     parser.add_argument("--control-file", default=None, help="JSON control file containing session state (paused/running)")
+    parser.add_argument("--use-fake-ui-for-media-stream", action="store_true", help="Bypass media stream confirmations in Chromium (compatibility flag)")
     
     # SLA thresholds arguments
     parser.add_argument("--sla-success-rate", type=float, default=95.0, help="SLA target action success rate percentage")
