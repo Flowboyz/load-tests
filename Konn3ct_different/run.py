@@ -1,6 +1,20 @@
 from gevent import monkey
 monkey.patch_all()
 
+# Patch gevent fork hooks to prevent Python 3.12 threading assert warning on child forks
+try:
+    import gevent.threading
+    if hasattr(gevent.threading, '_ForkHooks'):
+        original_after = gevent.threading._ForkHooks.after_fork_in_child
+        def patched_after(self):
+            try:
+                original_after(self)
+            except AssertionError:
+                pass
+        gevent.threading._ForkHooks.after_fork_in_child = patched_after
+except Exception:
+    pass
+
 from app import create_app, socketio
 
 app = create_app()

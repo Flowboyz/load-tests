@@ -490,9 +490,12 @@ async def action_loop(
             if screen_share_enabled: choices.append("screen_share")
             if "note_update" in scenarios: choices.append("note_update")
             if role == "host":
-                choices.extend(["force_mute", "remove_participant", "lock_meeting", "recording_state"])
+                if "force_mute" in scenarios: choices.append("force_mute")
+                if "remove_participant" in scenarios: choices.append("remove_participant")
+                if "lock_meeting" in scenarios: choices.append("lock_meeting")
+                if "recording_state" in scenarios: choices.append("recording_state")
             choices.append("captions_state")
-            if random.random() < 0.04:  # small chance of leaving early
+            if not is_viewer and random.random() < 0.04:  # small chance of non-viewers leaving early
                 choices.append("leave_meeting")
 
             if choices:
@@ -834,10 +837,10 @@ async def ws_session(
         async with websockets.connect(
             ws_url,
             additional_headers=headers,
-            ping_interval=15,
-            ping_timeout=20,
-            close_timeout=10,
-            open_timeout=15,
+            ping_interval=30,
+            ping_timeout=60,
+            close_timeout=30,
+            open_timeout=30,
             ssl=ssl_context
         ) as ws:
             await stats.inc("active")
@@ -1420,6 +1423,11 @@ async def main(args):
                     bot_hand_enabled = not args.no_handraise
                     bot_chat_enabled = not args.no_chat
 
+                # Limit WebRTC connection initialization to publishers only
+                bot_webrtc_enabled = args.webrtc_enabled and (
+                    bot_camera_enabled or bot_mic_enabled or bot_screen_share_enabled
+                )
+
                 await run_bot(
                     bot_id=bot_id, room_id=args.room,
                     frontend_url=args.frontend, signal_domain=args.signal,
@@ -1428,7 +1436,7 @@ async def main(args):
                     camera_enabled=bot_camera_enabled, mic_enabled=bot_mic_enabled,
                     hand_enabled=bot_hand_enabled, screen_share_enabled=bot_screen_share_enabled,
                     action_interval=args.action_interval, confirm_timeout=args.confirm_timeout,
-                    max_retries=args.max_retries, webrtc_enabled=args.webrtc_enabled,
+                    max_retries=args.max_retries, webrtc_enabled=bot_webrtc_enabled,
                     media_quality=args.media_quality, network_distribution=net_distribution,
                     network_degradation=args.network_degradation, degradation_interval=args.degradation_interval,
                     device_manager=device_manager, stop_event=stop_event, session=session,
