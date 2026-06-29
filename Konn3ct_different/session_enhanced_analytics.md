@@ -1,7 +1,7 @@
 # Konn3ct Load Testing - Enhanced Analytics Report
 
 ## 1. Executive Performance Summary
-- **Total Simulated Bots**: 1
+- **Total Simulated Bots**: 0
 - **Peak Concurrent Connections**: 1
 - **Test Duration**: N/A
 - **WebSocket Connection Drops**: 0

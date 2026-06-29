@@ -1458,6 +1458,7 @@ async def main(args):
                     cross_confirm_limit=args.cross_confirm_limit
                 )
 
+        tasks = []
         start_id = args.start_id
         bot_id = start_id
         end_id = start_id + args.bots - 1
