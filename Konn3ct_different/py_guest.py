@@ -494,7 +494,7 @@ async def action_loop(
                 if "lock_meeting" in scenarios: choices.append("lock_meeting")
                 if "recording_state" in scenarios: choices.append("recording_state")
             choices.append("captions_state")
-            if not is_viewer and random.random() < 0.04:  # small chance of non-viewers leaving early
+            if not is_viewer and role not in ("host", "presenter") and random.random() < 0.04:  # small chance of normal non-viewers leaving early
                 choices.append("leave_meeting")
 
             if choices:
@@ -1414,7 +1414,7 @@ async def main(args):
                 scen_event = asyncio.Event()
                 scenario_events.append(scen_event)
                 
-                scenarios = [s.strip() for s in args.test_scenarios.split(",")]
+                scenarios = [s.strip() for s in (args.test_scenarios or "").split(",") if s.strip()]
                 
                 is_viewer = is_bot_in_range(bot_id, args.viewer_bots)
                 
@@ -1498,7 +1498,7 @@ async def main(args):
 
         # Scenarios triggering task
         async def scenario_runner():
-            scenarios = [s.strip() for s in args.test_scenarios.split(",")]
+            scenarios = [s.strip() for s in (args.test_scenarios or "").split(",") if s.strip()]
             await asyncio.sleep(15)  # Wait for initial batches to join
             
             if "simultaneous_camera_toggle" in scenarios and not stop_event.is_set():
