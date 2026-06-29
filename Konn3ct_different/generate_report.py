@@ -803,6 +803,26 @@ class ReportPipeline:
                 sender_fp = self.agg_stage.bots_fingerprints.get(sender_id) or {}
                 sender_meta = self.agg_stage.bots_metadata.get(sender_id) or {}
                 
+                s_status = act.get("final_status", "sent")
+                if len(obs_list) > 0:
+                    s_status = "acknowledged"
+                    
+                def add_sender_stats(group_dict, key):
+                    if key not in group_dict:
+                        group_dict[key] = {"total": 0, "success": 0, "failed": 0, "unsupported": 0}
+                    group_dict[key]["total"] += 1
+                    if s_status in ("acknowledged", "confirmed", "rendered"):
+                        group_dict[key]["success"] += 1
+                    elif s_status == "unsupported":
+                        group_dict[key]["unsupported"] += 1
+                    else:
+                        group_dict[key]["failed"] += 1
+                        
+                add_sender_stats(per_browser_stats, sender_fp.get("browser_type", "unknown"))
+                add_sender_stats(per_os_stats, sender_fp.get("os_type", "unknown"))
+                add_sender_stats(per_device_stats, sender_fp.get("device_type", "unknown"))
+                add_sender_stats(per_action_stats, act_type)
+                
                 if act["final_status"] in ("unsupported", "failed") or act_type not in broadcast_action_types:
                     row = build_lifecycle_row(
                         act=act, sender_id=sender_id, sender_fp=sender_fp, sender_meta=sender_meta,
@@ -832,21 +852,7 @@ class ReportPipeline:
                         ack_latency_sum += val
                         ack_latency_count += 1
                         
-                    def add_grp_stats(group_dict, key):
-                        if key not in group_dict:
-                            group_dict[key] = {"total": 0, "success": 0, "failed": 0, "unsupported": 0}
-                        group_dict[key]["total"] += 1
-                        if status in ("rendered", "acknowledged"):
-                            group_dict[key]["success"] += 1
-                        elif status in ("timed-out", "failed"):
-                            group_dict[key]["failed"] += 1
-                        elif status == "unsupported":
-                            group_dict[key]["unsupported"] += 1
-
-                    add_grp_stats(per_browser_stats, sender_fp.get("browser_type", "unknown"))
-                    add_grp_stats(per_os_stats, sender_fp.get("os_type", "unknown"))
-                    add_grp_stats(per_device_stats, sender_fp.get("device_type", "unknown"))
-                    add_grp_stats(per_action_stats, act_type)
+                    pass
                     
                 else:
                     obs_dict = {o["receiver_bot_id"]: o for o in obs_list}
@@ -917,21 +923,7 @@ class ReportPipeline:
                             ui_render_latency_sum += val
                             ui_render_latency_count += 1
                             
-                        def add_grp_stats(group_dict, key):
-                            if key not in group_dict:
-                                group_dict[key] = {"total": 0, "success": 0, "failed": 0, "unsupported": 0}
-                            group_dict[key]["total"] += 1
-                            if status in ("rendered", "acknowledged"):
-                                group_dict[key]["success"] += 1
-                            elif status in ("timed-out", "failed"):
-                                group_dict[key]["failed"] += 1
-                            elif status == "unsupported":
-                                group_dict[key]["unsupported"] += 1
-
-                        add_grp_stats(per_browser_stats, sender_fp.get("browser_type", "unknown"))
-                        add_grp_stats(per_os_stats, sender_fp.get("os_type", "unknown"))
-                        add_grp_stats(per_device_stats, sender_fp.get("device_type", "unknown"))
-                        add_grp_stats(per_action_stats, act_type)
+                        pass
                         
                     if not receivers_found:
                         row = build_lifecycle_row(

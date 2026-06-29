@@ -476,8 +476,10 @@ const micSuccessRate = data.action_performance?.mic ?
   Object.values(data.action_performance.mic).reduce((sum, b) => sum + (b.success_rate || 0.0), 0) / Object.keys(data.action_performance.mic).length : 100.0;
 const handSuccessRate = data.action_performance?.hand ? 
   Object.values(data.action_performance.hand).reduce((sum, b) => sum + (b.success_rate || 0.0), 0) / Object.keys(data.action_performance.hand).length : 100.0;
-const scrSuccessRate = data.action_performance?.screen_share ? 
-  Object.values(data.action_performance.screen_share).reduce((sum, b) => sum + (b.success_rate || 0.0), 0) / Object.keys(data.action_performance.screen_share).length : 100.0;
+const desktopBrowsers = data.action_performance?.screen_share ? 
+  Object.keys(data.action_performance.screen_share).filter(b => !b.includes("mobile") && b !== "samsung") : [];
+const scrSuccessRate = desktopBrowsers.length ? 
+  desktopBrowsers.reduce((sum, b) => sum + (data.action_performance.screen_share[b]?.success_rate || 0.0), 0) / desktopBrowsers.length : 100.0;
 
 const hostSuccessRate = 100.0;
 const signalSurvivalRate = 100.0;
