@@ -369,10 +369,10 @@ async def action_loop(
     stop_event, scenario_event, frontend_url, room_id, scenarios=[], role="attendee",
     auto_camera=False, auto_mic=False, auto_screen_share=False
 ):
-    camera_on = random.choice([True, False]) if auto_camera else False
-    is_muted = random.choice([True, False]) if auto_mic else True
+    camera_on = True if auto_camera else False
+    is_muted = False if auto_mic else True
     hand_raised = False
-    screen_sharing = random.choice([True, False]) if auto_screen_share else False
+    screen_sharing = True if auto_screen_share else False
 
     # Send initial states
     now = time.time()
@@ -423,6 +423,30 @@ async def action_loop(
                                 client_event_id=client_event_id, sent_timestamp=sent_ts)
         if webrtc_client:
             await webrtc_client.send_media("audio", not is_muted)
+
+    if screen_share_enabled:
+        client_event_id = f"ce_scr_{uuid.uuid4().hex[:8]}"
+        sent_ts = datetime.datetime.now().isoformat() + "Z"
+        payload = {
+            "type": "screen_share",
+            "isScreenSharing": screen_sharing,
+            "clientEventId": client_event_id,
+            "sentTimestamp": sent_ts,
+            "senderBotId": f"bot-{bot_id:03d}",
+            "senderOS": fingerprint.get("os_type"),
+            "senderBrowser": fingerprint.get("browser_name"),
+            "senderDeviceType": fingerprint.get("device_type"),
+            "roomId": room_id,
+            "actionType": "screen_share"
+        }
+        await ws.send(json.dumps(payload))
+        pending.add("screen_share", screen_sharing, now, client_event_id)
+        await registry.record_sent(my_user_id, "screen_share", screen_sharing, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+        await logger.log_action(bot_id, name, email, "screen_share", screen_sharing, "sent", fingerprint=fingerprint,
+                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                client_event_id=client_event_id, sent_timestamp=sent_ts)
+        if webrtc_client:
+            await webrtc_client.send_media("screen", screen_sharing)
 
     next_action_at = now + random.uniform(action_interval * 0.7, action_interval * 1.3)
     next_chat_at = now + random.uniform(chat_interval * 0.7, chat_interval * 1.3)
@@ -1158,7 +1182,7 @@ async def run_bot(
     confirm_timeout, max_retries, webrtc_enabled, media_quality, network_distribution, network_degradation, degradation_interval,
     device_manager, stop_event, session, scenario_event, cross_confirm=True,
     jwt_secret=None, max_subscriptions=2, decode_downlink=False, host_bot_id=1, presenter_bot_id=2, scenarios=[],
-    auto_camera=False, auto_mic=False, auto_screen_share=False
+    auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10
 ):
     name, email = await generate_identity()
     
@@ -1404,7 +1428,8 @@ async def main(args):
                     jwt_secret=args.jwt_secret, max_subscriptions=args.max_subscriptions,
                     decode_downlink=args.decode_downlink, host_bot_id=args.host_bot_id,
                     presenter_bot_id=args.presenter_bot_id, scenarios=scenarios,
-                    auto_camera=args.auto_camera, auto_mic=args.auto_mic, auto_screen_share=args.auto_screen_share
+                    auto_camera=args.auto_camera, auto_mic=args.auto_mic, auto_screen_share=args.auto_screen_share,
+                    cross_confirm_limit=args.cross_confirm_limit
                 )
 
         tasks = []
