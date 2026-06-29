@@ -468,18 +468,31 @@ const avgSpeakerSwitch = getAvg(webrtcPerfList.map(wp => wp.avg_active_speaker_s
 const joinPerfList = Object.values(data.join_performance || {});
 const avgJoinTime = getAvg(joinPerfList.map(jp => jp.avg_join_time || 0));
 
-const chatSuccessRate = data.action_performance?.chat ? 
-  Object.values(data.action_performance.chat).reduce((sum, b) => sum + (b.success_rate || 0.0), 0) / Object.keys(data.action_performance.chat).length : 100.0;
-const camSuccessRate = data.action_performance?.camera ? 
-  Object.values(data.action_performance.camera).reduce((sum, b) => sum + (b.success_rate || 0.0), 0) / Object.keys(data.action_performance.camera).length : 100.0;
-const micSuccessRate = data.action_performance?.mic ? 
-  Object.values(data.action_performance.mic).reduce((sum, b) => sum + (b.success_rate || 0.0), 0) / Object.keys(data.action_performance.mic).length : 100.0;
-const handSuccessRate = data.action_performance?.hand ? 
-  Object.values(data.action_performance.hand).reduce((sum, b) => sum + (b.success_rate || 0.0), 0) / Object.keys(data.action_performance.hand).length : 100.0;
+const activeChatBrowsers = data.action_performance?.chat ? 
+  Object.keys(data.action_performance.chat).filter(b => (data.action_performance.chat[b]?.success || 0) + (data.action_performance.chat[b]?.failed || 0) > 0) : [];
+const chatSuccessRate = activeChatBrowsers.length ? 
+  activeChatBrowsers.reduce((sum, b) => sum + (data.action_performance.chat[b]?.success_rate || 0.0), 0) / activeChatBrowsers.length : 100.0;
+
+const activeCamBrowsers = data.action_performance?.camera ? 
+  Object.keys(data.action_performance.camera).filter(b => (data.action_performance.camera[b]?.success || 0) + (data.action_performance.camera[b]?.failed || 0) > 0) : [];
+const camSuccessRate = activeCamBrowsers.length ? 
+  activeCamBrowsers.reduce((sum, b) => sum + (data.action_performance.camera[b]?.success_rate || 0.0), 0) / activeCamBrowsers.length : 100.0;
+
+const activeMicBrowsers = data.action_performance?.mic ? 
+  Object.keys(data.action_performance.mic).filter(b => (data.action_performance.mic[b]?.success || 0) + (data.action_performance.mic[b]?.failed || 0) > 0) : [];
+const micSuccessRate = activeMicBrowsers.length ? 
+  activeMicBrowsers.reduce((sum, b) => sum + (data.action_performance.mic[b]?.success_rate || 0.0), 0) / activeMicBrowsers.length : 100.0;
+
+const activeHandBrowsers = data.action_performance?.hand ? 
+  Object.keys(data.action_performance.hand).filter(b => (data.action_performance.hand[b]?.success || 0) + (data.action_performance.hand[b]?.failed || 0) > 0) : [];
+const handSuccessRate = activeHandBrowsers.length ? 
+  activeHandBrowsers.reduce((sum, b) => sum + (data.action_performance.hand[b]?.success_rate || 0.0), 0) / activeHandBrowsers.length : 100.0;
+
 const desktopBrowsers = data.action_performance?.screen_share ? 
   Object.keys(data.action_performance.screen_share).filter(b => !b.includes("mobile") && b !== "samsung") : [];
-const scrSuccessRate = desktopBrowsers.length ? 
-  desktopBrowsers.reduce((sum, b) => sum + (data.action_performance.screen_share[b]?.success_rate || 0.0), 0) / desktopBrowsers.length : 100.0;
+const activeDesktopBrowsers = desktopBrowsers.filter(b => (data.action_performance.screen_share[b]?.success || 0) + (data.action_performance.screen_share[b]?.failed || 0) > 0);
+const scrSuccessRate = activeDesktopBrowsers.length ? 
+  activeDesktopBrowsers.reduce((sum, b) => sum + (data.action_performance.screen_share[b]?.success_rate || 0.0), 0) / activeDesktopBrowsers.length : 100.0;
 
 const hostSuccessRate = 100.0;
 const signalSurvivalRate = 100.0;
