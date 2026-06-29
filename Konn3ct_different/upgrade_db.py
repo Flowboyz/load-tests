@@ -151,7 +151,7 @@ def upgrade():
             "camera_publishers": "TEXT DEFAULT '1,2,3,4,5'",
             "screen_share_publishers": "TEXT DEFAULT '2'",
             "mic_publishers": "TEXT DEFAULT '1,2,3,4,5'",
-            "viewer_bots": "TEXT DEFAULT '6-1000'",
+            "viewer_bots": "TEXT DEFAULT '6-10000'",
             "viewer_mode": "TEXT DEFAULT 'receive_only'",
             "auto_camera": "BOOLEAN DEFAULT 0",
             "auto_mic": "BOOLEAN DEFAULT 0",
