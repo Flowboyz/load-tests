@@ -27,6 +27,8 @@ def create_app(db_uri=None):
         try:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
+            
+            # 1. Update test_sessions table
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='test_sessions'")
             if cursor.fetchone():
                 cursor.execute("PRAGMA table_info(test_sessions)")
@@ -38,6 +40,26 @@ def create_app(db_uri=None):
                     cursor.execute("ALTER TABLE test_sessions ADD COLUMN last_resume_time DATETIME")
                     print("Self-healing: added last_resume_time column to test_sessions table")
                 conn.commit()
+                
+            # 2. Update configurations table
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='configurations'")
+            if cursor.fetchone():
+                cursor.execute("PRAGMA table_info(configurations)")
+                cfg_columns = [col[1] for col in cursor.fetchall()]
+                if "sla_success_rate" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN sla_success_rate REAL DEFAULT 95.0")
+                    print("Self-healing: added sla_success_rate column to configurations table")
+                if "sla_latency" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN sla_latency REAL DEFAULT 500.0")
+                    print("Self-healing: added sla_latency column to configurations table")
+                if "sla_packet_loss" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN sla_packet_loss REAL DEFAULT 2.0")
+                    print("Self-healing: added sla_packet_loss column to configurations table")
+                if "sla_jitter" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN sla_jitter REAL DEFAULT 30.0")
+                    print("Self-healing: added sla_jitter column to configurations table")
+                conn.commit()
+                
             conn.close()
         except Exception as e:
             print(f"Self-healing SQLite migration failed: {e}")

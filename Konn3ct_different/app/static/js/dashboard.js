@@ -397,6 +397,21 @@ async function setupActiveSession(sessionId, sessionName, status) {
                 if (activeTimeoutEl) {
                     activeTimeoutEl.textContent = (sess.config.confirm_timeout || 5.0).toFixed(1);
                 }
+                
+                // Store active SLA thresholds
+                window.activeSessionSlaSuccess = sess.config.sla_success_rate !== undefined ? sess.config.sla_success_rate : 95.0;
+                window.activeSessionSlaLatency = sess.config.sla_latency !== undefined ? sess.config.sla_latency : 500.0;
+                window.activeSessionSlaLoss = sess.config.sla_packet_loss !== undefined ? sess.config.sla_packet_loss : 2.0;
+                window.activeSessionSlaJitter = sess.config.sla_jitter !== undefined ? sess.config.sla_jitter : 30.0;
+                
+                // Populate dashboard SLA labels
+                const targetSuccessEl = document.getElementById('slaTargetSuccess');
+                const targetLatencyEl = document.getElementById('slaTargetLatency');
+                const targetLossEl = document.getElementById('slaTargetLoss');
+                
+                if (targetSuccessEl) targetSuccessEl.textContent = window.activeSessionSlaSuccess.toFixed(1);
+                if (targetLatencyEl) targetLatencyEl.textContent = window.activeSessionSlaLatency.toFixed(0);
+                if (targetLossEl) targetLossEl.textContent = window.activeSessionSlaLoss.toFixed(1);
             }
         }
     } catch (e) {
@@ -853,6 +868,25 @@ function updateMetricsCards(metrics, lifecycleSummary) {
     document.getElementById('metricPacketLoss').textContent = metrics.packet_loss ? metrics.packet_loss.toFixed(2) : '0.00';
     document.getElementById('metricBitrate').textContent = metrics.bitrate || '0';
 
+    // SLA violation evaluations for Latency and Packet Loss
+    const latencyCard = document.getElementById('metricLatency').closest('.metric-card');
+    if (latencyCard && window.activeSessionSlaLatency) {
+        if (metrics.avg_latency > window.activeSessionSlaLatency) {
+            latencyCard.classList.add('sla-violated');
+        } else {
+            latencyCard.classList.remove('sla-violated');
+        }
+    }
+
+    const lossCard = document.getElementById('metricPacketLoss').closest('.metric-card');
+    if (lossCard && window.activeSessionSlaLoss) {
+        if (metrics.packet_loss > window.activeSessionSlaLoss) {
+            lossCard.classList.add('sla-violated');
+        } else {
+            lossCard.classList.remove('sla-violated');
+        }
+    }
+
     // Update real-time lifecycle widgets if available
     if (lifecycleSummary) {
         // Calculate and display Action Success Rate
@@ -864,6 +898,16 @@ function updateMetricsCards(metrics, lifecycleSummary) {
             
             const rateEl = document.getElementById('metricSuccessRate');
             if (rateEl) rateEl.textContent = successRate.toFixed(1);
+            
+            // Success Rate SLA Check
+            const successCard = rateEl.closest('.metric-card');
+            if (successCard && window.activeSessionSlaSuccess) {
+                if (successRate < window.activeSessionSlaSuccess) {
+                    successCard.classList.add('sla-violated');
+                } else {
+                    successCard.classList.remove('sla-violated');
+                }
+            }
             
             document.getElementById('lifecycleSent').textContent = sc.sent || 0;
             document.getElementById('lifecycleAcknowledged').textContent = sc.acknowledged || 0;
@@ -1107,7 +1151,11 @@ function getFormData() {
         degradation_interval: parseInt(document.getElementById('formDegradationInterval').value),
         browser_distribution: document.getElementById('formBrowserDistribution').value,
         device_distribution: document.getElementById('formDeviceDistribution').value,
-        os_distribution: document.getElementById('formOsDistribution').value
+        os_distribution: document.getElementById('formOsDistribution').value,
+        sla_success_rate: parseFloat(document.getElementById('formSlaSuccessRate').value) || 95.0,
+        sla_latency: parseFloat(document.getElementById('formSlaLatency').value) || 500.0,
+        sla_packet_loss: parseFloat(document.getElementById('formSlaPacketLoss').value) || 2.0,
+        sla_jitter: parseFloat(document.getElementById('formSlaJitter').value) || 30.0
     };
 }
 
@@ -1151,6 +1199,10 @@ async function loadConfigIntoForm(cfgId) {
         document.getElementById('formBrowserDistribution').value = cfg.browser_distribution;
         document.getElementById('formDeviceDistribution').value = cfg.device_distribution;
         document.getElementById('formOsDistribution').value = cfg.os_distribution;
+        document.getElementById('formSlaSuccessRate').value = cfg.sla_success_rate !== undefined ? cfg.sla_success_rate : 95.0;
+        document.getElementById('formSlaLatency').value = cfg.sla_latency !== undefined ? cfg.sla_latency : 500.0;
+        document.getElementById('formSlaPacketLoss').value = cfg.sla_packet_loss !== undefined ? cfg.sla_packet_loss : 2.0;
+        document.getElementById('formSlaJitter').value = cfg.sla_jitter !== undefined ? cfg.sla_jitter : 30.0;
         
         loadCheckboxesFromSerialized('network');
         loadCheckboxesFromSerialized('browser');
@@ -1285,6 +1337,31 @@ async function viewHistoricalLogs(sessId) {
         // Hide banner since it's not active
         document.getElementById('activeTestBanner').classList.add('hidden');
         
+        // Load session config for SLA targets
+        try {
+            const configResponse = await fetch(`/api/sessions/${sessId}`);
+            if (configResponse.ok) {
+                const sess = await configResponse.json();
+                if (sess.config) {
+                    window.activeSessionTotalBots = sess.config.bots;
+                    window.activeSessionSlaSuccess = sess.config.sla_success_rate !== undefined ? sess.config.sla_success_rate : 95.0;
+                    window.activeSessionSlaLatency = sess.config.sla_latency !== undefined ? sess.config.sla_latency : 500.0;
+                    window.activeSessionSlaLoss = sess.config.sla_packet_loss !== undefined ? sess.config.sla_packet_loss : 2.0;
+                    window.activeSessionSlaJitter = sess.config.sla_jitter !== undefined ? sess.config.sla_jitter : 30.0;
+                    
+                    const targetSuccessEl = document.getElementById('slaTargetSuccess');
+                    const targetLatencyEl = document.getElementById('slaTargetLatency');
+                    const targetLossEl = document.getElementById('slaTargetLoss');
+                    
+                    if (targetSuccessEl) targetSuccessEl.textContent = window.activeSessionSlaSuccess.toFixed(1);
+                    if (targetLatencyEl) targetLatencyEl.textContent = window.activeSessionSlaLatency.toFixed(0);
+                    if (targetLossEl) targetLossEl.textContent = window.activeSessionSlaLoss.toFixed(1);
+                }
+            }
+        } catch (ec) {
+            console.error("Failed to load historical config for SLA: ", ec);
+        }
+
         // Load static metrics if session has any
         const mResponse = await fetch(`/api/sessions/${sessId}/metrics`);
         if (mResponse.ok) {
@@ -1292,7 +1369,7 @@ async function viewHistoricalLogs(sessId) {
             clearCharts();
             mData.forEach(m => {
                 const timeStr = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                updateCharts(timeStr, m);
+                updateCharts(timeStr, m, false); // Keep shift = false for history
             });
             if (mData.length > 0) {
                 const finalLifecycle = aggregateLifecycleFromLogs(logs);

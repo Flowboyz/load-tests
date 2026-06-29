@@ -84,6 +84,12 @@ class Configuration(db.Model):
     device_distribution = db.Column(db.Text, default='desktop:70,mobile:20,tablet:10')
     os_distribution = db.Column(db.Text, default='windows:40,macos:30,linux:10,ios:12,android:8')
     
+    # SLA thresholds configurations
+    sla_success_rate = db.Column(db.Float, default=95.0, nullable=False)
+    sla_latency = db.Column(db.Float, default=500.0, nullable=False)
+    sla_packet_loss = db.Column(db.Float, default=2.0, nullable=False)
+    sla_jitter = db.Column(db.Float, default=30.0, nullable=False)
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

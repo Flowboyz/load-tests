@@ -904,3 +904,10 @@ body {
     color: var(--accent);
     background-color: var(--border-color);
 }
+
+/* SLA Violation Glow styles */
+.metric-card.sla-violated {
+    background-color: rgba(239, 68, 68, 0.12) !important;
+    border-color: var(--error) !important;
+    box-shadow: 0 0 16px rgba(239, 68, 68, 0.35) !important;
+}

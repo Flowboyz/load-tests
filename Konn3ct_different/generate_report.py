@@ -1257,6 +1257,34 @@ class ReportPipeline:
     def run_recommendations_engine(self):
         recs = []
         
+        # Load SLA configurations from logged config event (with defaults)
+        sla_success = float(self.agg_stage.config.get("sla_success_rate", 95.0))
+        sla_latency = float(self.agg_stage.config.get("sla_latency", 500.0))
+        sla_loss = float(self.agg_stage.config.get("sla_packet_loss", 2.0)) / 100.0
+        sla_jitter = float(self.agg_stage.config.get("sla_jitter", 30.0))
+        
+        # 1. Action Success Rate Quality Gate
+        total_actions = (
+            self.stats_results.get("total_actions_sent", 0) + 
+            self.stats_results.get("total_timed_out", 0) + 
+            self.stats_results.get("total_failed", 0)
+        )
+        success_actions = (
+            self.stats_results.get("total_acknowledged", 0) + 
+            self.stats_results.get("total_broadcasted", 0) + 
+            self.stats_results.get("total_observed", 0) + 
+            self.stats_results.get("total_rendered", 0)
+        )
+        global_success_rate = (success_actions / total_actions * 100.0) if total_actions > 0 else 100.0
+        
+        if global_success_rate < sla_success:
+            recs.append({
+                "priority": "Critical",
+                "category": "Action Success Rate",
+                "issue": f"Global action success rate reached {global_success_rate:.1f}% (SLA target is >={sla_success:.1f}%).",
+                "remediation": "Investigate action timeout stages and error breakdowns. Adjust server resource capacities or action timeouts."
+            })
+        
         ws_fail_rate = self.agg_stage.websocket_disconnects
         if ws_fail_rate > 5:
             recs.append({
@@ -1275,21 +1303,33 @@ class ReportPipeline:
                 "remediation": "Deploy geo-routed STUN/TURN clusters closer to client network hubs and bypass local host loopback interfaces."
             })
             
+        # 2. Latency/RTT Quality Gate
+        avg_rtt = self.network_analytics.get("avg_rtt", 0.0)
+        if avg_rtt > sla_latency:
+            recs.append({
+                "priority": "High",
+                "category": "Network Latency RTT",
+                "issue": f"WebRTC average RTT reached {avg_rtt:.1f} ms (SLA target is <{sla_latency:.1f} ms).",
+                "remediation": "Optimize network routing path by choosing servers closer to clients, or tune SFU client queues."
+            })
+            
+        # 3. Packet Loss Quality Gate
         loss = self.network_analytics["avg_packet_loss"]
-        if loss > 0.02:
+        if loss > sla_loss:
             recs.append({
                 "priority": "High",
                 "category": "Network Quality",
-                "issue": f"Global WebRTC packet loss reached {loss*100.0:.2f}% (Target is <2%).",
+                "issue": f"Global WebRTC packet loss reached {loss*100.0:.2f}% (SLA target is <{sla_loss*100.0:.2f}%).",
                 "remediation": "Instruct SFU workers to fallback to lower simulcast quality layers and optimize voice QoS tags on router queues."
             })
             
+        # 4. Jitter Quality Gate
         jitter = self.network_analytics["avg_jitter"]
-        if jitter > 30.0:
+        if jitter > sla_jitter:
             recs.append({
                 "priority": "Medium",
                 "category": "Network Jitter",
-                "issue": f"Network jitter averaged {jitter:.1f} ms (Target is <30 ms).",
+                "issue": f"Network jitter averaged {jitter:.1f} ms (SLA target is <{sla_jitter:.1f} ms).",
                 "remediation": "Implement adaptive jitter playout delay buffer management on client player endpoints."
             })
             

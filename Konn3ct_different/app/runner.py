@@ -102,7 +102,11 @@ def run_test_process(app, socketio, session_id):
             "--device-distribution", config.device_distribution,
             "--os-distribution", config.os_distribution,
             "--network-conditions", config.network_conditions,
-            "--degradation-interval", str(config.degradation_interval)
+            "--degradation-interval", str(config.degradation_interval),
+            "--sla-success-rate", str(getattr(config, 'sla_success_rate', 95.0)),
+            "--sla-latency", str(getattr(config, 'sla_latency', 500.0)),
+            "--sla-packet-loss", str(getattr(config, 'sla_packet_loss', 2.0)),
+            "--sla-jitter", str(getattr(config, 'sla_jitter', 30.0))
         ]
         
         # Add flags

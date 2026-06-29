@@ -1289,7 +1289,11 @@ async def main(args):
         action_interval=args.action_interval,
         chat_interval=args.chat_interval,
         confirm_timeout=args.confirm_timeout,
-        max_retries=args.max_retries
+        max_retries=args.max_retries,
+        sla_success_rate=args.sla_success_rate,
+        sla_latency=args.sla_latency,
+        sla_packet_loss=args.sla_packet_loss,
+        sla_jitter=args.sla_jitter
     )
 
     print(f"\n{C['white']}{'═'*70}{C['reset']}")
@@ -1472,6 +1476,12 @@ if __name__ == "__main__":
     parser.add_argument("--host-bot-id", type=int, default=1, help="The bot ID assigned as host/moderator")
     parser.add_argument("--presenter-bot-id", type=int, default=2, help="The bot ID assigned as presenter")
     parser.add_argument("--control-file", default=None, help="JSON control file containing session state (paused/running)")
+    
+    # SLA thresholds arguments
+    parser.add_argument("--sla-success-rate", type=float, default=95.0, help="SLA target action success rate percentage")
+    parser.add_argument("--sla-latency", type=float, default=500.0, help="SLA target maximum average action propagation latency in ms")
+    parser.add_argument("--sla-packet-loss", type=float, default=2.0, help="SLA target maximum packet loss percentage")
+    parser.add_argument("--sla-jitter", type=float, default=30.0, help="SLA target maximum network jitter in ms")
     
     args = parser.parse_args()
     try:
