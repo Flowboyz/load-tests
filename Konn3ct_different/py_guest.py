@@ -823,6 +823,13 @@ async def ws_session(
     simulator = NetworkSimulator(network_profile, network_degradation, degradation_interval)
     webrtc_client = None
     try:
+        import ssl
+        ssl_context = None
+        if ws_url.startswith("wss://"):
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
         headers = {"User-Agent": fingerprint["user_agent"]}
         async with websockets.connect(
             ws_url,
@@ -830,7 +837,8 @@ async def ws_session(
             ping_interval=15,
             ping_timeout=20,
             close_timeout=10,
-            open_timeout=15
+            open_timeout=15,
+            ssl=ssl_context
         ) as ws:
             await stats.inc("active")
             
