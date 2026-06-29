@@ -1458,8 +1458,9 @@ async def main(args):
                     cross_confirm_limit=args.cross_confirm_limit
                 )
 
-        tasks = []
-        bot_id = 1
+        start_id = args.start_id
+        bot_id = start_id
+        end_id = start_id + args.bots - 1
         
         # Periodic statistics printing task
         async def stats_printer():
@@ -1521,11 +1522,11 @@ async def main(args):
 
         asyncio.create_task(scenario_runner())
 
-        while bot_id <= args.bots and not stop_event.is_set():
+        while bot_id <= end_id and not stop_event.is_set():
             await pause_event.wait()
             batch = []
             for i in range(args.batch):
-                if bot_id > args.bots:
+                if bot_id > end_id:
                     break
                 
                 # Intra-batch micro-stagger: space out bot connections by 150ms inside the batch
@@ -1538,10 +1539,10 @@ async def main(args):
                 batch.append(asyncio.create_task(launch_with_micro_stagger(bot_id, delay_sec)))
                 bot_id += 1
             tasks.extend(batch)
-            if bot_id <= args.bots and args.stagger > 0:
+            if bot_id <= end_id and args.stagger > 0:
                 await asyncio.sleep(args.stagger)
 
-        print(f"{C['green']}  ✔  All {args.bots} bot(s) queued — press Ctrl+C to stop{C['reset']}\n")
+        print(f"{C['green']}  ✔  All {args.bots} bot(s) queued (IDs {start_id} to {end_id}) — press Ctrl+C to stop{C['reset']}\n")
 
         try:
             await asyncio.gather(*tasks)
@@ -1563,6 +1564,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="py_guest — Konn3ct Advanced Load Testing Bot")
     parser.add_argument("--room", default=DEFAULT_ROOM)
     parser.add_argument("--bots", type=int, default=50)
+    parser.add_argument("--start-id", type=int, default=1, help="Starting bot ID")
     parser.add_argument("--leave", type=int, default=0)
     parser.add_argument("--stagger", type=float, default=1.0)
     parser.add_argument("--batch", type=int, default=3)

@@ -150,35 +150,59 @@ def run_test_process(app, socketio, session_id):
         if sys.platform == "win32":
             creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
             
-        process = None
+        processes = []
         stop_event = threading.Event()
-        stdout_data = ""
         error_msg = None
+        success = False
         
         try:
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                cwd=project_root,
-                creationflags=creation_flags
-            )
-            
+            # Chunk the total bots into groups of at most 200 bots per process
+            # to prevent Windows Proactor socket limits and utilize CPU cores
+            total_bots = config.bots
+            max_bots_per_proc = 200
+            chunks = []
+            curr_id = 1
+            while curr_id <= total_bots:
+                bots_in_chunk = min(max_bots_per_proc, total_bots - curr_id + 1)
+                chunks.append((curr_id, bots_in_chunk))
+                curr_id += bots_in_chunk
+                
+            for start_id, chunk_bots in chunks:
+                chunk_cmd = list(cmd)
+                try:
+                    bots_idx = chunk_cmd.index("--bots")
+                    chunk_cmd[bots_idx + 1] = str(chunk_bots)
+                except ValueError:
+                    chunk_cmd.extend(["--bots", str(chunk_bots)])
+                chunk_cmd.extend(["--start-id", str(start_id)])
+                
+                print(f"Launching bot chunk (start_id={start_id}, bots={chunk_bots}) with cmd: {' '.join(chunk_cmd)}")
+                
+                proc = subprocess.Popen(
+                    chunk_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    cwd=project_root,
+                    creationflags=creation_flags
+                )
+                processes.append(proc)
+                
             with RUNNING_SESSIONS_LOCK:
                 RUNNING_SESSIONS[session_id] = {
-                    "process": process,
+                    "processes": processes,
+                    "process": processes[0],
                     "stop_event": stop_event,
                     "control_file": control_file
                 }
                 
-            session.pid = process.pid
+            session.pid = processes[0].pid
             db.session.commit()
             
             # Start log parsing and metric streaming thread
             metrics_thread = socketio.start_background_task(
-                stream_metrics_and_logs, app, socketio, session_id, report_log, stop_event, process
+                stream_metrics_and_logs, app, socketio, session_id, report_log, stop_event, processes[0]
             )
             
             # Emit status change to running
@@ -189,8 +213,10 @@ def run_test_process(app, socketio, session_id):
                     'elapsed_seconds': 0
                 }, room=f"session_{session_id}")
             
-            # Wait for process to complete
-            stdout_data, _ = process.communicate()
+            # Wait for all processes to complete
+            for proc in processes:
+                proc.communicate()
+            success = all(proc.returncode == 0 for proc in processes)
             
         except Exception as e:
             error_msg = f"Runner exception: {str(e)}"
@@ -199,12 +225,13 @@ def run_test_process(app, socketio, session_id):
             # Set stop event to terminate log readers
             stop_event.set()
             
-            # Ensure process is terminated if it was started but still running
-            if process and process.poll() is None:
-                try:
-                    process.terminate()
-                except Exception:
-                    pass
+            # Ensure all processes are terminated if still running
+            for proc in processes:
+                if proc and proc.poll() is None:
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
             
             # Update database with completion status
             final_status = "failed"
@@ -617,15 +644,18 @@ def resume_session(session_id):
 
 def stop_session(session_id):
     """
-    Terminates the running process using graceful signals.
+    Terminates the running processes using graceful signals.
     """
-    process = None
+    processes = []
     pid = None
     with RUNNING_SESSIONS_LOCK:
         sess = RUNNING_SESSIONS.get(session_id)
         if sess:
-            process = sess.get("process")
-            pid = sess.get("pid") or (process.pid if process else None)
+            if "processes" in sess:
+                processes = sess["processes"]
+            elif "process" in sess and sess["process"]:
+                processes = [sess["process"]]
+            pid = sess.get("pid") or (processes[0].pid if processes else None)
             
     if not pid:
         # Check DB
@@ -640,21 +670,22 @@ def stop_session(session_id):
         return False
 
     terminated = False
-    if process:
-        try:
-            # Send Ctrl+C signal to allow graceful exit and report compilation
-            if sys.platform == "win32":
-                process.send_signal(signal.CTRL_C_EVENT)
-            else:
-                process.send_signal(signal.SIGINT)
-            terminated = True
-        except Exception:
-            # Fallback hard kill if signal fail
+    if processes:
+        for proc in processes:
             try:
-                process.terminate()
+                # Send Ctrl+C signal to allow graceful exit and report compilation
+                if sys.platform == "win32":
+                    proc.send_signal(signal.CTRL_C_EVENT)
+                else:
+                    proc.send_signal(signal.SIGINT)
                 terminated = True
             except Exception:
-                pass
+                # Fallback hard kill if signal fail
+                try:
+                    proc.terminate()
+                    terminated = True
+                except Exception:
+                    pass
                 
     if not terminated and pid:
         try:
