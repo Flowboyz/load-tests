@@ -56,7 +56,18 @@ class Registry:
     def __init__(self):
         self.user_id_to_name = {}
         self.actions_by_id = {}  # client_event_id -> details dict
+        self.observation_counts = {}  # event_key -> count of confirmations
         self.lock = asyncio.Lock()
+
+    async def should_confirm(self, event_key, limit=10):
+        if not event_key:
+            return True
+        async with self.lock:
+            count = self.observation_counts.get(event_key, 0)
+            if count >= limit:
+                return False
+            self.observation_counts[event_key] = count + 1
+            return True
 
     async def register(self, user_id, name):
         if not user_id:
@@ -355,12 +366,13 @@ async def action_loop(
     ws, bot_id, name, email, my_user_id, fingerprint, pending,
     action_interval, chat_interval, webrtc_client,
     camera_enabled, mic_enabled, hand_enabled, chat_enabled, screen_share_enabled,
-    stop_event, scenario_event, frontend_url, room_id, scenarios=[], role="attendee"
+    stop_event, scenario_event, frontend_url, room_id, scenarios=[], role="attendee",
+    auto_camera=False, auto_mic=False, auto_screen_share=False
 ):
-    camera_on = random.choice([True, False])
-    is_muted = random.choice([True, False])
+    camera_on = random.choice([True, False]) if auto_camera else False
+    is_muted = random.choice([True, False]) if auto_mic else True
     hand_raised = False
-    screen_sharing = False
+    screen_sharing = random.choice([True, False]) if auto_screen_share else False
 
     # Send initial states
     now = time.time()
@@ -780,7 +792,8 @@ async def ws_session(
     chat_enabled, chat_interval, camera_enabled, mic_enabled, hand_enabled, screen_share_enabled,
     action_interval, confirm_timeout, webrtc_enabled, media_quality, network_profile, network_degradation, degradation_interval,
     stop_event, scenario_event, cross_confirm, frontend_url, room_id, reconnection_count=0,
-    role="attendee", max_subscriptions=2, decode_downlink=False, in_breakout=False, scenarios=[]
+    role="attendee", max_subscriptions=2, decode_downlink=False, in_breakout=False, scenarios=[],
+    auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10
 ):
     fingerprint = emulator.fingerprint
     simulator = NetworkSimulator(network_profile, network_degradation, degradation_interval)
@@ -873,7 +886,8 @@ async def ws_session(
                                     asyncio.create_task(webrtc_client.add_consumer(p_id, p_kind))
                                     if cross_confirm:
                                         server_event_id = f"se_wcon_{p_uid}_{p_id[:8]}"
-                                        await log_observed_action(bot_id, name, email, p_uid, "webrtc_connection", "CONNECTED", fingerprint, msg_client_event_id=None, msg_server_event_id=server_event_id)
+                                        if await registry.should_confirm(server_event_id, limit=cross_confirm_limit):
+                                            await log_observed_action(bot_id, name, email, p_uid, "webrtc_connection", "CONNECTED", fingerprint, msg_client_event_id=None, msg_server_event_id=server_event_id)
                                     
                             elif mtype == "producer_closed":
                                 p_id = msg.get("producerId")
@@ -982,7 +996,9 @@ async def ws_session(
                                         await metrics.record_action(clean_act, fingerprint["browser_type"], "confirmed", elapsed)
                                 else:
                                     if cross_confirm:
-                                        await log_observed_action(bot_id, name, email, uid, clean_act, val, fingerprint, msg_client_event_id=client_event_id, msg_server_event_id=server_event_id)
+                                        event_key = client_event_id or server_event_id or f"{uid}_{clean_act}_{val}"
+                                        if await registry.should_confirm(event_key, limit=cross_confirm_limit):
+                                            await log_observed_action(bot_id, name, email, uid, clean_act, val, fingerprint, msg_client_event_id=client_event_id, msg_server_event_id=server_event_id)
                                             
                         except asyncio.TimeoutError:
                             pass
@@ -1041,7 +1057,8 @@ async def ws_session(
                         action_interval=action_interval, chat_interval=chat_interval, webrtc_client=webrtc_client,
                         camera_enabled=camera_enabled, mic_enabled=mic_enabled, hand_enabled=hand_enabled,
                         chat_enabled=chat_enabled, screen_share_enabled=screen_share_enabled,
-                        stop_event=stop_event, scenario_event=scenario_event, frontend_url=frontend_url, room_id=room_id, scenarios=scenarios, role=role
+                        stop_event=stop_event, scenario_event=scenario_event, frontend_url=frontend_url, room_id=room_id, scenarios=scenarios, role=role,
+                        auto_camera=auto_camera, auto_mic=auto_mic, auto_screen_share=auto_screen_share
                     )
                 )
 
@@ -1140,7 +1157,8 @@ async def run_bot(
     camera_enabled, mic_enabled, hand_enabled, screen_share_enabled, action_interval,
     confirm_timeout, max_retries, webrtc_enabled, media_quality, network_distribution, network_degradation, degradation_interval,
     device_manager, stop_event, session, scenario_event, cross_confirm=True,
-    jwt_secret=None, max_subscriptions=2, decode_downlink=False, host_bot_id=1, presenter_bot_id=2, scenarios=[]
+    jwt_secret=None, max_subscriptions=2, decode_downlink=False, host_bot_id=1, presenter_bot_id=2, scenarios=[],
+    auto_camera=False, auto_mic=False, auto_screen_share=False
 ):
     name, email = await generate_identity()
     
@@ -1198,7 +1216,8 @@ async def run_bot(
             network_profile=network_profile, network_degradation=network_degradation, degradation_interval=degradation_interval,
             stop_event=stop_event, scenario_event=scenario_event, cross_confirm=cross_confirm,
             frontend_url=frontend_url, room_id=current_room, reconnection_count=attempt,
-            role=role, max_subscriptions=max_subscriptions, decode_downlink=decode_downlink, in_breakout=in_breakout, scenarios=scenarios
+            role=role, max_subscriptions=max_subscriptions, decode_downlink=decode_downlink, in_breakout=in_breakout, scenarios=scenarios,
+            auto_camera=auto_camera, auto_mic=auto_mic, auto_screen_share=auto_screen_share, cross_confirm_limit=cross_confirm_limit
         )
 
         if stop_event.is_set():
@@ -1244,6 +1263,29 @@ async def run_bot(
         ws_url = await get_ws_url(current_room)
         if not ws_url:
             break
+
+def is_bot_in_range(bot_id, range_str):
+    if not range_str or range_str.strip().lower() == "all":
+        return True
+    if range_str.strip().lower() in ("none", "disabled", ""):
+        return False
+    parts = range_str.split(",")
+    for part in parts:
+        part = part.strip()
+        if "-" in part:
+            try:
+                start, end = part.split("-")
+                if int(start) <= bot_id <= int(end):
+                    return True
+            except ValueError:
+                pass
+        else:
+            try:
+                if int(part) == bot_id:
+                    return True
+            except ValueError:
+                pass
+    return False
 
 # Main orchestrator
 async def main(args):
@@ -1293,7 +1335,16 @@ async def main(args):
         sla_success_rate=args.sla_success_rate,
         sla_latency=args.sla_latency,
         sla_packet_loss=args.sla_packet_loss,
-        sla_jitter=args.sla_jitter
+        sla_jitter=args.sla_jitter,
+        cross_confirm_limit=args.cross_confirm_limit,
+        camera_publishers=args.camera_publishers,
+        mic_publishers=args.mic_publishers,
+        screen_share_publishers=args.screen_share_publishers,
+        viewer_bots=args.viewer_bots,
+        viewer_mode=args.viewer_mode,
+        auto_camera=args.auto_camera,
+        auto_mic=args.auto_mic,
+        auto_screen_share=args.auto_screen_share
     )
 
     print(f"\n{C['white']}{'═'*70}{C['reset']}")
@@ -1320,13 +1371,30 @@ async def main(args):
                 
                 scenarios = [s.strip() for s in args.test_scenarios.split(",")]
                 
+                is_viewer = is_bot_in_range(bot_id, args.viewer_bots)
+                
+                # Check if we are in receive-only viewer mode
+                if is_viewer and args.viewer_mode.strip().lower() == "receive_only":
+                    bot_camera_enabled = False
+                    bot_mic_enabled = False
+                    bot_screen_share_enabled = False
+                    bot_hand_enabled = False
+                    bot_chat_enabled = False
+                else:
+                    # Check individual publisher ID mappings
+                    bot_camera_enabled = (not args.no_camera) and is_bot_in_range(bot_id, args.camera_publishers)
+                    bot_mic_enabled = (not args.no_mic) and is_bot_in_range(bot_id, args.mic_publishers)
+                    bot_screen_share_enabled = (not args.no_screen_share) and is_bot_in_range(bot_id, args.screen_share_publishers)
+                    bot_hand_enabled = not args.no_handraise
+                    bot_chat_enabled = not args.no_chat
+
                 await run_bot(
                     bot_id=bot_id, room_id=args.room,
                     frontend_url=args.frontend, signal_domain=args.signal,
                     auto_leave_s=auto_leave_s,
-                    chat_enabled=not args.no_chat, chat_interval=args.chat_interval,
-                    camera_enabled=not args.no_camera, mic_enabled=not args.no_mic,
-                    hand_enabled=not args.no_handraise, screen_share_enabled=not args.no_screen_share,
+                    chat_enabled=bot_chat_enabled, chat_interval=args.chat_interval,
+                    camera_enabled=bot_camera_enabled, mic_enabled=bot_mic_enabled,
+                    hand_enabled=bot_hand_enabled, screen_share_enabled=bot_screen_share_enabled,
                     action_interval=args.action_interval, confirm_timeout=args.confirm_timeout,
                     max_retries=args.max_retries, webrtc_enabled=args.webrtc_enabled,
                     media_quality=args.media_quality, network_distribution=net_distribution,
@@ -1335,7 +1403,8 @@ async def main(args):
                     scenario_event=scen_event, cross_confirm=not args.no_cross_confirm,
                     jwt_secret=args.jwt_secret, max_subscriptions=args.max_subscriptions,
                     decode_downlink=args.decode_downlink, host_bot_id=args.host_bot_id,
-                    presenter_bot_id=args.presenter_bot_id, scenarios=scenarios
+                    presenter_bot_id=args.presenter_bot_id, scenarios=scenarios,
+                    auto_camera=args.auto_camera, auto_mic=args.auto_mic, auto_screen_share=args.auto_screen_share
                 )
 
         tasks = []
@@ -1482,6 +1551,17 @@ if __name__ == "__main__":
     parser.add_argument("--sla-latency", type=float, default=500.0, help="SLA target maximum average action propagation latency in ms")
     parser.add_argument("--sla-packet-loss", type=float, default=2.0, help="SLA target maximum packet loss percentage")
     parser.add_argument("--sla-jitter", type=float, default=30.0, help="SLA target maximum network jitter in ms")
+    
+    # Scenario and RAM control arguments
+    parser.add_argument("--cross-confirm-limit", type=int, default=10, help="Max bots logging cross-confirmations per event")
+    parser.add_argument("--camera-publishers", default="1,2,3,4,5", help="List of bot IDs allowed to publish camera")
+    parser.add_argument("--mic-publishers", default="1,2,3,4,5", help="List of bot IDs allowed to publish microphone")
+    parser.add_argument("--screen-share-publishers", default="2", help="List of bot IDs allowed to publish screen share")
+    parser.add_argument("--viewer-bots", default="6-1000", help="List of bot IDs acting as viewers")
+    parser.add_argument("--viewer-mode", default="receive_only", help="Viewer behavior mode")
+    parser.add_argument("--auto-camera", action="store_true", help="Start camera immediately on join")
+    parser.add_argument("--auto-mic", action="store_true", help="Start microphone unmuted immediately on join")
+    parser.add_argument("--auto-screen-share", action="store_true", help="Start screen sharing immediately on join")
     
     args = parser.parse_args()
     try:

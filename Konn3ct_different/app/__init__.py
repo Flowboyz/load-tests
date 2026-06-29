@@ -58,6 +58,33 @@ def create_app(db_uri=None):
                 if "sla_jitter" not in cfg_columns:
                     cursor.execute("ALTER TABLE configurations ADD COLUMN sla_jitter REAL DEFAULT 30.0")
                     print("Self-healing: added sla_jitter column to configurations table")
+                if "cross_confirm_limit" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN cross_confirm_limit INTEGER DEFAULT 10")
+                    print("Self-healing: added cross_confirm_limit column to configurations table")
+                if "camera_publishers" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN camera_publishers TEXT DEFAULT '1,2,3,4,5'")
+                    print("Self-healing: added camera_publishers column to configurations table")
+                if "screen_share_publishers" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN screen_share_publishers TEXT DEFAULT '2'")
+                    print("Self-healing: added screen_share_publishers column to configurations table")
+                if "mic_publishers" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN mic_publishers TEXT DEFAULT '1,2,3,4,5'")
+                    print("Self-healing: added mic_publishers column to configurations table")
+                if "viewer_bots" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN viewer_bots TEXT DEFAULT '6-1000'")
+                    print("Self-healing: added viewer_bots column to configurations table")
+                if "viewer_mode" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN viewer_mode TEXT DEFAULT 'receive_only'")
+                    print("Self-healing: added viewer_mode column to configurations table")
+                if "auto_camera" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN auto_camera BOOLEAN DEFAULT 0")
+                    print("Self-healing: added auto_camera column to configurations table")
+                if "auto_mic" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN auto_mic BOOLEAN DEFAULT 0")
+                    print("Self-healing: added auto_mic column to configurations table")
+                if "auto_screen_share" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN auto_screen_share BOOLEAN DEFAULT 0")
+                    print("Self-healing: added auto_screen_share column to configurations table")
                 conn.commit()
                 
             conn.close()

@@ -106,7 +106,13 @@ def run_test_process(app, socketio, session_id):
             "--sla-success-rate", str(getattr(config, 'sla_success_rate', 95.0)),
             "--sla-latency", str(getattr(config, 'sla_latency', 500.0)),
             "--sla-packet-loss", str(getattr(config, 'sla_packet_loss', 2.0)),
-            "--sla-jitter", str(getattr(config, 'sla_jitter', 30.0))
+            "--sla-jitter", str(getattr(config, 'sla_jitter', 30.0)),
+            "--cross-confirm-limit", str(getattr(config, 'cross_confirm_limit', 10)),
+            "--camera-publishers", getattr(config, 'camera_publishers', "1,2,3,4,5"),
+            "--screen-share-publishers", getattr(config, 'screen_share_publishers', "2"),
+            "--mic-publishers", getattr(config, 'mic_publishers', "1,2,3,4,5"),
+            "--viewer-bots", getattr(config, 'viewer_bots', "6-1000"),
+            "--viewer-mode", getattr(config, 'viewer_mode', "receive_only")
         ]
         
         # Add flags
@@ -116,6 +122,12 @@ def run_test_process(app, socketio, session_id):
             cmd.append("--decode-downlink")
         if config.network_degradation:
             cmd.append("--network-degradation")
+        if getattr(config, 'auto_camera', False):
+            cmd.append("--auto-camera")
+        if getattr(config, 'auto_mic', False):
+            cmd.append("--auto-mic")
+        if getattr(config, 'auto_screen_share', False):
+            cmd.append("--auto-screen-share")
         if config.no_chat:
             cmd.append("--no-chat")
         if config.no_camera:

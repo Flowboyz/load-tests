@@ -90,6 +90,17 @@ class Configuration(db.Model):
     sla_packet_loss = db.Column(db.Float, default=2.0, nullable=False)
     sla_jitter = db.Column(db.Float, default=30.0, nullable=False)
     
+    # RAM & Scenario Optimization
+    cross_confirm_limit = db.Column(db.Integer, default=10, nullable=False)
+    camera_publishers = db.Column(db.Text, default='1,2,3,4,5')
+    screen_share_publishers = db.Column(db.Text, default='2')
+    mic_publishers = db.Column(db.Text, default='1,2,3,4,5')
+    viewer_bots = db.Column(db.Text, default='6-1000')
+    viewer_mode = db.Column(db.String(50), default='receive_only')
+    auto_camera = db.Column(db.Boolean, default=False)
+    auto_mic = db.Column(db.Boolean, default=False)
+    auto_screen_share = db.Column(db.Boolean, default=False)
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

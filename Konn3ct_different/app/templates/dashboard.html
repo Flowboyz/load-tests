@@ -654,6 +654,47 @@
                                 </div>
                             </div>
                             <div class="form-section">
+                                <div class="section-title"><i class="fa-solid fa-memory"></i> RAM & Scenario Optimization</div>
+                                <div class="form-row">
+                                    <div class="form-group col-6">
+                                        <label for="formCrossConfirmLimit">Cross-Confirm Max Observers</label>
+                                        <input type="number" id="formCrossConfirmLimit" value="10" min="1">
+                                    </div>
+                                    <div class="form-group col-6">
+                                        <label for="formViewerMode">Viewer Mode</label>
+                                        <select id="formViewerMode">
+                                            <option value="receive_only">Receive Only (RAM Saver)</option>
+                                            <option value="normal_participant">Normal Participant</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-6">
+                                        <label for="formCameraPublishers">Camera Publisher Bot IDs</label>
+                                        <input type="text" id="formCameraPublishers" value="1,2,3,4,5" placeholder="e.g. 1,2,3-5">
+                                    </div>
+                                    <div class="form-group col-6">
+                                        <label for="formMicPublishers">Mic Publisher Bot IDs</label>
+                                        <input type="text" id="formMicPublishers" value="1,2,3,4,5" placeholder="e.g. 1,2,3-5">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-6">
+                                        <label for="formScreenSharePublishers">Screen Share Bot IDs</label>
+                                        <input type="text" id="formScreenSharePublishers" value="2" placeholder="e.g. 2">
+                                    </div>
+                                    <div class="form-group col-6">
+                                        <label for="formViewerBotIds">Viewer Bot IDs (Ranges)</label>
+                                        <input type="text" id="formViewerBotIds" value="6-1000" placeholder="e.g. 6-1000">
+                                    </div>
+                                </div>
+                                <div class="form-row checkbox-grid">
+                                    <div class="checkbox-item"><input type="checkbox" id="formAutoCamera"><label for="formAutoCamera">Auto-Start Camera</label></div>
+                                    <div class="checkbox-item"><input type="checkbox" id="formAutoMic"><label for="formAutoMic">Auto-Start Mic (Unmute)</label></div>
+                                    <div class="checkbox-item"><input type="checkbox" id="formAutoScreenShare"><label for="formAutoScreenShare">Auto-Start Screen Share</label></div>
+                                </div>
+                            </div>
+                            <div class="form-section">
                                 <div class="section-title"><i class="fa-solid fa-clipboard-check"></i> SLA Thresholds & Quality Gates</div>
                                 <div class="form-row">
                                     <div class="form-group col-6">

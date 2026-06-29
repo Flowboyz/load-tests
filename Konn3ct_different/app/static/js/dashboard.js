@@ -1155,7 +1155,16 @@ function getFormData() {
         sla_success_rate: parseFloat(document.getElementById('formSlaSuccessRate').value) || 95.0,
         sla_latency: parseFloat(document.getElementById('formSlaLatency').value) || 500.0,
         sla_packet_loss: parseFloat(document.getElementById('formSlaPacketLoss').value) || 2.0,
-        sla_jitter: parseFloat(document.getElementById('formSlaJitter').value) || 30.0
+        sla_jitter: parseFloat(document.getElementById('formSlaJitter').value) || 30.0,
+        cross_confirm_limit: parseInt(document.getElementById('formCrossConfirmLimit').value) || 10,
+        camera_publishers: document.getElementById('formCameraPublishers').value,
+        screen_share_publishers: document.getElementById('formScreenSharePublishers').value,
+        mic_publishers: document.getElementById('formMicPublishers').value,
+        viewer_bots: document.getElementById('formViewerBotIds').value,
+        viewer_mode: document.getElementById('formViewerMode').value,
+        auto_camera: document.getElementById('formAutoCamera').checked,
+        auto_mic: document.getElementById('formAutoMic').checked,
+        auto_screen_share: document.getElementById('formAutoScreenShare').checked
     };
 }
 
@@ -1203,6 +1212,16 @@ async function loadConfigIntoForm(cfgId) {
         document.getElementById('formSlaLatency').value = cfg.sla_latency !== undefined ? cfg.sla_latency : 500.0;
         document.getElementById('formSlaPacketLoss').value = cfg.sla_packet_loss !== undefined ? cfg.sla_packet_loss : 2.0;
         document.getElementById('formSlaJitter').value = cfg.sla_jitter !== undefined ? cfg.sla_jitter : 30.0;
+        
+        document.getElementById('formCrossConfirmLimit').value = cfg.cross_confirm_limit !== undefined ? cfg.cross_confirm_limit : 10;
+        document.getElementById('formCameraPublishers').value = cfg.camera_publishers !== undefined ? cfg.camera_publishers : '1,2,3,4,5';
+        document.getElementById('formScreenSharePublishers').value = cfg.screen_share_publishers !== undefined ? cfg.screen_share_publishers : '2';
+        document.getElementById('formMicPublishers').value = cfg.mic_publishers !== undefined ? cfg.mic_publishers : '1,2,3,4,5';
+        document.getElementById('formViewerBotIds').value = cfg.viewer_bots !== undefined ? cfg.viewer_bots : '6-1000';
+        document.getElementById('formViewerMode').value = cfg.viewer_mode !== undefined ? cfg.viewer_mode : 'receive_only';
+        document.getElementById('formAutoCamera').checked = cfg.auto_camera !== undefined ? cfg.auto_camera : false;
+        document.getElementById('formAutoMic').checked = cfg.auto_mic !== undefined ? cfg.auto_mic : false;
+        document.getElementById('formAutoScreenShare').checked = cfg.auto_screen_share !== undefined ? cfg.auto_screen_share : false;
         
         loadCheckboxesFromSerialized('network');
         loadCheckboxesFromSerialized('browser');
