@@ -178,6 +178,14 @@ def run_test_process(app, socketio, session_id):
                     chunk_cmd.extend(["--bots", str(chunk_bots)])
                 chunk_cmd.extend(["--start-id", str(start_id)])
                 
+                # Use separate report log file for each process chunk to prevent concurrent write collisions and file truncation
+                chunk_report_log = f"{report_log.replace('.jsonl', '')}_chunk_{start_id}.jsonl"
+                try:
+                    log_idx = chunk_cmd.index("--report-log")
+                    chunk_cmd[log_idx + 1] = chunk_report_log
+                except ValueError:
+                    chunk_cmd.extend(["--report-log", chunk_report_log])
+                
                 print(f"Launching bot chunk (start_id={start_id}, bots={chunk_bots}) with cmd: {' '.join(chunk_cmd)}")
                 
                 proc = subprocess.Popen(
@@ -258,6 +266,33 @@ def run_test_process(app, socketio, session_id):
                     session.ended_at = datetime.utcnow()
                     accumulated_secs = session.accumulated_duration
                     
+                    # Merge all chunk logs into the main report log file
+                    try:
+                        import json
+                        with open(report_log, "w", encoding="utf-8") as main_f:
+                            main_f.write(json.dumps({
+                                "event": "test_started",
+                                "ts": datetime.utcnow().isoformat() + "Z"
+                            }) + "\n")
+                            for start_id, chunk_bots in chunks:
+                                chunk_log_path = f"{report_log.replace('.jsonl', '')}_chunk_{start_id}.jsonl"
+                                if os.path.exists(chunk_log_path):
+                                    with open(chunk_log_path, "r", encoding="utf-8") as chunk_f:
+                                        for line in chunk_f:
+                                            try:
+                                                parsed = json.loads(line.strip())
+                                                if parsed.get("event") == "test_started":
+                                                    continue
+                                            except Exception:
+                                                pass
+                                            main_f.write(line)
+                                    try:
+                                        os.remove(chunk_log_path)
+                                    except Exception:
+                                        pass
+                    except Exception as me:
+                        print(f"Error merging chunk logs: {me}")
+                        
                     # Post-Process: Compile report if it doesn't exist
                     try:
                         compile_report_log(project_root, report_log, report_docx)
