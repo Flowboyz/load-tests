@@ -415,6 +415,7 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
     last_raw_emit_time = time.time()
     
     open_files = {} # chunk_id -> file_object
+    line_buffers = {} # chunk_id -> string
     
     try:
         while not stop_event.is_set():
@@ -438,15 +439,25 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                     except Exception:
                         continue
                         
+                if chunk_id not in line_buffers:
+                    line_buffers[chunk_id] = ""
+                    
                 f = open_files[chunk_id]
                 while True:
                     line = f.readline()
                     if not line:
                         break
+                    
+                    line_buffers[chunk_id] += line
+                    if not line_buffers[chunk_id].endswith("\n"):
+                        break
+                        
                     any_new_lines = True
+                    complete_line = line_buffers[chunk_id]
+                    line_buffers[chunk_id] = ""
                     
                     try:
-                        event = json.loads(line.strip())
+                        event = json.loads(complete_line.strip())
                         etype = event.get("event")
                         
                         # Buffer raw event for console log viewer

@@ -14,7 +14,59 @@ if (!fs.existsSync(dataPath)) {
   process.exit(1);
 }
 
-const data = JSON.parse(fs.readFileSync(dataPath, "utf8"));
+function deepMerge(target, source) {
+  if (!target) return source || {};
+  if (!source) return target || {};
+  for (const key of Object.keys(target)) {
+    if (target[key] instanceof Object && !Array.isArray(target[key])) {
+      source[key] = deepMerge(target[key], source[key] || {});
+    } else if (source[key] === undefined) {
+      source[key] = target[key];
+    }
+  }
+  return source;
+}
+
+const defaults = {
+  total_bots: 0,
+  duration_str: "N/A",
+  config: {
+    room: "N/A",
+    bots: 0,
+    batch: 1,
+    stagger: 0.0,
+    webrtc_enabled: false,
+    media_quality: "medium",
+    network_degradation: false,
+    action_interval: 10,
+    chat_interval: 10,
+    max_retries: 5,
+    host_bot_id: 1,
+    presenter_bot_id: 2,
+    signal: "N/A"
+  },
+  browser_distribution: {},
+  os_distribution: {},
+  device_distribution: {},
+  join_performance: {},
+  webrtc_performance: {},
+  action_performance: {},
+  observation_stats: { performance: {} },
+  global_latencies: { avg_ack: 0, p95_ack: 0, avg_broadcast: 0, avg_ui_render: 0, avg_observer: 0, p95_observer: 0 },
+  timeout_stage_breakdown: {},
+  unsupported_reason_breakdown: {},
+  error_code_breakdown: {}
+};
+
+const rawData = JSON.parse(fs.readFileSync(dataPath, "utf8"));
+const data = deepMerge(defaults, rawData);
+
+function safeFixed(val, decimals, suffix = "") {
+  if (val === undefined || val === null || isNaN(Number(val))) {
+    return "N/A";
+  }
+  return Number(val).toFixed(decimals) + suffix;
+}
 
 const PAGE_WIDTH    = 12240;
 const PAGE_HEIGHT   = 15840;
@@ -193,8 +245,8 @@ const bMatrixRows = Object.keys(data.browser_distribution || {}).map((b, i) => {
     children: [
       bodyCell(friendlyBrowserName(b), bMatrixCols[0], { fill, bold: true, color: NAVY }),
       bodyCell(count, bMatrixCols[1], { fill, align: AlignmentType.CENTER }),
-      bodyCell(`${perf.success_rate.toFixed(1)}%`, bMatrixCols[2], { fill, align: AlignmentType.CENTER, color: perf.success_rate >= 90 ? GREEN : AMBER }),
-      bodyCell(`${perf.avg_join_time.toFixed(0)} ms`, bMatrixCols[3], { fill, align: AlignmentType.CENTER })
+      bodyCell(safeFixed(perf.success_rate, 1, "%"), bMatrixCols[2], { fill, align: AlignmentType.CENTER, color: perf.success_rate >= 90 ? GREEN : AMBER }),
+      bodyCell(safeFixed(perf.avg_join_time, 0, " ms"), bMatrixCols[3], { fill, align: AlignmentType.CENTER })
     ]
   });
 });
@@ -217,7 +269,7 @@ const osRows = Object.keys(data.os_distribution || {}).map((o, i) => {
     children: [
       bodyCell(friendlyOSName(o), osCols[0], { fill, bold: true, color: NAVY }),
       bodyCell(count, osCols[1], { fill, align: AlignmentType.CENTER }),
-      bodyCell(`${percentage.toFixed(1)}%`, osCols[2], { fill, align: AlignmentType.CENTER })
+      bodyCell(safeFixed(percentage, 1, "%"), osCols[2], { fill, align: AlignmentType.CENTER })
     ]
   });
 });
@@ -240,7 +292,7 @@ const devRows = Object.keys(data.device_distribution || {}).map((d, i) => {
     children: [
       bodyCell(d.charAt(0).toUpperCase() + d.slice(1), devCols[0], { fill, bold: true, color: NAVY }),
       bodyCell(count, devCols[1], { fill, align: AlignmentType.CENTER }),
-      bodyCell(`${percentage.toFixed(1)}%`, devCols[2], { fill, align: AlignmentType.CENTER })
+      bodyCell(safeFixed(percentage, 1, "%"), devCols[2], { fill, align: AlignmentType.CENTER })
     ]
   });
 });
@@ -263,12 +315,12 @@ const webrtcRows = webrtcBrowsers.map((b, i) => {
   return new TableRow({
     children: [
       bodyCell(friendlyBrowserName(b), t2Cols[0], { fill, bold: true, color: NAVY }),
-      bodyCell(`${p.avg_ice_time.toFixed(0)} ms`, t2Cols[1], { fill, align: AlignmentType.CENTER }),
-      bodyCell(`${p.avg_dtls_time.toFixed(0)} ms`, t2Cols[2], { fill, align: AlignmentType.CENTER }),
-      bodyCell(`${p.avg_rtt.toFixed(0)} ms`, t2Cols[3], { fill, align: AlignmentType.CENTER }),
-      bodyCell(`${(p.avg_packet_loss * 100).toFixed(2)}%`, t2Cols[4], { fill, align: AlignmentType.CENTER, color: p.avg_packet_loss > 0.02 ? RED : "1F2937" }),
-      bodyCell(`${p.avg_jitter.toFixed(1)} ms`, t2Cols[5], { fill, align: AlignmentType.CENTER }),
-      bodyCell(`${p.avg_bitrate.toFixed(0)} kbps`, t2Cols[6], { fill, align: AlignmentType.CENTER }),
+      bodyCell(safeFixed(p.avg_ice_time, 0, " ms"), t2Cols[1], { fill, align: AlignmentType.CENTER }),
+      bodyCell(safeFixed(p.avg_dtls_time, 0, " ms"), t2Cols[2], { fill, align: AlignmentType.CENTER }),
+      bodyCell(safeFixed(p.avg_rtt, 0, " ms"), t2Cols[3], { fill, align: AlignmentType.CENTER }),
+      bodyCell(safeFixed(p.avg_packet_loss * 100, 2, "%"), t2Cols[4], { fill, align: AlignmentType.CENTER, color: p.avg_packet_loss > 0.02 ? RED : "1F2937" }),
+      bodyCell(safeFixed(p.avg_jitter, 1, " ms"), t2Cols[5], { fill, align: AlignmentType.CENTER }),
+      bodyCell(safeFixed(p.avg_bitrate, 0, " kbps"), t2Cols[6], { fill, align: AlignmentType.CENTER }),
       bodyCell(p.codecs_used?.length ? p.codecs_used.join(", ") : "N/A", t2Cols[7], { fill, align: AlignmentType.CENTER }),
       bodyCell(p.resolutions?.length ? p.resolutions.join(", ") : "N/A", t2Cols[8], { fill, align: AlignmentType.CENTER })
     ]
@@ -317,9 +369,9 @@ const actPerformanceRows = Object.keys(data.action_performance || {}).map((act, 
     children: [
       bodyCell(act.charAt(0).toUpperCase() + act.slice(1).replace("_", " "), actCols[0], { fill, bold: true, color: NAVY }),
       bodyCell(browsers.length, actCols[1], { fill, align: AlignmentType.CENTER }),
-      bodyCell(`${successRate.toFixed(1)}%`, actCols[2], { fill, align: AlignmentType.CENTER, color: successRate >= 90 ? GREEN : AMBER }),
-      bodyCell(`${avgLatency.toFixed(0)} ms`, actCols[3], { fill, align: AlignmentType.CENTER }),
-      bodyCell(obsPerf.count > 0 ? `${obsPerf.avg_latency.toFixed(0)} ms` : "N/A", actCols[4], { fill, align: AlignmentType.CENTER })
+      bodyCell(safeFixed(successRate, 1, "%"), actCols[2], { fill, align: AlignmentType.CENTER, color: successRate >= 90 ? GREEN : AMBER }),
+      bodyCell(safeFixed(avgLatency, 0, " ms"), actCols[3], { fill, align: AlignmentType.CENTER }),
+      bodyCell(obsPerf.count > 0 ? safeFixed(obsPerf.avg_latency, 0, " ms") : "N/A", actCols[4], { fill, align: AlignmentType.CENTER })
     ]
   });
 });
@@ -344,10 +396,10 @@ const actionLifecycleTable = new Table({
 const chatCols = [3000, 3180, 3180];
 const chatDeepRows = [
   ["Total Chat Messages Sent", data.observation_stats?.performance?.chat?.count || 0],
-  ["Averaged Ack Confirmation Latency", `${data.global_latencies?.avg_ack.toFixed(1)} ms`],
-  ["Peak (P95) Ack Latency", `${data.global_latencies?.p95_ack.toFixed(1)} ms`],
-  ["Averaged Broadcast Propagation Latency", `${data.global_latencies?.avg_broadcast.toFixed(1)} ms`],
-  ["Averaged UI Render Latency", `${data.global_latencies?.avg_ui_render.toFixed(1)} ms`],
+  ["Averaged Ack Confirmation Latency", safeFixed(data.global_latencies?.avg_ack, 1, " ms")],
+  ["Peak (P95) Ack Latency", safeFixed(data.global_latencies?.p95_ack, 1, " ms")],
+  ["Averaged Broadcast Propagation Latency", safeFixed(data.global_latencies?.avg_broadcast, 1, " ms")],
+  ["Averaged UI Render Latency", safeFixed(data.global_latencies?.avg_ui_render, 1, " ms")],
   ["Chat Message Correlation Rate", "100.0% (Correlated via clientEventId)"],
 ].map((row, i) => {
   const fill = i % 2 === 0 ? "FFFFFF" : LIGHT;
@@ -502,7 +554,7 @@ const gates = [
   {
     name: "WebSocket Survival Rate",
     threshold: "≥99.5%",
-    measured: `${signalSurvivalRate.toFixed(1)}%`,
+    measured: safeFixed(signalSurvivalRate, 1, "%"),
     pass: signalSurvivalRate >= 99.5,
     rec_fe: "Configure the WebSocket client with exponential backoff connection retries, dynamic token refresh before timeout, and local event queueing during disconnected phases.",
     rec_be: "Optimize load balancer session affinity cookie policies, tune connection broker socket keep-alive ping intervals to 25s, and adjust TCP backlog queue size.",
@@ -511,7 +563,7 @@ const gates = [
   {
     name: "WebRTC Connection Success Rate",
     threshold: "≥99.0%",
-    measured: `${(data.config?.webrtc_enabled ? 99.8 : 0.0).toFixed(1)}%`,
+    measured: safeFixed(data.config?.webrtc_enabled ? 99.8 : 0.0, 1, "%"),
     pass: data.config?.webrtc_enabled ? true : false,
     rec_fe: "Implement robust error event handlers on client PeerConnection state changes, and trigger signaling renegotiation if iceConnectionState becomes disconnected.",
     rec_be: "Ensure media router port ranges (typically UDP 10000-20000) are open, and configure DTLS certificates to be signed and validated by correct authorities.",
@@ -520,7 +572,7 @@ const gates = [
   {
     name: "ICE Connection Setup Time",
     threshold: "Avg <500ms",
-    measured: `${avgIceTime.toFixed(0)} ms`,
+    measured: safeFixed(avgIceTime, 0, " ms"),
     pass: avgIceTime < 500,
     rec_fe: "Filter out unused local host candidates (e.g. IPv6 or loopback) before sending iceCandidate signaling messages to decrease connection path options.",
     rec_be: "Deploy geo-routed STUN/TURN clusters closer to client network hubs and enable ICE Lite on the SFU endpoint servers to bypass client-side checks.",
@@ -529,7 +581,7 @@ const gates = [
   {
     name: "DTLS Handshake Time",
     threshold: "Avg <500ms",
-    measured: `${avgDtlsTime.toFixed(0)} ms`,
+    measured: safeFixed(avgDtlsTime, 0, " ms"),
     pass: avgDtlsTime < 500,
     rec_fe: "Prefetch media stream configuration parameters and initiate ICE gathering prior to signaling handshake, and cache cryptographic session contexts.",
     rec_be: "Optimize DTLS certificate chains on media workers and tune router MTU UDP payload sizing to prevent fragmentation during the DTLS exchange.",
@@ -538,7 +590,7 @@ const gates = [
   {
     name: "Chat Message Delivery Rate",
     threshold: "≥99.0%",
-    measured: `${chatSuccessRate.toFixed(1)}%`,
+    measured: safeFixed(chatSuccessRate, 1, "%"),
     pass: chatSuccessRate >= 99.0,
     rec_fe: "Implement local delivery confirmation loops with matching client-side transaction IDs, and buffer chat payloads in a retry queue.",
     rec_be: "Increase Redis Pub/Sub cluster shards, scale up message broker memory allocation limits, and run async signaling queue workers.",
@@ -547,7 +599,7 @@ const gates = [
   {
     name: "Camera Toggle Success Rate",
     threshold: "≥99.0%",
-    measured: `${camSuccessRate.toFixed(1)}%`,
+    measured: safeFixed(camSuccessRate, 1, "%"),
     pass: camSuccessRate >= 99.0,
     rec_fe: "Introduce client-side input throttling, release hardware camera tracks cleanly, and display local virtual tracks immediately.",
     rec_be: "Scale SFU media worker CPU core allocation and tune signaling acknowledgments to prevent track state synchronization bottlenecks.",
@@ -556,7 +608,7 @@ const gates = [
   {
     name: "Mic Toggle Success Rate",
     threshold: "≥99.0%",
-    measured: `${micSuccessRate.toFixed(1)}%`,
+    measured: safeFixed(micSuccessRate, 1, "%"),
     pass: micSuccessRate >= 99.0,
     rec_fe: "Call `.stop()` on microphone tracks and release WebAudio contexts to free hardware audio capture layers immediately.",
     rec_be: "Optimize voice activity detection (VAD) parsing threads and expedite track state synchronization messages across media worker nodes.",
@@ -565,7 +617,7 @@ const gates = [
   {
     name: "Hand Raise Toggle Success Rate",
     threshold: "≥99.0%",
-    measured: `${handSuccessRate.toFixed(1)}%`,
+    measured: safeFixed(handSuccessRate, 1, "%"),
     pass: handSuccessRate >= 99.0,
     rec_fe: "Debounce hand-raise click actions to prevent multiple fast clicks from flooding the server socket.",
     rec_be: "Optimize database signaling lock contention and process non-blocking state updates in separate queues.",
@@ -574,7 +626,7 @@ const gates = [
   {
     name: "Screen Share Desktop Success",
     threshold: "≥98.0%",
-    measured: `${scrSuccessRate.toFixed(1)}%`,
+    measured: safeFixed(scrSuccessRate, 1, "%"),
     pass: scrSuccessRate >= 98.0,
     rec_fe: "Gracefully catch NotAllowedError rejections and prompt users to enable system screen capture permissions.",
     rec_be: "Configure standard Screen Capture Permissions-Policy HTTP headers on the web host server.",
@@ -592,7 +644,7 @@ const gates = [
   {
     name: "Join Meeting Latency (P95)",
     threshold: "<2,000ms",
-    measured: `${avgJoinTime.toFixed(0)} ms`,
+    measured: safeFixed(avgJoinTime, 0, " ms"),
     pass: avgJoinTime < 2000,
     rec_fe: "Lazy-load heavy dashboard bundles and optimize pre-fetch/cache calls during initial room routing.",
     rec_be: "Cache pre-join meeting details in Redis and index authorization database queries.",
@@ -601,7 +653,7 @@ const gates = [
   {
     name: "First Audio Packet Received",
     threshold: "<3,000ms",
-    measured: `${avgFirstAudio.toFixed(0)} ms`,
+    measured: safeFixed(avgFirstAudio, 0, " ms"),
     pass: avgFirstAudio < 3000,
     rec_fe: "Pre-warm and initialize WebAudio player components on pre-join screens before complete connection handshake.",
     rec_be: "Send silent audio packet sequences immediately upon connection creation to pre-warm server paths.",
@@ -610,7 +662,7 @@ const gates = [
   {
     name: "First Video Frame Rendered",
     threshold: "<5,000ms",
-    measured: `${avgFirstVideo.toFixed(0)} ms`,
+    measured: safeFixed(avgFirstVideo, 0, " ms"),
     pass: avgFirstVideo < 5000,
     rec_fe: "Ignore leading video frame packets preceding the first keyframe (I-frame) to prevent decoder lag.",
     rec_be: "Instruct the SFU to force a keyframe request (PLI/FIR) immediately when a new video consumer joins.",
@@ -619,7 +671,7 @@ const gates = [
   {
     name: "Audio Packet Loss",
     threshold: "Avg <1.0%",
-    measured: `${(avgLoss * 100).toFixed(2)}%`,
+    measured: safeFixed(avgLoss * 100, 2, "%"),
     pass: avgLoss < 0.01,
     rec_fe: "Enable Opus in-band Forward Error Correction (FEC) and enable packet loss concealment in jitter buffers.",
     rec_be: "Scale TURN server instance nodes and configure QoS routing rules (DSCP EF) on regional gate networks.",
@@ -628,7 +680,7 @@ const gates = [
   {
     name: "Video Packet Loss",
     threshold: "Avg <2.0%",
-    measured: `${(avgLoss * 100).toFixed(2)}%`,
+    measured: safeFixed(avgLoss * 100, 2, "%"),
     pass: avgLoss < 0.02,
     rec_fe: "Configure RTCP NACK/retransmissions and adjust video sender bandwidth parameters dynamically.",
     rec_be: "Tune SFU RTX retransmission buffer sizes and scale up downstream media bandwidth allocation parameters.",
@@ -637,7 +689,7 @@ const gates = [
   {
     name: "WebRTC RTT (Latency)",
     threshold: "Avg <150ms",
-    measured: `${avgRtt.toFixed(1)} ms`,
+    measured: safeFixed(avgRtt, 1, " ms"),
     pass: avgRtt < 150,
     rec_fe: "Enable client-side measurement and auto-selection of the nearest edge node during initial handshake.",
     rec_be: "Deploy regional SFU instances closer to user clusters to shorten packet routing paths.",
@@ -646,7 +698,7 @@ const gates = [
   {
     name: "WebRTC Jitter",
     threshold: "Avg <30ms",
-    measured: `${avgJitter.toFixed(1)} ms`,
+    measured: safeFixed(avgJitter, 1, " ms"),
     pass: avgJitter < 30,
     rec_fe: "Deploy adaptive jitter buffer management and dynamic speed-adjustment algorithms on client players.",
     rec_be: "Optimize thread execution priority and minimize context-switch overhead on the media router.",
@@ -655,7 +707,7 @@ const gates = [
   {
     name: "Audio Freeze/Stall Ratio",
     threshold: "<0.5%",
-    measured: `${(avgAudioFreeze * 100).toFixed(2)}%`,
+    measured: safeFixed(avgAudioFreeze * 100, 2, "%"),
     pass: avgAudioFreeze < 0.005,
     rec_fe: "Adjust audio playout delay thresholds and enable audio packet loss concealment algorithms.",
     rec_be: "Prioritize audio streams over video packets in the SFU network output buffer controller.",
@@ -664,7 +716,7 @@ const gates = [
   {
     name: "Video Freeze/Stall Ratio",
     threshold: "<1.0%",
-    measured: `${(avgVideoFreeze * 100).toFixed(2)}%`,
+    measured: safeFixed(avgVideoFreeze * 100, 2, "%"),
     pass: avgVideoFreeze < 0.01,
     rec_fe: "Adjust frame rendering buffer thresholds and request PLI when loss is detected.",
     rec_be: "Instruct the SFU media worker to switch to a lower quality layer if the bandwidth estimate drops.",
@@ -673,7 +725,7 @@ const gates = [
   {
     name: "ICE Restart Recovery Delay",
     threshold: "<10.0s",
-    measured: `${(avgIceRecovery / 1000).toFixed(1)}s`,
+    measured: safeFixed(avgIceRecovery / 1000, 1, "s"),
     pass: (avgIceRecovery / 1000) < 10.0,
     rec_fe: "Monitor iceconnectionstate changes and trigger ICE restart immediately upon connection drop.",
     rec_be: "Speed up ICE candidate aggregation cache on media bridge.",
@@ -682,7 +734,7 @@ const gates = [
   {
     name: "Active Speaker Switch Delay",
     threshold: "Avg <500ms",
-    measured: `${avgSpeakerSwitch.toFixed(0)} ms`,
+    measured: safeFixed(avgSpeakerSwitch, 0, " ms"),
     pass: avgSpeakerSwitch < 500,
     rec_fe: "Process speaker active indicators in local web workers to reduce UI main thread blockage.",
     rec_be: "Increase audio level sampling frequency and decrease window size in media router voice activity detector.",
@@ -691,7 +743,7 @@ const gates = [
   {
     name: "Server CPU Load",
     threshold: "Avg <60%",
-    measured: `${(data.config?.bots > 50 ? 54.5 : 32.0).toFixed(1)}%`,
+    measured: safeFixed(data.config?.bots > 50 ? 54.5 : 32.0, 1, "%"),
     pass: (data.config?.bots > 50 ? 54.5 : 32.0) < 60,
     rec_fe: "Choose VP8/H.264 video streams instead of high-compute AV1 to limit server decoding load.",
     rec_be: "Distribute media worker threads across multiple processor cores using cluster modules.",
@@ -700,7 +752,7 @@ const gates = [
   {
     name: "Server Memory Usage",
     threshold: "Avg <70%",
-    measured: `${(data.config?.bots > 50 ? 45.0 : 28.0).toFixed(1)}%`,
+    measured: safeFixed(data.config?.bots > 50 ? 45.0 : 28.0, 1, "%"),
     pass: (data.config?.bots > 50 ? 45.0 : 28.0) < 70,
     rec_fe: "Properly clean up and unbind HTML video tag elements to avoid memory leaks in the browser.",
     rec_be: "Optimize Node.js garbage collection options and profile memory allocation leaks."
@@ -869,16 +921,16 @@ const doc = new Document({
       paragraph("Desktop screen sharing establishes a WebRTC screen-producer track. Mobile devices (iOS, Android) and unsupported browsers are rejected instantly. Below is the compatibility and latency summary:"),
       paragraph(`• Unsupported Screen Shares Logged: ${data.unsupported_reason_breakdown?.["IOS_SAFARI_SCREEN_SHARE_UNSUPPORTED"] || 0} (Mobile Safari rejection)`),
       paragraph(`• Desktop Screen Share Success Rate: 100.0% (Meets the 95.0% target for Chrome/Firefox)`),
-      paragraph(`• Screen Share Avg Start Delay: ${data.action_performance?.screen_share ? Object.values(data.action_performance.screen_share)[0]?.avg_latency.toFixed(0) : "N/A"} ms`),
+      paragraph(`• Screen Share Avg Start Delay: ${data.action_performance?.screen_share ? safeFixed(Object.values(data.action_performance.screen_share)[0]?.avg_latency, 0) : "N/A"} ms`),
 
       // 11. Camera/Mic/Hand Raise Deep-Dive
       sectionHeading("11. Camera/Mic/Hand Raise Deep-Dive"),
       paragraph(`• Total Camera Toggles Sent: ${data.action_performance?.camera ? Object.values(data.action_performance.camera).reduce((sum, b) => sum + (b.success + b.failed), 0) : 0}`),
-      paragraph(`• Camera Toggle Success Rate: ${camSuccessRate.toFixed(1)}%`),
+      paragraph(`• Camera Toggle Success Rate: ${safeFixed(camSuccessRate, 1, "%")}`),
       paragraph(`• Total Mic Toggles Sent: ${data.action_performance?.mic ? Object.values(data.action_performance.mic).reduce((sum, b) => sum + (b.success + b.failed), 0) : 0}`),
-      paragraph(`• Mic Toggle Success Rate: ${micSuccessRate.toFixed(1)}%`),
+      paragraph(`• Mic Toggle Success Rate: ${safeFixed(micSuccessRate, 1, "%")}`),
       paragraph(`• Total Hand Raises Sent: ${data.action_performance?.hand ? Object.values(data.action_performance.hand).reduce((sum, b) => sum + (b.success + b.failed), 0) : 0}`),
-      paragraph(`• Hand Raise Success Rate: ${handSuccessRate.toFixed(1)}%`),
+      paragraph(`• Hand Raise Success Rate: ${safeFixed(handSuccessRate, 1, "%")}`),
 
       // 12. Timeout Stage Analysis
       sectionHeading("12. Timeout Stage Analysis"),
