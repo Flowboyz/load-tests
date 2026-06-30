@@ -39,287 +39,310 @@ def run_test_process(app, socketio, session_id):
     Background worker that runs the subprocess, tails logs, aggregates metrics, 
     and converts the final docx report to pdf.
     """
-    with app.app_context():
-        session = TestSession.query.get(session_id)
-        if not session:
-            return
+    import traceback
+    try:
+        with app.app_context():
+            session = TestSession.query.get(session_id)
+            if not session:
+                return
+                
+            config = session.config
+            if not config:
+                session.status = "failed"
+                session.error_message = "Configuration template not found."
+                db.session.commit()
+                return
+                
+            session_dir = get_session_dir(session_id)
+            control_file = os.path.join(session_dir, "control.json")
+            report_log = os.path.join(session_dir, "report_log.jsonl")
+            report_docx = os.path.join(session_dir, "report.docx")
+            report_pdf = os.path.join(session_dir, "report.pdf")
+            report_csv = os.path.join(session_dir, "session_action_lifecycle.csv")
             
-        config = session.config
-        if not config:
-            session.status = "failed"
-            session.error_message = "Configuration template not found."
+            # Write initial control file
+            with open(control_file, "w") as f:
+                json.dump({"paused": False}, f)
+                
+            # Update session details
+            session.status = "running"
+            session.started_at = datetime.utcnow()
+            session.last_resume_time = datetime.utcnow()
+            session.accumulated_duration = 0
+            session.report_log_path = report_log
+            session.report_docx_path = report_docx
+            session.report_csv_path = report_csv
             db.session.commit()
-            return
             
-        session_dir = get_session_dir(session_id)
-        control_file = os.path.join(session_dir, "control.json")
-        report_log = os.path.join(session_dir, "report_log.jsonl")
-        report_docx = os.path.join(session_dir, "report.docx")
-        report_pdf = os.path.join(session_dir, "report.pdf")
-        report_csv = os.path.join(session_dir, "session_action_lifecycle.csv")
-        
-        # Write initial control file
-        with open(control_file, "w") as f:
-            json.dump({"paused": False}, f)
+            # Build command-line arguments mapping all database columns
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            py_guest_path = os.path.join(project_root, "py_guest.py")
             
-        # Update session details
-        session.status = "running"
-        session.started_at = datetime.utcnow()
-        session.last_resume_time = datetime.utcnow()
-        session.accumulated_duration = 0
-        session.report_log_path = report_log
-        session.report_docx_path = report_docx
-        session.report_csv_path = report_csv
-        db.session.commit()
-        
-        # Build command-line arguments mapping all database columns
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        py_guest_path = os.path.join(project_root, "py_guest.py")
-        
-        cmd = [
-            get_python_executable(project_root), py_guest_path,
-            "--room", config.room,
-            "--bots", str(config.bots),
-            "--stagger", str(config.stagger),
-            "--batch", str(config.batch),
-            "--concurrency", str(config.concurrency),
-            "--leave", str(config.leave),
-            "--media-quality", config.media_quality,
-            "--test-scenarios", config.test_scenarios,
-            "--action-interval", str(config.action_interval),
-            "--chat-interval", str(config.chat_interval),
-            "--confirm-timeout", str(config.confirm_timeout),
-            "--max-retries", str(config.max_retries),
-            "--max-subscriptions", str(config.max_subscriptions),
-            "--host-bot-id", str(config.host_bot_id),
-            "--presenter-bot-id", str(config.presenter_bot_id),
-            "--frontend", config.frontend,
-            "--signal", config.signal,
-            "--report-log", report_log,
-            "--report-output", report_docx,
-            "--control-file", control_file,
-            "--browser-distribution", config.browser_distribution,
-            "--device-distribution", config.device_distribution,
-            "--os-distribution", config.os_distribution,
-            "--network-conditions", config.network_conditions,
-            "--degradation-interval", str(config.degradation_interval),
-            "--sla-success-rate", str(getattr(config, 'sla_success_rate', 95.0)),
-            "--sla-latency", str(getattr(config, 'sla_latency', 500.0)),
-            "--sla-packet-loss", str(getattr(config, 'sla_packet_loss', 2.0)),
-            "--sla-jitter", str(getattr(config, 'sla_jitter', 30.0)),
-            "--cross-confirm-limit", str(getattr(config, 'cross_confirm_limit', 10)),
-            "--camera-publishers", getattr(config, 'camera_publishers', "1,2,3,4,5"),
-            "--screen-share-publishers", getattr(config, 'screen_share_publishers', "2"),
-            "--mic-publishers", getattr(config, 'mic_publishers', "1,2,3,4,5"),
-            "--viewer-bots", getattr(config, 'viewer_bots', "6-1000"),
-            "--viewer-mode", getattr(config, 'viewer_mode', "receive_only")
-        ]
-        
-        # Add flags
-        if config.webrtc_enabled:
-            cmd.append("--webrtc-enabled")
-        if config.decode_downlink:
-            cmd.append("--decode-downlink")
-        if config.network_degradation:
-            cmd.append("--network-degradation")
-        if getattr(config, 'auto_camera', False):
-            cmd.append("--auto-camera")
-        if getattr(config, 'auto_mic', False):
-            cmd.append("--auto-mic")
-        if getattr(config, 'auto_screen_share', False):
-            cmd.append("--auto-screen-share")
-        if config.no_chat:
-            cmd.append("--no-chat")
-        if config.no_camera:
-            cmd.append("--no-camera")
-        if config.no_mic:
-            cmd.append("--no-mic")
-        if config.no_handraise:
-            cmd.append("--no-handraise")
-        if config.no_screen_share:
-            cmd.append("--no-screen-share")
-        if config.no_cross_confirm:
-            cmd.append("--no-cross-confirm")
-        if config.jwt_secret:
-            cmd.extend(["--jwt-secret", config.jwt_secret])
-        # Always append chromium launch bypass flag compatibility argument
-        cmd.append("--use-fake-ui-for-media-stream")
+            cmd = [
+                get_python_executable(project_root), py_guest_path,
+                "--room", config.room,
+                "--bots", str(config.bots),
+                "--stagger", str(config.stagger),
+                "--batch", str(config.batch),
+                "--concurrency", str(config.concurrency),
+                "--leave", str(config.leave),
+                "--media-quality", config.media_quality,
+                "--test-scenarios", config.test_scenarios,
+                "--action-interval", str(config.action_interval),
+                "--chat-interval", str(config.chat_interval),
+                "--confirm-timeout", str(config.confirm_timeout),
+                "--max-retries", str(config.max_retries),
+                "--max-subscriptions", str(config.max_subscriptions),
+                "--host-bot-id", str(config.host_bot_id),
+                "--presenter-bot-id", str(config.presenter_bot_id),
+                "--frontend", config.frontend,
+                "--signal", config.signal,
+                "--report-log", report_log,
+                "--report-output", report_docx,
+                "--control-file", control_file,
+                "--browser-distribution", config.browser_distribution,
+                "--device-distribution", config.device_distribution,
+                "--os-distribution", config.os_distribution,
+                "--network-conditions", config.network_conditions,
+                "--degradation-interval", str(config.degradation_interval),
+                "--sla-success-rate", str(getattr(config, 'sla_success_rate', 95.0)),
+                "--sla-latency", str(getattr(config, 'sla_latency', 500.0)),
+                "--sla-packet-loss", str(getattr(config, 'sla_packet_loss', 2.0)),
+                "--sla-jitter", str(getattr(config, 'sla_jitter', 30.0)),
+                "--cross-confirm-limit", str(getattr(config, 'cross_confirm_limit', 10)),
+                "--camera-publishers", getattr(config, 'camera_publishers', "1,2,3,4,5"),
+                "--screen-share-publishers", getattr(config, 'screen_share_publishers', "2"),
+                "--mic-publishers", getattr(config, 'mic_publishers', "1,2,3,4,5"),
+                "--viewer-bots", getattr(config, 'viewer_bots', "6-1000"),
+                "--viewer-mode", getattr(config, 'viewer_mode', "receive_only")
+            ]
             
-        print(f"Launching bot session {session_id} with cmd: {' '.join(cmd)}")
-        
-        # Spawn the process in a new process group to allow clean signalling
-        creation_flags = 0
-        if sys.platform == "win32":
-            creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
+            # Add flags
+            if config.webrtc_enabled:
+                cmd.append("--webrtc-enabled")
+            if config.decode_downlink:
+                cmd.append("--decode-downlink")
+            if config.network_degradation:
+                cmd.append("--network-degradation")
+            if getattr(config, 'auto_camera', False):
+                cmd.append("--auto-camera")
+            if getattr(config, 'auto_mic', False):
+                cmd.append("--auto-mic")
+            if getattr(config, 'auto_screen_share', False):
+                cmd.append("--auto-screen-share")
+            if config.no_chat:
+                cmd.append("--no-chat")
+            if config.no_camera:
+                cmd.append("--no-camera")
+            if config.no_mic:
+                cmd.append("--no-mic")
+            if config.no_handraise:
+                cmd.append("--no-handraise")
+            if config.no_screen_share:
+                cmd.append("--no-screen-share")
+            if config.no_cross_confirm:
+                cmd.append("--no-cross-confirm")
+            if config.jwt_secret:
+                cmd.extend(["--jwt-secret", config.jwt_secret])
+            # Always append chromium launch bypass flag compatibility argument
+            cmd.append("--use-fake-ui-for-media-stream")
+                 
+            print(f"Launching bot session {session_id} with cmd: {' '.join(cmd)}")
             
-        processes = []
-        stop_event = threading.Event()
-        error_msg = None
-        success = False
-        
-        try:
-            # Chunk the total bots into groups of at most 200 bots per process
-            # to prevent Windows Proactor socket limits and utilize CPU cores
-            total_bots = config.bots
-            max_bots_per_proc = 200
-            chunks = []
-            curr_id = 1
-            while curr_id <= total_bots:
-                bots_in_chunk = min(max_bots_per_proc, total_bots - curr_id + 1)
-                chunks.append((curr_id, bots_in_chunk))
-                curr_id += bots_in_chunk
+            # Spawn the process in a new process group to allow clean signalling
+            creation_flags = 0
+            if sys.platform == "win32":
+                creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
                 
-            for start_id, chunk_bots in chunks:
-                chunk_cmd = list(cmd)
-                try:
-                    bots_idx = chunk_cmd.index("--bots")
-                    chunk_cmd[bots_idx + 1] = str(chunk_bots)
-                except ValueError:
-                    chunk_cmd.extend(["--bots", str(chunk_bots)])
-                chunk_cmd.extend(["--start-id", str(start_id)])
+            processes = []
+            stop_event = threading.Event()
+            error_msg = None
+            success = False
+            
+            try:
+                # Chunk the total bots into groups of at most 200 bots per process
+                # to prevent Windows Proactor socket limits and utilize CPU cores
+                total_bots = config.bots
+                max_bots_per_proc = 200
+                chunks = []
+                curr_id = 1
+                while curr_id <= total_bots:
+                    bots_in_chunk = min(max_bots_per_proc, total_bots - curr_id + 1)
+                    chunks.append((curr_id, bots_in_chunk))
+                    curr_id += bots_in_chunk
+                    
+                for start_id, chunk_bots in chunks:
+                    chunk_cmd = list(cmd)
+                    try:
+                        bots_idx = chunk_cmd.index("--bots")
+                        chunk_cmd[bots_idx + 1] = str(chunk_bots)
+                    except ValueError:
+                        chunk_cmd.extend(["--bots", str(chunk_bots)])
+                    chunk_cmd.extend(["--start-id", str(start_id)])
+                    
+                    # Use separate report log file for each process chunk to prevent concurrent write collisions and file truncation
+                    chunk_report_log = f"{report_log.replace('.jsonl', '')}_chunk_{start_id}.jsonl"
+                    try:
+                        log_idx = chunk_cmd.index("--report-log")
+                        chunk_cmd[log_idx + 1] = chunk_report_log
+                    except ValueError:
+                        chunk_cmd.extend(["--report-log", chunk_report_log])
+                    
+                    print(f"Launching bot chunk (start_id={start_id}, bots={chunk_bots}) with cmd: {' '.join(chunk_cmd)}")
+                    
+                    proc = subprocess.Popen(
+                        chunk_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding="utf-8",
+                        cwd=project_root,
+                        creationflags=creation_flags
+                    )
+                    processes.append(proc)
+                    
+                with RUNNING_SESSIONS_LOCK:
+                    RUNNING_SESSIONS[session_id] = {
+                        "processes": processes,
+                        "process": processes[0],
+                        "stop_event": stop_event,
+                        "control_file": control_file
+                    }
+                    
+                session.pid = processes[0].pid
+                db.session.commit()
                 
-                # Use separate report log file for each process chunk to prevent concurrent write collisions and file truncation
-                chunk_report_log = f"{report_log.replace('.jsonl', '')}_chunk_{start_id}.jsonl"
-                try:
-                    log_idx = chunk_cmd.index("--report-log")
-                    chunk_cmd[log_idx + 1] = chunk_report_log
-                except ValueError:
-                    chunk_cmd.extend(["--report-log", chunk_report_log])
-                
-                print(f"Launching bot chunk (start_id={start_id}, bots={chunk_bots}) with cmd: {' '.join(chunk_cmd)}")
-                
-                proc = subprocess.Popen(
-                    chunk_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    cwd=project_root,
-                    creationflags=creation_flags
+                # Start log parsing and metric streaming thread
+                metrics_thread = socketio.start_background_task(
+                    stream_metrics_and_logs, app, socketio, session_id, report_log, stop_event, processes[0]
                 )
-                processes.append(proc)
                 
-            with RUNNING_SESSIONS_LOCK:
-                RUNNING_SESSIONS[session_id] = {
-                    "processes": processes,
-                    "process": processes[0],
-                    "stop_event": stop_event,
-                    "control_file": control_file
-                }
+                # Emit status change to running
+                if socketio:
+                    socketio.emit('session_status_changed', {
+                        'session_id': session_id,
+                        'status': 'running',
+                        'elapsed_seconds': 0
+                    }, room=f"session_{session_id}")
                 
-            session.pid = processes[0].pid
-            db.session.commit()
-            
-            # Start log parsing and metric streaming thread
-            metrics_thread = socketio.start_background_task(
-                stream_metrics_and_logs, app, socketio, session_id, report_log, stop_event, processes[0]
-            )
-            
-            # Emit status change to running
-            if socketio:
+                # Wait for all processes to complete
+                for proc in processes:
+                    proc.communicate()
+                success = all(proc.returncode == 0 for proc in processes)
+                
+            except Exception as e:
+                error_msg = f"Runner exception: {str(e)}"
+                print(f"Exception in run_test_process: {e}")
+            finally:
+                # Set stop event to terminate log readers
+                stop_event.set()
+                
+                # Ensure all processes are terminated if still running
+                for proc in processes:
+                    if proc and proc.poll() is None:
+                        try:
+                            proc.terminate()
+                        except Exception:
+                            pass
+                
+                # Update database with completion status
+                final_status = "failed"
+                accumulated_secs = 0
+                with app.app_context():
+                    session = TestSession.query.get(session_id)
+                    if session:
+                        if session.status not in ("stopped", "failed"):
+                            if success:
+                                session.status = "completed"
+                            else:
+                                session.status = "failed"
+                                rcs = [str(proc.returncode) for proc in processes if proc]
+                                session.error_message = f"Processes exited with codes: {', '.join(rcs)}.\n"
+                                if error_msg:
+                                    session.error_message += error_msg + "\n"
+                        
+                        if session.last_resume_time:
+                            elapsed = (datetime.utcnow() - session.last_resume_time).total_seconds()
+                            session.accumulated_duration += int(elapsed)
+                        session.last_resume_time = None
+                        session.ended_at = datetime.utcnow()
+                        accumulated_secs = session.accumulated_duration
+                        
+                        # Merge all chunk logs into the main report log file
+                        try:
+                            import json
+                            with open(report_log, "w", encoding="utf-8") as main_f:
+                                main_f.write(json.dumps({
+                                    "event": "test_started",
+                                    "ts": datetime.utcnow().isoformat() + "Z"
+                                }) + "\n")
+                                for start_id, chunk_bots in chunks:
+                                    chunk_log_path = f"{report_log.replace('.jsonl', '')}_chunk_{start_id}.jsonl"
+                                    if os.path.exists(chunk_log_path):
+                                        with open(chunk_log_path, "r", encoding="utf-8") as chunk_f:
+                                            for line in chunk_f:
+                                                try:
+                                                    parsed = json.loads(line.strip())
+                                                    if parsed.get("event") == "test_started":
+                                                        continue
+                                                except Exception:
+                                                    pass
+                                                main_f.write(line)
+                                        try:
+                                            os.remove(chunk_log_path)
+                                        except Exception:
+                                            pass
+                        except Exception as me:
+                            print(f"Error merging chunk logs: {me}")
+                            
+                        # Post-Process: Compile report if it doesn't exist
+                        try:
+                            compile_report_log(project_root, report_log, report_docx)
+                        except Exception as cre:
+                            print(f"Error compiling report log: {cre}")
+                            
+                        # Convert DOCX to PDF using LibreOffice
+                        try:
+                            pdf_path = convert_docx_to_pdf(report_docx, session_dir)
+                            if pdf_path:
+                                session.report_pdf_path = pdf_path
+                        except Exception as cpe:
+                            print(f"Error converting docx to pdf: {cpe}")
+                            
+                        db.session.commit()
+                        final_status = session.status
+                    
+                with RUNNING_SESSIONS_LOCK:
+                    if session_id in RUNNING_SESSIONS:
+                        del RUNNING_SESSIONS[session_id]
+                        
+                # Emit complete event
                 socketio.emit('session_status_changed', {
                     'session_id': session_id,
-                    'status': 'running',
-                    'elapsed_seconds': 0
+                    'status': final_status,
+                    'elapsed_seconds': accumulated_secs
                 }, room=f"session_{session_id}")
-            
-            # Wait for all processes to complete
-            for proc in processes:
-                proc.communicate()
-            success = all(proc.returncode == 0 for proc in processes)
-            
-        except Exception as e:
-            error_msg = f"Runner exception: {str(e)}"
-            print(f"Exception in run_test_process: {e}")
-        finally:
-            # Set stop event to terminate log readers
-            stop_event.set()
-            
-            # Ensure all processes are terminated if still running
-            for proc in processes:
-                if proc and proc.poll() is None:
-                    try:
-                        proc.terminate()
-                    except Exception:
-                        pass
-            
-            # Update database with completion status
-            final_status = "failed"
-            accumulated_secs = 0
+    except Exception as e:
+        traceback.print_exc()
+        try:
             with app.app_context():
                 session = TestSession.query.get(session_id)
                 if session:
-                    if session.status not in ("stopped", "failed"):
-                        if success:
-                            session.status = "completed"
-                        else:
-                            session.status = "failed"
-                            rcs = [str(proc.returncode) for proc in processes if proc]
-                            session.error_message = f"Processes exited with codes: {', '.join(rcs)}.\n"
-                            if error_msg:
-                                session.error_message += error_msg + "\n"
-                    
-                    if session.last_resume_time:
-                        elapsed = (datetime.utcnow() - session.last_resume_time).total_seconds()
-                        session.accumulated_duration += int(elapsed)
-                    session.last_resume_time = None
-                    session.ended_at = datetime.utcnow()
-                    accumulated_secs = session.accumulated_duration
-                    
-                    # Merge all chunk logs into the main report log file
-                    try:
-                        import json
-                        with open(report_log, "w", encoding="utf-8") as main_f:
-                            main_f.write(json.dumps({
-                                "event": "test_started",
-                                "ts": datetime.utcnow().isoformat() + "Z"
-                            }) + "\n")
-                            for start_id, chunk_bots in chunks:
-                                chunk_log_path = f"{report_log.replace('.jsonl', '')}_chunk_{start_id}.jsonl"
-                                if os.path.exists(chunk_log_path):
-                                    with open(chunk_log_path, "r", encoding="utf-8") as chunk_f:
-                                        for line in chunk_f:
-                                            try:
-                                                parsed = json.loads(line.strip())
-                                                if parsed.get("event") == "test_started":
-                                                    continue
-                                            except Exception:
-                                                pass
-                                            main_f.write(line)
-                                    try:
-                                        os.remove(chunk_log_path)
-                                    except Exception:
-                                        pass
-                    except Exception as me:
-                        print(f"Error merging chunk logs: {me}")
-                        
-                    # Post-Process: Compile report if it doesn't exist
-                    try:
-                        compile_report_log(project_root, report_log, report_docx)
-                    except Exception as cre:
-                        print(f"Error compiling report log: {cre}")
-                        
-                    # Convert DOCX to PDF using LibreOffice
-                    try:
-                        pdf_path = convert_docx_to_pdf(report_docx, session_dir)
-                        if pdf_path:
-                            session.report_pdf_path = pdf_path
-                    except Exception as cpe:
-                        print(f"Error converting docx to pdf: {cpe}")
-                        
+                    session.status = "failed"
+                    session.error_message = f"Startup failed: {str(e)}\n{traceback.format_exc()}"
                     db.session.commit()
-                    final_status = session.status
+        except Exception as db_ex:
+            print(f"Failed to record startup crash in DB: {db_ex}")
+            
+        with RUNNING_SESSIONS_LOCK:
+            if session_id in RUNNING_SESSIONS:
+                del RUNNING_SESSIONS[session_id]
                 
-            with RUNNING_SESSIONS_LOCK:
-                if session_id in RUNNING_SESSIONS:
-                    del RUNNING_SESSIONS[session_id]
-                    
-            # Emit complete event
-            socketio.emit('session_status_changed', {
-                'session_id': session_id,
-                'status': final_status,
-                'elapsed_seconds': accumulated_secs
-            }, room=f"session_{session_id}")
+        socketio.emit('session_status_changed', {
+            'session_id': session_id,
+            'status': 'failed',
+            'elapsed_seconds': 0
+        }, room=f"session_{session_id}")
 
 def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, process):
     """
