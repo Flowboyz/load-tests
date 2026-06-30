@@ -365,6 +365,7 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
         "connecting_bots": 0,
         "failed_bots": 0,
         "reconnecting_bots": 0,
+        "left_bots": 0,
         "latencies": [],
         "packet_losses": [],
         "jitters": [],
@@ -449,6 +450,11 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                             metrics_state["failed_bots"] = len(failed_ids)
                             metrics_state["reconnecting_bots"] = max(0, metrics_state["reconnecting_bots"] - 1)
                             metrics_state["connecting_bots"] = max(0, metrics_state["connecting_bots"] - 1)
+                            if bot_id in joined_ids:
+                                joined_ids.remove(bot_id)
+                            metrics_state["connected_bots"] = len(joined_ids)
+                        elif etype == "bot_left" and bot_id:
+                            metrics_state["left_bots"] = metrics_state["left_bots"] + 1
                             if bot_id in joined_ids:
                                 joined_ids.remove(bot_id)
                             metrics_state["connected_bots"] = len(joined_ids)
@@ -584,10 +590,13 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                         db.session.add(metric_entry)
                         db.session.commit()
                         
+                        metrics_payload = metric_entry.to_dict()
+                        metrics_payload["left_bots"] = metrics_state["left_bots"]
+                        
                         # Emit metrics via Socket.IO
                         socketio.emit('session_metrics', {
                             'session_id': session_id,
-                            'metrics': metric_entry.to_dict(),
+                            'metrics': metrics_payload,
                             'elapsed_seconds': elapsed_secs,
                             'lifecycle_summary': {
                                 'status_counts': metrics_state["status_counts"],

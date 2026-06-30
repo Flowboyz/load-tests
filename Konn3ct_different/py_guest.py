@@ -1126,6 +1126,8 @@ async def ws_session(
 
                 while not stop_event.is_set():
                     now = time.time()
+                    if reader_task.done():
+                        break
                     
                     if scenario_event.is_set() and "breakout_rooms" in scenarios and not in_breakout:
                         await asyncio.sleep(random.uniform(0, 3.0))
@@ -1315,6 +1317,8 @@ async def run_bot(
 
         if result is True:
             # Safe exit
+            await logger.record_event("bot_left", bot_id, name, email, fingerprint=fingerprint)
+            logger.log("🚪", "grey", bot_id, name, "Bot left the meeting room gracefully.", fingerprint=fingerprint)
             break
 
         attempt += 1

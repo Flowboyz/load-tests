@@ -863,6 +863,10 @@ function updateMetricsCards(metrics, lifecycleSummary) {
     document.getElementById('metricConnectingBots').textContent = metrics.connecting_bots;
     document.getElementById('metricReconnectingBots').textContent = metrics.reconnecting_bots;
     document.getElementById('metricFailedBots').textContent = metrics.failed_bots;
+    const leftEl = document.getElementById('metricLeftBots');
+    if (leftEl) {
+        leftEl.textContent = metrics.left_bots !== undefined ? metrics.left_bots : 0;
+    }
     
     document.getElementById('metricLatency').textContent = metrics.avg_latency ? metrics.avg_latency.toFixed(1) : '0';
     document.getElementById('metricPacketLoss').textContent = metrics.packet_loss ? metrics.packet_loss.toFixed(2) : '0.00';

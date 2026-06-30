@@ -141,6 +141,7 @@ class TestSession(db.Model):
         return {
             "id": self.id,
             "config_id": self.config_id,
+            "config": self.config.to_dict() if self.config else None,
             "name": self.name,
             "status": self.status,
             "pid": self.pid,
