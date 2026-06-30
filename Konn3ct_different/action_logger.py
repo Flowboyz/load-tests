@@ -29,12 +29,12 @@ class ActionLogger:
     def __init__(self, log_path=None):
         self.log_path = log_path
         self.lock = asyncio.Lock()
-        self.start_time = datetime.datetime.now()
+        self.start_time = datetime.datetime.utcnow()
         if self.log_path:
             with open(self.log_path, "w", encoding="utf-8") as f:
                 f.write(json.dumps({
                     "event": "test_started",
-                    "ts": self.start_time.isoformat(),
+                    "ts": self.start_time.isoformat() + "Z",
                 }) + "\n")
 
     def log(self, icon, colour_name, bot_id, name, msg, fingerprint=None):
@@ -151,7 +151,7 @@ class ActionLogger:
             return
         entry = {
             "event": event_type,
-            "ts": datetime.datetime.now().isoformat(),
+            "ts": datetime.datetime.utcnow().isoformat() + "Z",
             "bot_id": bot_id,
             "name": name,
             "email": email,

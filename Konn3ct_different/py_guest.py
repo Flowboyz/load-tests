@@ -377,7 +377,7 @@ async def action_loop(
     now = time.time()
     if camera_enabled:
         client_event_id = f"ce_cam_{uuid.uuid4().hex[:8]}"
-        sent_ts = datetime.datetime.now().isoformat() + "Z"
+        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
         payload = {
             "type": "camera_state",
             "isCameraOn": camera_on,
@@ -401,7 +401,7 @@ async def action_loop(
 
     if mic_enabled:
         client_event_id = f"ce_mic_{uuid.uuid4().hex[:8]}"
-        sent_ts = datetime.datetime.now().isoformat() + "Z"
+        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
         payload = {
             "type": "mute_state",
             "isMuted": is_muted,
@@ -425,7 +425,7 @@ async def action_loop(
 
     if screen_share_enabled:
         client_event_id = f"ce_scr_{uuid.uuid4().hex[:8]}"
-        sent_ts = datetime.datetime.now().isoformat() + "Z"
+        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
         payload = {
             "type": "screen_share",
             "isScreenSharing": screen_sharing,
@@ -460,7 +460,7 @@ async def action_loop(
             scenario_event.clear()
             camera_on = not camera_on
             client_event_id = f"ce_cam_{uuid.uuid4().hex[:8]}"
-            sent_ts = datetime.datetime.now().isoformat() + "Z"
+            sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
             payload = {
                 "type": "camera_state",
                 "isCameraOn": camera_on,
@@ -503,7 +503,7 @@ async def action_loop(
                     if act == "camera":
                         camera_on = not camera_on
                         client_event_id = f"ce_cam_{uuid.uuid4().hex[:8]}"
-                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                         payload = {
                             "type": "camera_state",
                             "isCameraOn": camera_on,
@@ -527,7 +527,7 @@ async def action_loop(
                     elif act == "mic":
                         is_muted = not is_muted
                         client_event_id = f"ce_mic_{uuid.uuid4().hex[:8]}"
-                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                         payload = {
                             "type": "mute_state",
                             "isMuted": is_muted,
@@ -551,7 +551,7 @@ async def action_loop(
                     elif act == "hand":
                         hand_raised = not hand_raised
                         client_event_id = f"ce_hnd_{uuid.uuid4().hex[:8]}"
-                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                         payload = {
                             "type": "hand_raise",
                             "isHandRaised": hand_raised,
@@ -574,7 +574,7 @@ async def action_loop(
                         supported, reason = is_screen_share_supported(fingerprint, frontend_url)
                         if not supported:
                             client_event_id = f"ce_scr_{uuid.uuid4().hex[:8]}"
-                            sent_ts = datetime.datetime.now().isoformat() + "Z"
+                            sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                             await logger.log_action(
                                 bot_id, name, email, "screen_share", "unsupported", "unsupported",
                                 fingerprint=fingerprint,
@@ -592,7 +592,7 @@ async def action_loop(
                         
                         screen_sharing = not screen_sharing
                         client_event_id = f"ce_scr_{uuid.uuid4().hex[:8]}"
-                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                         payload = {
                             "type": "screen_share",
                             "isScreenSharing": screen_sharing,
@@ -619,7 +619,7 @@ async def action_loop(
                     elif act == "note_update":
                         new_content = f"Notes session updated by {name} at {datetime.datetime.now().strftime('%H:%M:%S')}"
                         client_event_id = f"ce_nte_{uuid.uuid4().hex[:8]}"
-                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                         payload = {
                             "type": "note_update",
                             "content": new_content,
@@ -663,12 +663,12 @@ async def action_loop(
                             await logger.log_action(bot_id, name, email, "force_mute", f"Muted {target_name}", "acknowledged", elapsed, fingerprint=fingerprint,
                                                     sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
                                                     client_event_id=client_event_id, sent_timestamp=sent_ts,
-                                                    ack_timestamp=datetime.datetime.now().isoformat() + "Z", ack_latency_ms=elapsed, final_status="acknowledged")
+                                                    ack_timestamp=datetime.datetime.utcnow().isoformat() + "Z", ack_latency_ms=elapsed, final_status="acknowledged")
                             await metrics.record_action("force_mute", fingerprint["browser_type"], "confirmed", elapsed)
                     elif act == "captions_state":
                         captions_enabled = not captions_enabled
                         client_event_id = f"ce_cap_{uuid.uuid4().hex[:8]}"
-                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                         payload = {
                             "type": "captions_state",
                             "captionsEnabled": captions_enabled,
@@ -694,7 +694,7 @@ async def action_loop(
                             target_uid = random.choice(peers)
                             target_name = await registry.lookup(target_uid)
                             client_event_id = f"ce_rem_{uuid.uuid4().hex[:8]}"
-                            sent_ts = datetime.datetime.now().isoformat() + "Z"
+                            sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                             payload = {
                                 "type": "remove_participant",
                                 "targetUserId": target_uid,
@@ -716,7 +716,7 @@ async def action_loop(
                     elif act == "lock_meeting":
                         meeting_locked = not meeting_locked
                         client_event_id = f"ce_lck_{uuid.uuid4().hex[:8]}"
-                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                         payload = {
                             "type": "lock_meeting",
                             "isLocked": meeting_locked,
@@ -738,7 +738,7 @@ async def action_loop(
                     elif act == "recording_state":
                         recording = not recording
                         client_event_id = f"ce_rec_{uuid.uuid4().hex[:8]}"
-                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                         payload = {
                             "type": "recording_state",
                             "isRecording": recording,
@@ -759,7 +759,7 @@ async def action_loop(
                                                 client_event_id=client_event_id, sent_timestamp=sent_ts)
                     elif act == "leave_meeting":
                         client_event_id = f"ce_lev_{uuid.uuid4().hex[:8]}"
-                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                         payload = {
                             "type": "leave_meeting",
                             "clientEventId": client_event_id,
@@ -787,7 +787,7 @@ async def action_loop(
         if chat_enabled and now >= next_chat_at:
             msg = random.choice(CHAT_MESSAGES)
             client_event_id = f"ce_cht_{uuid.uuid4().hex[:8]}"
-            sent_ts = datetime.datetime.now().isoformat() + "Z"
+            sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
             payload = {
                 "type": "chat",
                 "message": msg,
@@ -996,7 +996,7 @@ async def ws_session(
                                     if val == my_user_id:
                                         logger.log("❌", "red", bot_id, name, "Removed from meeting by host.", fingerprint=fingerprint)
                                         client_event_id = f"ce_lev_{uuid.uuid4().hex[:8]}"
-                                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                                         await ws.send(json.dumps({
                                             "type": "leave_meeting",
                                             "clientEventId": client_event_id,
@@ -1039,7 +1039,7 @@ async def ws_session(
                                                                 sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
                                                                 client_event_id=client_event_id, server_event_id=server_event_id,
                                                                 sent_timestamp=datetime.datetime.fromtimestamp(result[1]).isoformat() + "Z",
-                                                                ack_timestamp=datetime.datetime.now().isoformat() + "Z",
+                                                                ack_timestamp=datetime.datetime.utcnow().isoformat() + "Z",
                                                                 ack_latency_ms=elapsed, final_status="acknowledged")
                                         await metrics.record_action(clean_act, fingerprint["browser_type"], "confirmed", elapsed)
                                 else:
@@ -1073,7 +1073,7 @@ async def ws_session(
                     )
                     try:
                         client_event_id = f"ce_wcon_{uuid.uuid4().hex[:8]}"
-                        sent_ts = datetime.datetime.now().isoformat() + "Z"
+                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                         t_start = time.time()
                         await logger.log_action(bot_id, name, email, "webrtc_connection", "CONNECTING", "sent", fingerprint=fingerprint, client_event_id=client_event_id, sent_timestamp=sent_ts)
                         

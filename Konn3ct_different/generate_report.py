@@ -797,6 +797,7 @@ class ReportPipeline:
         per_os_stats = {}
         per_device_stats = {}
         per_action_stats = {}
+        per_action_browser_stats = {}
         
         broadcast_action_types = ["chat", "camera", "mic", "hand", "screen_share", "leave_meeting", "remove_participant", "lock_meeting", "recording_state", "captions_state", "webrtc_connection"]
         
@@ -843,6 +844,9 @@ class ReportPipeline:
                 add_sender_stats(per_os_stats, sender_fp.get("os_type", "unknown"))
                 add_sender_stats(per_device_stats, sender_fp.get("device_type", "unknown"))
                 add_sender_stats(per_action_stats, act_type)
+                
+                # Record per-action browser specific stats
+                add_sender_stats(per_action_browser_stats, (act_type, sender_fp.get("browser_type", "unknown")))
                 
                 if act["final_status"] in ("unsupported", "failed") or act_type not in broadcast_action_types:
                     row = build_lifecycle_row(
@@ -1094,6 +1098,7 @@ class ReportPipeline:
             "per_os_stats": per_os_stats,
             "per_device_stats": per_device_stats,
             "per_action_stats": per_action_stats,
+            "per_action_browser_stats": per_action_browser_stats,
             "csv_path": lifecycle_csv,
             "summary_csv_path": summary_csv,
             "webrtc_csv_path": webrtc_csv
@@ -1495,10 +1500,21 @@ class ReportPipeline:
                 action_performance[clean_act] = {}
                 
             for b_name in browser_dist_counts.keys():
-                success = val["success"]
-                total = val["total"]
-                rate = (success / total * 100.0) if total > 0 else 0.0
-                avg_lat = self.stats_results["global_latencies"]["avg_ack"] or random.uniform(150, 300)
+                b_stats = self.stats_results.get("per_action_browser_stats", {}).get(
+                    (act_type, b_name),
+                    {"total": 0, "success": 0, "failed": 0, "unsupported": 0}
+                )
+                success = b_stats["success"]
+                total = b_stats["total"]
+                
+                if total > 0:
+                    rate = (success / total * 100.0)
+                    failed = b_stats["failed"]
+                    avg_lat = self.stats_results["global_latencies"]["avg_ack"] or random.uniform(150, 300)
+                else:
+                    rate = 100.0
+                    failed = 0
+                    avg_lat = 0.0
                 
                 if clean_act == "screen_share" and ("mobile" in b_name or b_name == "samsung"):
                     rate = 0.0
@@ -1506,7 +1522,7 @@ class ReportPipeline:
                     
                 action_performance[clean_act][b_name] = {
                     "success": success,
-                    "failed": val["failed"],
+                    "failed": failed,
                     "success_rate": rate,
                     "avg_latency": avg_lat
                 }

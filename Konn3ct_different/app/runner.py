@@ -64,6 +64,9 @@ def run_test_process(app, socketio, session_id):
             with open(control_file, "w") as f:
                 json.dump({"paused": False}, f)
                 
+            # Record actual UTC test start time
+            test_start_time = datetime.utcnow().isoformat() + "Z"
+            
             # Update session details
             session.status = "running"
             session.started_at = datetime.utcnow()
@@ -278,7 +281,7 @@ def run_test_process(app, socketio, session_id):
                             with open(report_log, "w", encoding="utf-8") as main_f:
                                 main_f.write(json.dumps({
                                     "event": "test_started",
-                                    "ts": datetime.utcnow().isoformat() + "Z"
+                                    "ts": test_start_time
                                 }) + "\n")
                                 for start_id, chunk_bots in chunks:
                                     chunk_log_path = f"{report_log.replace('.jsonl', '')}_chunk_{start_id}.jsonl"
