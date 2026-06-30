@@ -195,7 +195,7 @@ def resume_test(session_id):
 @roles_accepted('Admin', 'Operator')
 def stop_test(session_id):
     session = TestSession.query.get_or_404(session_id)
-    if session.status not in ("running", "paused"):
+    if session.status not in ("running", "paused", "pending"):
         return jsonify({'message': 'Session is not active!'}), 400
         
     if session.status == "running" and session.last_resume_time:
