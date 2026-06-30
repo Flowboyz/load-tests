@@ -105,6 +105,14 @@ class WebRTCBotStatsTracker:
                 self.sums[k]["count"] += 1
 
 
+def parse_dt(ts_str: str) -> datetime.datetime:
+    """Parses ISO timestamps safely, stripping any timezone offset to prevent offset-naive/aware subtraction errors."""
+    dt = datetime.datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+    if dt.tzinfo is not None:
+        dt = dt.replace(tzinfo=None)
+    return dt
+
+
 class TimelineTracker:
     """Tracks event counts bucketed into intervals for timeline analysis."""
     def __init__(self, bucket_size_sec: int = 5):
@@ -114,7 +122,7 @@ class TimelineTracker:
 
     def _get_bucket_idx(self, ts_str: str) -> int:
         try:
-            ts = datetime.datetime.fromisoformat(ts_str)
+            ts = parse_dt(ts_str)
         except Exception:
             return 0
         if self.start_time is None:
@@ -576,8 +584,8 @@ def build_lifecycle_row(act, sender_id, sender_fp, sender_meta, receiver_id, rec
     else:
         if act.get("ack_ts") and act.get("sent_ts"):
             try:
-                t0 = datetime.datetime.fromisoformat(act["sent_ts"])
-                t1 = datetime.datetime.fromisoformat(act["ack_ts"])
+                t0 = parse_dt(act["sent_ts"])
+                t1 = parse_dt(act["ack_ts"])
                 ack_lat = f"{(t1 - t0).total_seconds() * 1000.0:.1f}"
             except Exception:
                 pass
@@ -1519,8 +1527,8 @@ class ReportPipeline:
         duration_str = "N/A"
         if self.agg_stage.started_at and self.agg_stage.finished_at:
             try:
-                t0 = datetime.datetime.fromisoformat(self.agg_stage.started_at)
-                t1 = datetime.datetime.fromisoformat(self.agg_stage.finished_at)
+                t0 = parse_dt(self.agg_stage.started_at)
+                t1 = parse_dt(self.agg_stage.finished_at)
                 diff = (t1 - t0).total_seconds()
                 mins, secs = divmod(int(diff), 60)
                 duration_str = f"{mins}m {secs}s"
