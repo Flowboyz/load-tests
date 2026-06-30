@@ -40,6 +40,21 @@ def run_test_process(app, socketio, session_id):
     and converts the final docx report to pdf.
     """
     import traceback
+    
+    # Initialize all block-scoped variables to prevent UnboundLocalError/NameError in finally block
+    processes = []
+    stop_event = threading.Event()
+    error_msg = None
+    success = False
+    test_start_time = datetime.utcnow().isoformat() + "Z"
+    report_log = None
+    report_docx = None
+    report_pdf = None
+    report_csv = None
+    session_dir = None
+    project_root = None
+    chunks = []
+    
     try:
         with app.app_context():
             session = TestSession.query.get(session_id)
@@ -277,40 +292,44 @@ def run_test_process(app, socketio, session_id):
                         accumulated_secs = session.accumulated_duration
                         
                         # Merge all chunk logs into the main report log file
-                        try:
-                            with open(report_log, "w", encoding="utf-8") as main_f:
-                                main_f.write(json.dumps({
-                                    "event": "test_started",
-                                    "ts": test_start_time
-                                }) + "\n")
-                                for start_id, chunk_bots in chunks:
-                                    chunk_log_path = f"{report_log.replace('.jsonl', '')}_chunk_{start_id}.jsonl"
-                                    if os.path.exists(chunk_log_path):
-                                        with open(chunk_log_path, "r", encoding="utf-8") as chunk_f:
-                                            for idx, line in enumerate(chunk_f):
-                                                if idx == 0 and "test_started" in line:
-                                                    continue
-                                                main_f.write(line)
-                                        try:
-                                            os.remove(chunk_log_path)
-                                        except Exception:
-                                            pass
-                        except Exception as me:
-                            print(f"Error merging chunk logs: {me}")
-                            
+                        if report_log and test_start_time:
+                            try:
+                                with open(report_log, "w", encoding="utf-8") as main_f:
+                                    main_f.write(json.dumps({
+                                        "event": "test_started",
+                                        "ts": test_start_time
+                                    }) + "\n")
+                                    if chunks:
+                                        for start_id, chunk_bots in chunks:
+                                            chunk_log_path = f"{report_log.replace('.jsonl', '')}_chunk_{start_id}.jsonl"
+                                            if os.path.exists(chunk_log_path):
+                                                with open(chunk_log_path, "r", encoding="utf-8") as chunk_f:
+                                                    for idx, line in enumerate(chunk_f):
+                                                        if idx == 0 and "test_started" in line:
+                                                            continue
+                                                        main_f.write(line)
+                                                try:
+                                                    os.remove(chunk_log_path)
+                                                except Exception:
+                                                    pass
+                            except Exception as me:
+                                print(f"Error merging chunk logs: {me}")
+                                
                         # Post-Process: Compile report if it doesn't exist
-                        try:
-                            compile_report_log(project_root, report_log, report_docx)
-                        except Exception as cre:
-                            print(f"Error compiling report log: {cre}")
-                            
+                        if project_root and report_log and report_docx and os.path.exists(report_log):
+                            try:
+                                compile_report_log(project_root, report_log, report_docx)
+                            except Exception as cre:
+                                print(f"Error compiling report log: {cre}")
+                                
                         # Convert DOCX to PDF using LibreOffice
-                        try:
-                            pdf_path = convert_docx_to_pdf(report_docx, session_dir)
-                            if pdf_path:
-                                session.report_pdf_path = pdf_path
-                        except Exception as cpe:
-                            print(f"Error converting docx to pdf: {cpe}")
+                        if report_docx and session_dir and os.path.exists(report_docx):
+                            try:
+                                pdf_path = convert_docx_to_pdf(report_docx, session_dir)
+                                if pdf_path:
+                                    session.report_pdf_path = pdf_path
+                            except Exception as cpe:
+                                print(f"Error converting docx to pdf: {cpe}")
                             
                         db.session.commit()
                         final_status = session.status

@@ -282,6 +282,9 @@ def download_report(session_id, fmt):
     pdf_path = os.path.join(session_dir, "load_test_report.pdf")
     csv_path = os.path.join(session_dir, "session_action_lifecycle.csv")
     
+    if not os.path.exists(log_path) and not os.path.exists(docx_path) and not os.path.exists(pdf_path) and not os.path.exists(csv_path):
+        return jsonify({'message': 'No logs or report documents found for this session. The test may have failed to start or write telemetry.'}), 400
+
     if fmt == 'json':
         if not os.path.exists(log_path):
             return jsonify({'message': 'JSON log file not found!'}), 404
