@@ -639,12 +639,18 @@ def compile_report_log(project_root, log_path, docx_path):
     """
     generate_report_script = os.path.join(project_root, "generate_report.py")
     try:
-        subprocess.run(
+        res = subprocess.run(
             [get_python_executable(project_root), generate_report_script, log_path, "--output", docx_path],
             check=True,
-            capture_output=True
+            capture_output=True,
+            text=True
         )
         print(f"Successfully auto-compiled docx report: {docx_path}")
+        print(f"Subprocess stdout: {res.stdout}")
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to auto-compile docx report: {e}")
+        print(f"Subprocess stdout: {e.stdout}")
+        print(f"Subprocess stderr: {e.stderr}")
     except Exception as e:
         print(f"Failed to auto-compile docx report: {e}")
 

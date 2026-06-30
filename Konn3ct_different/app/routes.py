@@ -278,8 +278,8 @@ def download_report(session_id, fmt):
     
     session_dir = get_session_dir(session_id)
     log_path = os.path.join(session_dir, "report_log.jsonl")
-    docx_path = os.path.join(session_dir, "report.docx")
-    pdf_path = os.path.join(session_dir, "report.pdf")
+    docx_path = os.path.join(session_dir, "load_test_report.docx")
+    pdf_path = os.path.join(session_dir, "load_test_report.pdf")
     csv_path = os.path.join(session_dir, "session_action_lifecycle.csv")
     
     if fmt == 'json':

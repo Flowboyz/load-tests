@@ -366,7 +366,7 @@ async def action_loop(
     action_interval, chat_interval, webrtc_client,
     camera_enabled, mic_enabled, hand_enabled, chat_enabled, screen_share_enabled,
     stop_event, scenario_event, frontend_url, room_id, scenarios=[], role="attendee",
-    auto_camera=False, auto_mic=False, auto_screen_share=False
+    auto_camera=False, auto_mic=False, auto_screen_share=False, is_viewer=False
 ):
     camera_on = True if auto_camera else False
     is_muted = False if auto_mic else True
@@ -819,7 +819,7 @@ async def ws_session(
     action_interval, confirm_timeout, webrtc_enabled, media_quality, network_profile, network_degradation, degradation_interval,
     stop_event, scenario_event, cross_confirm, frontend_url, room_id, reconnection_count=0,
     role="attendee", max_subscriptions=2, decode_downlink=False, in_breakout=False, scenarios=[],
-    auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10
+    auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10, is_viewer=False
 ):
     fingerprint = emulator.fingerprint
     simulator = NetworkSimulator(network_profile, network_degradation, degradation_interval)
@@ -1117,7 +1117,8 @@ async def ws_session(
                         camera_enabled=camera_enabled, mic_enabled=mic_enabled, hand_enabled=hand_enabled,
                         chat_enabled=chat_enabled, screen_share_enabled=screen_share_enabled,
                         stop_event=stop_event, scenario_event=scenario_event, frontend_url=frontend_url, room_id=room_id, scenarios=scenarios, role=role,
-                        auto_camera=auto_camera, auto_mic=auto_mic, auto_screen_share=auto_screen_share
+                        auto_camera=auto_camera, auto_mic=auto_mic, auto_screen_share=auto_screen_share,
+                        is_viewer=is_viewer
                     )
                 )
 
@@ -1224,7 +1225,7 @@ async def run_bot(
     confirm_timeout, max_retries, webrtc_enabled, media_quality, network_distribution, network_degradation, degradation_interval,
     device_manager, stop_event, session, scenario_event, cross_confirm=True,
     jwt_secret=None, max_subscriptions=2, decode_downlink=False, host_bot_id=1, presenter_bot_id=2, scenarios=[],
-    auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10
+    auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10, is_viewer=False
 ):
     name, email = await generate_identity()
     
@@ -1283,7 +1284,8 @@ async def run_bot(
             stop_event=stop_event, scenario_event=scenario_event, cross_confirm=cross_confirm,
             frontend_url=frontend_url, room_id=current_room, reconnection_count=attempt,
             role=role, max_subscriptions=max_subscriptions, decode_downlink=decode_downlink, in_breakout=in_breakout, scenarios=scenarios,
-            auto_camera=auto_camera, auto_mic=auto_mic, auto_screen_share=auto_screen_share, cross_confirm_limit=cross_confirm_limit
+            auto_camera=auto_camera, auto_mic=auto_mic, auto_screen_share=auto_screen_share, cross_confirm_limit=cross_confirm_limit,
+            is_viewer=is_viewer
         )
 
         if stop_event.is_set():
@@ -1483,7 +1485,7 @@ async def main(args):
                     decode_downlink=args.decode_downlink, host_bot_id=args.host_bot_id,
                     presenter_bot_id=args.presenter_bot_id, scenarios=scenarios,
                     auto_camera=args.auto_camera, auto_mic=args.auto_mic, auto_screen_share=args.auto_screen_share,
-                    cross_confirm_limit=args.cross_confirm_limit
+                    cross_confirm_limit=args.cross_confirm_limit, is_viewer=is_viewer
                 )
 
         tasks = []
