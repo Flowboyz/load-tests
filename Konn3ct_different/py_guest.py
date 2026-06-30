@@ -833,15 +833,29 @@ async def ws_session(
             ssl_context.verify_mode = ssl.CERT_NONE
 
         headers = {"User-Agent": fingerprint["user_agent"]}
-        async with websockets.connect(
-            ws_url,
-            additional_headers=headers,
-            ping_interval=30,
-            ping_timeout=60,
-            close_timeout=30,
-            open_timeout=30,
-            ssl=ssl_context
-        ) as ws:
+        ws = None
+        ws_connect_ctx = None
+        connect_attempts = 3
+        for conn_attempt in range(connect_attempts):
+            try:
+                ws_connect_ctx = websockets.connect(
+                    ws_url,
+                    additional_headers=headers,
+                    ping_interval=30,
+                    ping_timeout=60,
+                    close_timeout=30,
+                    open_timeout=60,
+                    ssl=ssl_context
+                )
+                ws = await ws_connect_ctx.__aenter__()
+                break
+            except Exception as e:
+                if conn_attempt == connect_attempts - 1:
+                    raise e
+                logger.log("🔄", "yellow", bot_id, name, f"Handshake failed: {e}. Retrying connection ({conn_attempt+1}/{connect_attempts})...", fingerprint=fingerprint)
+                await asyncio.sleep(random.uniform(1.0, 3.0))
+
+        if True:
             await stats.inc("active")
             
             pending = PendingTracker()
@@ -1189,6 +1203,11 @@ async def ws_session(
                     reader_task.cancel()
                 if webrtc_client:
                     await webrtc_client.close()
+                if ws_connect_ctx and ws:
+                    try:
+                        await ws_connect_ctx.__aexit__(None, None, None)
+                    except Exception:
+                        pass
                     
     except Exception as exc:
         await logger.record_event("error_logged", bot_id=bot_id, name=name, action="websocket_connection", error=str(exc), browser=fingerprint["browser_type"])
@@ -1308,6 +1327,11 @@ async def run_bot(
         ws_url = await get_ws_url(current_room)
         if not ws_url:
             break
+
+    if attempt > max_retries:
+        await stats.inc("failed")
+        await logger.record_event("bot_failed", bot_id, name, email, fingerprint=fingerprint)
+        logger.log("❌", "red", bot_id, name, f"Bot session terminated after exhausting {max_retries} reconnect attempts.", fingerprint=fingerprint)
 
 def is_bot_in_range(bot_id, range_str):
     if not range_str or range_str.strip().lower() == "all":

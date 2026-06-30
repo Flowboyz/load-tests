@@ -192,10 +192,8 @@ def run_test_process(app, socketio, session_id):
                     
                     proc = subprocess.Popen(
                         chunk_cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        encoding="utf-8",
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
                         cwd=project_root,
                         creationflags=creation_flags
                     )
@@ -438,9 +436,21 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                             metrics_state["connecting_bots"] = metrics_state["connecting_bots"] + 1
                         elif etype == "bot_reconnecting" and bot_id:
                             metrics_state["reconnecting_bots"] = metrics_state["reconnecting_bots"] + 1
+                            if bot_id in joined_ids:
+                                joined_ids.remove(bot_id)
+                            metrics_state["connected_bots"] = len(joined_ids)
                         elif etype == "bot_joined" and bot_id:
                             joined_ids.add(bot_id)
                             metrics_state["connecting_bots"] = max(0, metrics_state["connecting_bots"] - 1)
+                            metrics_state["reconnecting_bots"] = max(0, metrics_state["reconnecting_bots"] - 1)
+                            metrics_state["connected_bots"] = len(joined_ids)
+                        elif etype == "bot_failed" and bot_id:
+                            failed_ids.add(bot_id)
+                            metrics_state["failed_bots"] = len(failed_ids)
+                            metrics_state["reconnecting_bots"] = max(0, metrics_state["reconnecting_bots"] - 1)
+                            metrics_state["connecting_bots"] = max(0, metrics_state["connecting_bots"] - 1)
+                            if bot_id in joined_ids:
+                                joined_ids.remove(bot_id)
                             metrics_state["connected_bots"] = len(joined_ids)
                         elif etype == "action_logged":
                             act_type = event.get("action_type")
@@ -455,7 +465,9 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                                 elif status == "failed":
                                     failed_ids.add(bot_id)
                                     metrics_state["failed_bots"] = len(failed_ids)
-                                    metrics_state["connected_bots"] = max(0, metrics_state["connected_bots"] - 1)
+                                    if bot_id in joined_ids:
+                                        joined_ids.remove(bot_id)
+                                    metrics_state["connected_bots"] = len(joined_ids)
                             
                             if lat is not None:
                                 metrics_state["latencies"].append(lat)
