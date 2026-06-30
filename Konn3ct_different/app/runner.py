@@ -171,7 +171,10 @@ def run_test_process(app, socketio, session_id):
                     chunks.append((curr_id, bots_in_chunk))
                     curr_id += bots_in_chunk
                     
-                for start_id, chunk_bots in chunks:
+                stagger_val = config.stagger if hasattr(config, 'stagger') else 1.0
+                batch_val = config.batch if hasattr(config, 'batch') else 3
+
+                for idx, (start_id, chunk_bots) in enumerate(chunks):
                     chunk_cmd = list(cmd)
                     try:
                         bots_idx = chunk_cmd.index("--bots")
@@ -179,6 +182,10 @@ def run_test_process(app, socketio, session_id):
                     except ValueError:
                         chunk_cmd.extend(["--bots", str(chunk_bots)])
                     chunk_cmd.extend(["--start-id", str(start_id)])
+                    
+                    # Calculate startup delay to stagger process chunks sequentially
+                    startup_delay = idx * (max_bots_per_proc / batch_val) * stagger_val
+                    chunk_cmd.extend(["--startup-delay", f"{startup_delay:.2f}"])
                     
                     # Use separate report log file for each process chunk to prevent concurrent write collisions and file truncation
                     chunk_report_log = f"{report_log.replace('.jsonl', '')}_chunk_{start_id}.jsonl"
@@ -188,7 +195,7 @@ def run_test_process(app, socketio, session_id):
                     except ValueError:
                         chunk_cmd.extend(["--report-log", chunk_report_log])
                     
-                    print(f"Launching bot chunk (start_id={start_id}, bots={chunk_bots}) with cmd: {' '.join(chunk_cmd)}")
+                    print(f"Launching bot chunk (start_id={start_id}, bots={chunk_bots}) with delay={startup_delay:.2f}s, cmd: {' '.join(chunk_cmd)}")
                     
                     proc = subprocess.Popen(
                         chunk_cmd,

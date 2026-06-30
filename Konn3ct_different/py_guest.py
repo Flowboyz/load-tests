@@ -1551,6 +1551,10 @@ async def main(args):
 
         asyncio.create_task(scenario_runner())
 
+        if getattr(args, "startup_delay", 0.0) > 0.0:
+            print(f"Staggering process startup: sleeping for {args.startup_delay}s...")
+            await asyncio.sleep(args.startup_delay)
+
         while bot_id <= end_id and not stop_event.is_set():
             await pause_event.wait()
             batch = []
@@ -1634,6 +1638,7 @@ if __name__ == "__main__":
     parser.add_argument("--presenter-bot-id", type=int, default=2, help="The bot ID assigned as presenter")
     parser.add_argument("--control-file", default=None, help="JSON control file containing session state (paused/running)")
     parser.add_argument("--use-fake-ui-for-media-stream", action="store_true", help="Bypass media stream confirmations in Chromium (compatibility flag)")
+    parser.add_argument("--startup-delay", type=float, default=0.0, help="Initial delay in seconds before spawning bots")
     
     # SLA thresholds arguments
     parser.add_argument("--sla-success-rate", type=float, default=95.0, help="SLA target action success rate percentage")
