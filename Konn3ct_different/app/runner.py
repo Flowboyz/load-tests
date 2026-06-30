@@ -270,7 +270,6 @@ def run_test_process(app, socketio, session_id):
                         
                         # Merge all chunk logs into the main report log file
                         try:
-                            import json
                             with open(report_log, "w", encoding="utf-8") as main_f:
                                 main_f.write(json.dumps({
                                     "event": "test_started",
