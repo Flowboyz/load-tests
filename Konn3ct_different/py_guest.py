@@ -1324,7 +1324,7 @@ async def run_bot(
         attempt += 1
         await stats.inc("reconnects")
         await logger.record_event("bot_reconnecting", bot_id, name, email, fingerprint=fingerprint)
-        backoff = min(2 ** attempt, 30) + random.uniform(0, 1)
+        backoff = random.uniform(1.5, 4.0)
         logger.log("🔄", "yellow", bot_id, name, f"Reconnecting in {backoff:.1f}s (attempt {attempt}/{max_retries})...", fingerprint=fingerprint)
         await asyncio.sleep(backoff)
         

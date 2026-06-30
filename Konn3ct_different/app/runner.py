@@ -635,11 +635,8 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
 
 def compile_report_log(project_root, log_path, docx_path):
     """
-    Force executes generate_report.py to compile report if not completed.
+    Force executes generate_report.py to compile report.
     """
-    if os.path.exists(docx_path):
-        return
-        
     generate_report_script = os.path.join(project_root, "generate_report.py")
     try:
         subprocess.run(
