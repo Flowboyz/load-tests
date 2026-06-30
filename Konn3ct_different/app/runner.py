@@ -113,7 +113,7 @@ def run_test_process(app, socketio, session_id):
                 "--camera-publishers", getattr(config, 'camera_publishers', "1,2,3,4,5"),
                 "--screen-share-publishers", getattr(config, 'screen_share_publishers', "2"),
                 "--mic-publishers", getattr(config, 'mic_publishers', "1,2,3,4,5"),
-                "--viewer-bots", getattr(config, 'viewer_bots', "6-1000"),
+                "--viewer-bots", getattr(config, 'viewer_bots', "6-10000"),
                 "--viewer-mode", getattr(config, 'viewer_mode', "receive_only")
             ]
             
@@ -279,13 +279,9 @@ def run_test_process(app, socketio, session_id):
                                     chunk_log_path = f"{report_log.replace('.jsonl', '')}_chunk_{start_id}.jsonl"
                                     if os.path.exists(chunk_log_path):
                                         with open(chunk_log_path, "r", encoding="utf-8") as chunk_f:
-                                            for line in chunk_f:
-                                                try:
-                                                    parsed = json.loads(line.strip())
-                                                    if parsed.get("event") == "test_started":
-                                                        continue
-                                                except Exception:
-                                                    pass
+                                            for idx, line in enumerate(chunk_f):
+                                                if idx == 0 and "test_started" in line:
+                                                    continue
                                                 main_f.write(line)
                                         try:
                                             os.remove(chunk_log_path)
@@ -347,26 +343,22 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
     """
     Reads the JSONL log file as it grows, parses the metrics, collects CPU/RAM,
     and broadcasts updates to socket.io.
+    Supports tailing multiple parallel chunk logs.
     """
-    # Wait for file creation (up to 10 seconds)
+    import glob
+    session_dir = os.path.dirname(log_path)
+    base_name = os.path.basename(log_path)
+    base_prefix = base_name.replace(".jsonl", "")
+    
+    # Wait for the first chunk log file to be created (up to 10 seconds)
+    chunk_1_log = os.path.join(session_dir, f"{base_prefix}_chunk_1.jsonl")
     start_wait = time.time()
-    while not os.path.exists(log_path) and time.time() - start_wait < 10.0:
+    while not os.path.exists(chunk_1_log) and time.time() - start_wait < 10.0:
         if process and process.poll() is not None:
             break
         socketio.sleep(0.2)
         
-    if not os.path.exists(log_path):
-        if not process:
-            return
-        # Fallback loop reading stdout of the process
-        while not stop_event.is_set():
-            line = process.stdout.readline()
-            if not line:
-                break
-            socketio.emit('session_console_log', {
-                'session_id': session_id,
-                'log': line.strip()
-            }, room=f"session_{session_id}")
+    if not os.path.exists(chunk_1_log):
         return
 
     # Running aggregation state
@@ -393,13 +385,144 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
     # Batching variables for raw events
     buffered_raw_events = []
     last_raw_emit_time = time.time()
-
-    with open(log_path, 'r', encoding='utf-8') as f:
-        # Read existing file to start
+    
+    open_files = {} # chunk_id -> file_object
+    
+    try:
         while not stop_event.is_set():
-            line = f.readline()
-            if not line:
-                # Flush remaining raw events
+            # 1. Discover all active chunk files
+            pattern = os.path.join(session_dir, f"{base_prefix}_chunk_*.jsonl")
+            chunk_files = glob.glob(pattern)
+            
+            any_new_lines = False
+            
+            for file_path in chunk_files:
+                filename = os.path.basename(file_path)
+                try:
+                    chunk_id = int(filename.split("_chunk_")[-1].replace(".jsonl", ""))
+                except Exception:
+                    chunk_id = filename
+                    
+                if chunk_id not in open_files:
+                    try:
+                        f = open(file_path, "r", encoding="utf-8")
+                        open_files[chunk_id] = f
+                    except Exception:
+                        continue
+                        
+                f = open_files[chunk_id]
+                while True:
+                    line = f.readline()
+                    if not line:
+                        break
+                    any_new_lines = True
+                    
+                    try:
+                        event = json.loads(line.strip())
+                        etype = event.get("event")
+                        
+                        # Buffer raw event for console log viewer
+                        buffered_raw_events.append(event)
+                        if len(buffered_raw_events) >= 50 or (time.time() - last_raw_emit_time > 0.2):
+                            socketio.emit('session_raw_events_batch', {
+                                'session_id': session_id,
+                                'events': buffered_raw_events
+                            }, room=f"session_{session_id}")
+                            buffered_raw_events = []
+                            last_raw_emit_time = time.time()
+                            
+                        # Process metrics
+                        bot_id = event.get("bot_id")
+                        
+                        if etype == "bot_connecting" and bot_id:
+                            metrics_state["connecting_bots"] = metrics_state["connecting_bots"] + 1
+                        elif etype == "bot_reconnecting" and bot_id:
+                            metrics_state["reconnecting_bots"] = metrics_state["reconnecting_bots"] + 1
+                        elif etype == "bot_joined" and bot_id:
+                            joined_ids.add(bot_id)
+                            metrics_state["connecting_bots"] = max(0, metrics_state["connecting_bots"] - 1)
+                            metrics_state["connected_bots"] = len(joined_ids)
+                        elif etype == "action_logged":
+                            act_type = event.get("action_type")
+                            status = event.get("status")
+                            final_status = event.get("final_status")
+                            lat = event.get("latency_ms")
+                            
+                            if act_type == "webrtc_connection":
+                                if status == "confirmed":
+                                    metrics_state["connected_bots"] = len(joined_ids)
+                                    metrics_state["reconnecting_bots"] = max(0, metrics_state["reconnecting_bots"] - 1)
+                                elif status == "failed":
+                                    failed_ids.add(bot_id)
+                                    metrics_state["failed_bots"] = len(failed_ids)
+                                    metrics_state["connected_bots"] = max(0, metrics_state["connected_bots"] - 1)
+                            
+                            if lat is not None:
+                                metrics_state["latencies"].append(lat)
+                                if lat > metrics_state["global_peak_latency"]:
+                                    metrics_state["global_peak_latency"] = lat
+                                
+                            # Update propagation lifecycle counts
+                            resolved_status = final_status or status
+                            if resolved_status == "confirmed":
+                                resolved_status = "acknowledged"
+                            elif resolved_status in ("timeout", "timed_out"):
+                                resolved_status = "timed-out"
+                            elif resolved_status and resolved_status.startswith("observed"):
+                                resolved_status = "observed"
+                                
+                            if resolved_status in metrics_state["status_counts"]:
+                                metrics_state["status_counts"][resolved_status] += 1
+                                
+                            if resolved_status == "timed-out":
+                                t_stage = event.get("timeout_stage")
+                                if t_stage in metrics_state["timeout_stages"]:
+                                    metrics_state["timeout_stages"][t_stage] += 1
+                                    
+                            if resolved_status == "unsupported":
+                                reason = event.get("unsupported_reason", "unknown")
+                                metrics_state["unsupported_reasons"][reason] = metrics_state["unsupported_reasons"].get(reason, 0) + 1
+                                
+                        elif etype == "webrtc_stats_logged":
+                            rtt = event.get("rtt")
+                            loss = event.get("packet_loss")
+                            jitter = event.get("jitter")
+                            bitrate = event.get("bitrate")
+                            turn_usage = event.get("turn_usage")
+                            cand_type = event.get("candidate_pair_type")
+                            
+                            if rtt is not None:
+                                metrics_state["latencies"].append(rtt)
+                                if rtt > metrics_state["global_peak_latency"]:
+                                    metrics_state["global_peak_latency"] = rtt
+                            if loss is not None: metrics_state["packet_losses"].append(loss)
+                            if jitter is not None: metrics_state["jitters"].append(jitter)
+                            if bitrate is not None: metrics_state["bitrates"].append(bitrate)
+                            
+                            if turn_usage is True or str(turn_usage).lower() == 'true':
+                                metrics_state["turn_count"] += 1
+                            if cand_type == 'relay':
+                                metrics_state["relay_count"] += 1
+                            
+                        elif etype == "error_logged":
+                            metrics_state["failed_bots"] = metrics_state["failed_bots"] + 1
+                            
+                        # Extract WebRTC parameters if logged
+                        webrtc_data = event.get("summary", {}).get("webrtc_performance", {})
+                        if webrtc_data:
+                            for b_type, b_stats in webrtc_data.items():
+                                if "avg_packet_loss" in b_stats:
+                                    metrics_state["packet_losses"].append(b_stats["avg_packet_loss"])
+                                if "avg_jitter" in b_stats:
+                                    metrics_state["jitters"].append(b_stats["avg_jitter"])
+                                if "avg_bitrate" in b_stats:
+                                    metrics_state["bitrates"].append(b_stats["avg_bitrate"])
+                                    
+                    except Exception as e:
+                        print(f"Error parsing log line: {e}")
+                        
+            # If no new lines were read, sleep and emit metrics
+            if not any_new_lines:
                 if buffered_raw_events:
                     socketio.emit('session_raw_events_batch', {
                         'session_id': session_id,
@@ -407,9 +530,8 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                     }, room=f"session_{session_id}")
                     buffered_raw_events = []
                     last_raw_emit_time = time.time()
-
-                # No new line. Sleep briefly, then calculate system resource and broadcast
-                socketio.sleep(1.0)
+                    
+                socketio.sleep(0.5)
                 
                 # Fetch host resource metrics
                 try:
@@ -476,112 +598,12 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                 metrics_state["packet_losses"] = metrics_state["packet_losses"][-50:]
                 metrics_state["jitters"] = metrics_state["jitters"][-50:]
                 metrics_state["bitrates"] = metrics_state["bitrates"][-50:]
-                continue
-                
+    finally:
+        for f in open_files.values():
             try:
-                event = json.loads(line.strip())
-                etype = event.get("event")
-                
-                # Buffer raw event for console log viewer
-                buffered_raw_events.append(event)
-                if len(buffered_raw_events) >= 50 or (time.time() - last_raw_emit_time > 0.2):
-                    socketio.emit('session_raw_events_batch', {
-                        'session_id': session_id,
-                        'events': buffered_raw_events
-                    }, room=f"session_{session_id}")
-                    buffered_raw_events = []
-                    last_raw_emit_time = time.time()
-                
-                # Process metrics
-                bot_id = event.get("bot_id")
-                
-                if etype == "bot_connecting" and bot_id:
-                    metrics_state["connecting_bots"] = metrics_state["connecting_bots"] + 1
-                elif etype == "bot_reconnecting" and bot_id:
-                    metrics_state["reconnecting_bots"] = metrics_state["reconnecting_bots"] + 1
-                elif etype == "bot_joined" and bot_id:
-                    joined_ids.add(bot_id)
-                    metrics_state["connecting_bots"] = max(0, metrics_state["connecting_bots"] - 1)
-                    metrics_state["connected_bots"] = len(joined_ids)
-                elif etype == "action_logged":
-                    act_type = event.get("action_type")
-                    status = event.get("status")
-                    final_status = event.get("final_status")
-                    lat = event.get("latency_ms")
-                    
-                    if act_type == "webrtc_connection":
-                        if status == "confirmed":
-                            metrics_state["connected_bots"] = len(joined_ids)
-                            metrics_state["reconnecting_bots"] = max(0, metrics_state["reconnecting_bots"] - 1)
-                        elif status == "failed":
-                            failed_ids.add(bot_id)
-                            metrics_state["failed_bots"] = len(failed_ids)
-                            metrics_state["connected_bots"] = max(0, metrics_state["connected_bots"] - 1)
-                    
-                    if lat is not None:
-                        metrics_state["latencies"].append(lat)
-                        if lat > metrics_state["global_peak_latency"]:
-                            metrics_state["global_peak_latency"] = lat
-                        
-                    # Update propagation lifecycle counts
-                    resolved_status = final_status or status
-                    if resolved_status == "confirmed":
-                        resolved_status = "acknowledged"
-                    elif resolved_status in ("timeout", "timed_out"):
-                        resolved_status = "timed-out"
-                    elif resolved_status and resolved_status.startswith("observed"):
-                        resolved_status = "observed"
-                        
-                    if resolved_status in metrics_state["status_counts"]:
-                        metrics_state["status_counts"][resolved_status] += 1
-                        
-                    if resolved_status == "timed-out":
-                        t_stage = event.get("timeout_stage")
-                        if t_stage in metrics_state["timeout_stages"]:
-                            metrics_state["timeout_stages"][t_stage] += 1
-                            
-                    if resolved_status == "unsupported":
-                        reason = event.get("unsupported_reason", "unknown")
-                        metrics_state["unsupported_reasons"][reason] = metrics_state["unsupported_reasons"].get(reason, 0) + 1
-                        
-                elif etype == "webrtc_stats_logged":
-                    rtt = event.get("rtt")
-                    loss = event.get("packet_loss")
-                    jitter = event.get("jitter")
-                    bitrate = event.get("bitrate")
-                    turn_usage = event.get("turn_usage")
-                    cand_type = event.get("candidate_pair_type")
-                    
-                    if rtt is not None:
-                        metrics_state["latencies"].append(rtt)
-                        if rtt > metrics_state["global_peak_latency"]:
-                            metrics_state["global_peak_latency"] = rtt
-                    if loss is not None: metrics_state["packet_losses"].append(loss)
-                    if jitter is not None: metrics_state["jitters"].append(jitter)
-                    if bitrate is not None: metrics_state["bitrates"].append(bitrate)
-                    
-                    if turn_usage is True or str(turn_usage).lower() == 'true':
-                        metrics_state["turn_count"] += 1
-                    if cand_type == 'relay':
-                        metrics_state["relay_count"] += 1
-                    
-                elif etype == "error_logged":
-                    metrics_state["failed_bots"] = metrics_state["failed_bots"] + 1
-                    
-                # Extract WebRTC parameters if logged
-                # Some logs contain jitter/loss metrics directly
-                webrtc_data = event.get("summary", {}).get("webrtc_performance", {})
-                if webrtc_data:
-                    for b_type, b_stats in webrtc_data.items():
-                        if "avg_packet_loss" in b_stats:
-                            metrics_state["packet_losses"].append(b_stats["avg_packet_loss"])
-                        if "avg_jitter" in b_stats:
-                            metrics_state["jitters"].append(b_stats["avg_jitter"])
-                        if "avg_bitrate" in b_stats:
-                            metrics_state["bitrates"].append(b_stats["avg_bitrate"])
-                            
-            except Exception as e:
-                print(f"Error parsing log line: {e}")
+                f.close()
+            except Exception:
+                pass
 
 def compile_report_log(project_root, log_path, docx_path):
     """
