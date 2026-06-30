@@ -912,7 +912,7 @@ async def ws_session(
                                 elif status in ("denied", "kicked", "ended"):
                                     if not active_future.done():
                                         active_future.set_exception(Exception(f"Session rejected: {status}"))
-                                    stop_event.set()
+                                    raise Exception(f"Session terminated by server: {status}")
                                     
                             elif mtype == "user_joined":
                                 uid = msg.get("userId")
