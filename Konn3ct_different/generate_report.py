@@ -206,6 +206,7 @@ class MetricsAggregationStage:
         
         self.bots_metadata = {}
         self.bots_fingerprints = {}
+        self.all_simulated_bots = set()
         self.webrtc_trackers = {}
         
         self.started_at = None
@@ -280,21 +281,33 @@ class MetricsAggregationStage:
         ts = e.get("ts")
         bot_id = e.get("bot_id")
         
+        if bot_id:
+            self.all_simulated_bots.add(bot_id)
+
         if etype == "test_started":
-            self.started_at = ts
+            if self.started_at is None or ts < self.started_at:
+                self.started_at = ts
         elif etype == "test_config":
-            self.config = e
+            if not self.config or e.get("bots", 0) > self.config.get("bots", 0):
+                self.config = e
         elif etype == "test_finished":
-            self.finished_at = ts
+            if self.finished_at is None or ts > self.finished_at:
+                self.finished_at = ts
             
-        elif etype == "bot_joined":
+        elif etype in ("bot_connecting", "bot_reconnecting", "bot_joined"):
             if bot_id:
-                self.bots_fingerprints[bot_id] = e.get("fingerprint") or {}
-                self.bots_metadata[bot_id] = {
-                    "name": e.get("name"),
-                    "email": e.get("email"),
-                    "role": "attendee"
-                }
+                fp = e.get("fingerprint")
+                if fp:
+                    self.bots_fingerprints[bot_id] = fp
+                elif bot_id not in self.bots_fingerprints:
+                    self.bots_fingerprints[bot_id] = {}
+                
+                if bot_id not in self.bots_metadata:
+                    self.bots_metadata[bot_id] = {
+                        "name": e.get("name"),
+                        "email": e.get("email"),
+                        "role": "attendee"
+                    }
                 
         elif etype == "webrtc_stats_logged":
             if bot_id:
@@ -1284,6 +1297,24 @@ class ReportPipeline:
                 "category": "WebSocket Connectivity",
                 "issue": f"High rate of WebSocket connection drops ({ws_fail_rate} disconnect events logged).",
                 "remediation": "Configure load balancer cookies for sticky sessions and tune connection broker socket keep-alive ping intervals to 25s."
+            })
+            recs.append({
+                "priority": "Critical",
+                "category": "Backend WAF & Rate Limiting",
+                "issue": "Server-side reverse proxy or WAF dropped WebSocket connection handshakes under high load.",
+                "remediation": "Tune reverse proxy (Nginx/HAProxy) rate limiting zones, increase 'limit_conn' and 'limit_req' thresholds for WebSocket upgrade and token API endpoints, and raise system descriptor limits ('ulimit -n')."
+            })
+            recs.append({
+                "priority": "High",
+                "category": "Frontend Reconnection Logic",
+                "issue": "Participants experiencing disconnect waves due to server bottleneck.",
+                "remediation": "Ensure frontend application utilizes a randomized retry delay (1.5s - 4.0s) rather than immediate retries or long exponential backoffs, preventing client reconnect storms."
+            })
+            recs.append({
+                "priority": "High",
+                "category": "Load Tester Stagger Calibration",
+                "issue": "Concurrent subprocess launch spike detected.",
+                "remediation": "Utilize sequential process-level startup offsets (staggered delay = process_index * (bots_per_proc / batch) * stagger) to maintain a smooth connection rate on the signaling server."
             })
             
         ice_setup = self.webrtc_analytics["avg_ice_setup"]

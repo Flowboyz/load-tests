@@ -24,10 +24,11 @@ QUALITY_PROFILES = {
 class SyntheticVideoTrack(MediaStreamTrack):
     kind = "video"
 
-    def __init__(self, bot_id, bot_name, quality="medium"):
+    def __init__(self, bot_id, bot_name, quality="medium", is_screen=False):
         super().__init__()
         self.bot_id = bot_id
         self.bot_name = bot_name
+        self.is_screen = is_screen
         
         # Get resolution and fps from profile
         profile = QUALITY_PROFILES.get(quality, QUALITY_PROFILES["medium"])
@@ -42,7 +43,7 @@ class SyntheticVideoTrack(MediaStreamTrack):
     async def recv(self):
         """
         Generates and returns a VideoFrame containing moving color bars
-        with bot ID, name, quality and time overlay.
+        (or solid red template if is_screen is True) with bot ID, name, quality and time overlay.
         """
         # Calculate frame pts and timestamp
         pts = int((time.time() - self.start_time) * self.fps)
@@ -50,36 +51,49 @@ class SyntheticVideoTrack(MediaStreamTrack):
             pts = self.frame_count + 1
         self.frame_count = pts
 
-        # Generate base color bars (moving shift based on frame count)
+        # Generate base background (moving shift color bars or solid red screen share template)
         img = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-        shift = (self.frame_count * 8) % self.width
-
-        # Draw 8 vertical bars with shifting offset
-        bar_width = math.ceil(self.width / 8)
-        for i in range(8):
-            color = [
-                255 if (i & 1) else 0,
-                255 if (i & 2) else 0,
-                255 if (i & 4) else 0
-            ]
-            x_start = (i * bar_width + shift) % self.width
-            x_end = (x_start + bar_width) % self.width
-            
-            if x_start < x_end:
-                img[:, x_start:x_end] = color
-            else:
-                img[:, x_start:] = color
-                img[:, :x_end] = color
+        if self.is_screen:
+            # Generate solid red template background
+            img[:, :] = [255, 0, 0]  # RED (RGB)
+        else:
+            # Generate shifting color bars
+            shift = (self.frame_count * 8) % self.width
+            bar_width = math.ceil(self.width / 8)
+            for i in range(8):
+                color = [
+                    255 if (i & 1) else 0,
+                    255 if (i & 2) else 0,
+                    255 if (i & 4) else 0
+                ]
+                x_start = (i * bar_width + shift) % self.width
+                x_end = (x_start + bar_width) % self.width
+                
+                if x_start < x_end:
+                    img[:, x_start:x_end] = color
+                else:
+                    img[:, x_start:] = color
+                    img[:, :x_end] = color
 
         # Draw simple text overlay
         ts_str = time.strftime("%H:%M:%S") + f".{(time.time() % 1) * 1000:03.0f}"
-        text_lines = [
-            f"BOT ID: Bot-{self.bot_id:04d}",
-            f"NAME: {self.bot_name}",
-            f"RESOLUTION: {self.width}x{self.height} @ {self.fps}fps",
-            f"TIMESTAMP: {ts_str}",
-            f"FRAME: {self.frame_count}"
-        ]
+        if self.is_screen:
+            text_lines = [
+                "⚠️ SCREEN SHARE ACTIVE ⚠️",
+                f"BOT ID: Bot-{self.bot_id:04d}",
+                f"NAME: {self.bot_name}",
+                f"RESOLUTION: {self.width}x{self.height} @ {self.fps}fps",
+                f"TIMESTAMP: {ts_str}",
+                f"FRAME: {self.frame_count}"
+            ]
+        else:
+            text_lines = [
+                f"BOT ID: Bot-{self.bot_id:04d}",
+                f"NAME: {self.bot_name}",
+                f"RESOLUTION: {self.width}x{self.height} @ {self.fps}fps",
+                f"TIMESTAMP: {ts_str}",
+                f"FRAME: {self.frame_count}"
+            ]
 
         if HAS_PIL:
             # Draw text using Pillow
@@ -120,32 +134,25 @@ class SyntheticAudioTrack(MediaStreamTrack):
         self.start_time = time.time()
 
     async def recv(self):
-        """
-        Generates and returns an AudioFrame containing silence and periodic tone bursts.
-        """
+        """Generates 20ms of synthetic sine wave audio frames."""
         pts = int((time.time() - self.start_time) * self.sample_rate)
-        self.frame_count += 1
-        
-        # Generate sine wave samples for 20ms
-        t = (np.arange(self.samples_per_frame) + self.frame_count * self.samples_per_frame) / self.sample_rate
-        
-        # 1-second interval: 100ms tone burst, 900ms silence
-        is_tone_on = (time.time() % 1.0) < 0.1
-        if is_tone_on:
-            samples = np.sin(2 * np.pi * self.tone_freq * t) * 16384  # moderate volume
-        else:
-            samples = np.zeros(self.samples_per_frame)
-            
-        samples = samples.astype(np.int16)
-        
-        # Package into PyAV AudioFrame
-        frame = AudioFrame.from_ndarray(samples.reshape(1, -1), format="s16", layout="mono")
-        frame.sample_rate = self.sample_rate
+        if pts <= self.frame_count:
+            pts = self.frame_count + 1
+        self.frame_count = pts
+
+        # Generate 20ms of sine wave samples
+        t = np.arange(self.frame_count * self.samples_per_frame, (self.frame_count + 1) * self.samples_per_frame) / self.sample_rate
+        audio_data = 1000 * np.sin(2 * np.pi * self.tone_freq * t)
+        audio_ndarray = audio_data.astype(np.int16).reshape(1, self.samples_per_frame)
+
+        # Convert to AudioFrame
+        frame = AudioFrame.from_ndarray(audio_ndarray, format="s16", layout="mono")
         frame.pts = self.frame_count * self.samples_per_frame
+        frame.sample_rate = self.sample_rate
         frame.time_base = self.time_base
         
-        # Sleep for 20ms
-        await asyncio_sleep_pacing(0.02)
+        # Sleep to maintain framerate pacing (20ms)
+        await asyncio_sleep_pacing(20 / 1000.0)
         return frame
 
 async def asyncio_sleep_pacing(seconds):
@@ -155,8 +162,8 @@ async def asyncio_sleep_pacing(seconds):
 
 class MediaGenerator:
     @staticmethod
-    def create_video_track(bot_id, bot_name, quality="medium"):
-        return SyntheticVideoTrack(bot_id, bot_name, quality)
+    def create_video_track(bot_id, bot_name, quality="medium", is_screen=False):
+        return SyntheticVideoTrack(bot_id, bot_name, quality, is_screen=is_screen)
 
     @staticmethod
     def create_audio_track():

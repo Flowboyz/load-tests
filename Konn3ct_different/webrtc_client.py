@@ -676,7 +676,7 @@ class WebRTCClient:
     async def start_screen_share(self):
         if not self.pc_send:
             return False
-        self.screen_track = MediaGenerator.create_video_track(self.bot_id, self.bot_name, self.quality)
+        self.screen_track = MediaGenerator.create_video_track(self.bot_id, self.bot_name, self.quality, is_screen=True)
         self.screen_sender = self.pc_send.addTrack(self.screen_track)
         
         if self.send_request:
