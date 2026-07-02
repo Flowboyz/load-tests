@@ -12,6 +12,16 @@ import tempfile
 import sqlite3
 import time
 
+def safe_fromisoformat(val):
+    if not val:
+        return None
+    if isinstance(val, datetime.datetime):
+        return val
+    # Clean Z suffix for Python < 3.11 compatibility
+    if val.endswith("Z"):
+        val = val[:-1] + "+00:00"
+    return datetime.datetime.fromisoformat(val)
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 1. Reservoir Sampler (Constant Memory Percentiles)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -953,8 +963,8 @@ def aggregate(log_file_path):
             # Calculate ack latency if not returned by observations joining
             if ack_latency_ms is None and ack_ts and sent_ts:
                 try:
-                    t0 = datetime.datetime.fromisoformat(sent_ts)
-                    t1 = datetime.datetime.fromisoformat(ack_ts)
+                    t0 = safe_fromisoformat(sent_ts)
+                    t1 = safe_fromisoformat(ack_ts)
                     ack_latency_ms = (t1 - t0).total_seconds() * 1000.0
                 except Exception:
                     pass
@@ -1193,8 +1203,8 @@ def aggregate(log_file_path):
     duration_str = "N/A"
     if started_at and finished_at:
         try:
-            t0 = datetime.datetime.fromisoformat(started_at)
-            t1 = datetime.datetime.fromisoformat(finished_at)
+            t0 = safe_fromisoformat(started_at)
+            t1 = safe_fromisoformat(finished_at)
             diff = (t1 - t0).total_seconds()
             mins, secs = divmod(int(diff), 60)
             duration_str = f"{mins}m {secs}s"
@@ -1491,8 +1501,8 @@ def aggregate(log_file_path):
 def get_offset_str(start_iso, current_iso):
     """Calculates chronological offset string from start timestamp."""
     try:
-        t0 = datetime.datetime.fromisoformat(start_iso)
-        t1 = datetime.datetime.fromisoformat(current_iso)
+        t0 = safe_fromisoformat(start_iso)
+        t1 = safe_fromisoformat(current_iso)
         diff = int((t1 - t0).total_seconds())
         mins, secs = divmod(diff, 60)
         return f"+{mins:02d}:{secs:02d}"

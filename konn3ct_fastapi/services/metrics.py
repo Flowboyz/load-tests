@@ -7,6 +7,16 @@ from datetime import datetime
 from database import SessionLocal
 from models import TestSession, SessionMetric
 
+def safe_fromisoformat(val):
+    if not val:
+        return None
+    if isinstance(val, datetime):
+        return val
+    # Clean Z suffix for Python < 3.11 compatibility
+    if val.endswith("Z"):
+        val = val[:-1] + "+00:00"
+    return datetime.fromisoformat(val)
+
 def start_monitoring_task(session_id: int, log_path: str, stop_event: asyncio.Event, process=None):
     """Launches the metrics tracking loop as a non-blocking asyncio background task."""
     asyncio.create_task(stream_metrics_and_logs_async(session_id, log_path, stop_event, process))
@@ -252,10 +262,10 @@ async def stream_metrics_and_logs_async(session_id: int, log_path: str, stop_eve
                         
                         if etype == "bot_connecting" and bot_id:
                             metrics_state["connecting_bots"] += 1
-                            bot_start_times[bot_id] = datetime.fromisoformat(ts_str)
+                            bot_start_times[bot_id] = safe_fromisoformat(ts_str)
                         elif etype == "bot_reconnecting" and bot_id:
                             metrics_state["reconnecting_bots"] += 1
-                            bot_start_times[bot_id] = datetime.fromisoformat(ts_str)
+                            bot_start_times[bot_id] = safe_fromisoformat(ts_str)
                         elif etype == "bot_joined" and bot_id:
                             joined_ids.add(bot_id)
                             metrics_state["connecting_bots"] = max(0, metrics_state["connecting_bots"] - 1)
@@ -267,7 +277,7 @@ async def stream_metrics_and_logs_async(session_id: int, log_path: str, stop_eve
                             # Calculate bot join duration
                             if bot_id in bot_start_times:
                                 t_start = bot_start_times[bot_id]
-                                t_end = datetime.fromisoformat(ts_str)
+                                t_end = safe_fromisoformat(ts_str)
                                 join_dur = (t_end - t_start).total_seconds() * 1000.0
                                 metrics_state["join_times"].append(join_dur)
                                 
@@ -475,9 +485,9 @@ async def stream_metrics_and_logs_async(session_id: int, log_path: str, stop_eve
                                 last_paused_at_str = cdata.get("last_paused_at")
                                 
                                 if started_at_str:
-                                    t_start = datetime.fromisoformat(started_at_str)
+                                    t_start = safe_fromisoformat(started_at_str)
                                     if paused and last_paused_at_str:
-                                        t_pause = datetime.fromisoformat(last_paused_at_str)
+                                        t_pause = safe_fromisoformat(last_paused_at_str)
                                         elapsed_ms = (t_pause - t_start).total_seconds() * 1000.0 - total_paused_ms
                                     else:
                                         elapsed_ms = (datetime.utcnow() - t_start).total_seconds() * 1000.0 - total_paused_ms
