@@ -239,7 +239,8 @@ class MetricsAggregationStage:
     """Inserts events into on-disk SQLite database and updates WebRTC summaries in memory."""
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path)
+        self.conn = sqlite3.connect(db_path, timeout=60.0)
+        self.conn.execute("PRAGMA journal_mode=WAL;")
         self.conn.row_factory = sqlite3.Row
         self._setup_db()
         
@@ -533,7 +534,8 @@ class MetricsAggregationStage:
 
 
 def stream_grouped_actions(db_path: str) -> Generator[tuple, None, None]:
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=60.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
@@ -718,7 +720,8 @@ class ReportPipeline:
         self.log_file = log_file
         self.output_docx = output_docx
         self.session_dir = os.path.dirname(os.path.abspath(log_file)) or "."
-        self.temp_db_path = os.path.join(self.session_dir, f"_report_temp_{os.path.basename(log_file)}.db")
+        pid = os.getpid()
+        self.temp_db_path = os.path.join(self.session_dir, f"_report_temp_{os.path.basename(log_file)}_{pid}.db")
         
         self.agg_stage: Optional[MetricsAggregationStage] = None
         self.stats_results: Dict[str, Any] = {}
@@ -1475,7 +1478,8 @@ class ReportPipeline:
             os_dist_counts[o] = os_dist_counts.get(o, 0) + 1
 
         join_performance = {}
-        conn = sqlite3.connect(self.temp_db_path)
+        conn = sqlite3.connect(self.temp_db_path, timeout=60.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("SELECT ts, bot_id, name, action, error, browser FROM errors")
