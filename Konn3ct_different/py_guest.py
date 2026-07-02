@@ -820,7 +820,7 @@ async def ws_session(
     stop_event, scenario_event, cross_confirm, frontend_url, room_id, reconnection_count=0,
     role="attendee", max_subscriptions=2, decode_downlink=False, in_breakout=False, scenarios=[],
     auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10, is_viewer=False,
-    should_refresh=False, disable_abnormal_behavior=False
+    should_refresh=False, disable_abnormal_behavior=False, connected_flag=None
 ):
     fingerprint = emulator.fingerprint
     simulator = NetworkSimulator(network_profile, network_degradation, degradation_interval)
@@ -849,6 +849,8 @@ async def ws_session(
                     ssl=ssl_context
                 )
                 ws = await ws_connect_ctx.__aenter__()
+                if connected_flag is not None:
+                    connected_flag[0] = True
                 break
             except Exception as e:
                 if conn_attempt == connect_attempts - 1:
@@ -1364,6 +1366,7 @@ async def run_bot(
     in_breakout = False
     refreshed = False
     should_refresh_bot = (bot_id >= 3 and bot_id < 3 + refresh_bots)
+    connected_flag = [False]
 
     while not stop_event.is_set() and attempt <= max_retries:
         bot_refresh_enabled = should_refresh_bot and not refreshed
@@ -1379,7 +1382,8 @@ async def run_bot(
             role=role, max_subscriptions=max_subscriptions, decode_downlink=decode_downlink, in_breakout=in_breakout, scenarios=scenarios,
             auto_camera=auto_camera, auto_mic=auto_mic, auto_screen_share=auto_screen_share, cross_confirm_limit=cross_confirm_limit,
             is_viewer=is_viewer, should_refresh=bot_refresh_enabled,
-            disable_abnormal_behavior=disable_abnormal_behavior
+            disable_abnormal_behavior=disable_abnormal_behavior,
+            connected_flag=connected_flag
         )
 
         if stop_event.is_set():
@@ -1429,10 +1433,12 @@ async def run_bot(
             break
 
         attempt += 1
+        if connected_flag[0]:
+            attempt = 1
         await stats.inc("reconnects")
         await logger.record_event("bot_reconnecting", bot_id, name, email, fingerprint=fingerprint)
         backoff = random.uniform(1.5, 4.0)
-        logger.log("🔄", "yellow", bot_id, name, f"Reconnecting in {backoff:.1f}s (attempt {attempt}/{max_retries})...", fingerprint=fingerprint)
+        logger.log("🔄", "yellow", bot_id, name, f"Reconnecting in {backoff:.1f}s (attempt {attempt if not connected_flag[0] else '∞'}/{max_retries})...", fingerprint=fingerprint)
         await asyncio.sleep(backoff)
         
         ws_url = await get_ws_url(current_room)
@@ -1777,6 +1783,17 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     try:
+        # Tune system resource file descriptor limits for high concurrency load tests on UNIX
+        try:
+            import resource
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            target_limit = min(hard, 1048576)
+            if soft < target_limit:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (target_limit, hard))
+                print(f"🔧 System limits: increased open files limit from {soft} to {target_limit} for high concurrency", flush=True)
+        except (ImportError, Exception):
+            pass
+
         asyncio.run(main(args))
     except KeyboardInterrupt:
         print(f"\n{C['yellow']}🛑  Interrupted — shutting down...{C['reset']}", flush=True)
