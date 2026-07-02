@@ -1525,7 +1525,7 @@ async def main(args):
                         await asyncio.sleep(delay)
                     await launch(b_id)
                     
-                delay_sec = i * 0.15
+                delay_sec = i * (args.stagger / args.batch if args.stagger > 0 and args.batch > 0 else 0.05)
                 batch.append(asyncio.create_task(launch_with_micro_stagger(bot_id, delay_sec)))
                 bot_id += 1
             tasks.extend(batch)
