@@ -127,15 +127,18 @@ def run_test_process(app, socketio, session_id):
                 "--sla-latency", str(getattr(config, 'sla_latency', 500.0)),
                 "--sla-packet-loss", str(getattr(config, 'sla_packet_loss', 2.0)),
                 "--sla-jitter", str(getattr(config, 'sla_jitter', 30.0)),
-                "--cross-confirm-limit", str(getattr(config, 'cross_confirm_limit', 10)),
-                "--camera-publishers", getattr(config, 'camera_publishers', "1,2,3,4,5"),
-                "--screen-share-publishers", getattr(config, 'screen_share_publishers', "2"),
-                "--mic-publishers", getattr(config, 'mic_publishers', "1,2,3,4,5"),
-                "--viewer-bots", getattr(config, 'viewer_bots', "6-10000"),
-                "--viewer-mode", getattr(config, 'viewer_mode', "receive_only")
+                "--cross-confirm-limit", str(999999 if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'cross_confirm_limit', 10)),
+                "--camera-publishers", "1-10000" if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'camera_publishers', "1,2,3,4,5"),
+                "--screen-share-publishers", "1-10000" if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'screen_share_publishers', "2"),
+                "--mic-publishers", "1-10000" if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'mic_publishers', "1,2,3,4,5"),
+                "--viewer-bots", "" if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'viewer_bots', "6-10000"),
+                "--viewer-mode", "normal_participant" if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'viewer_mode', "receive_only"),
+                "--refresh-bots", str(getattr(config, 'refresh_bots', 0) or 0)
             ]
             
             # Add flags
+            if getattr(config, 'disable_abnormal_behavior', False):
+                cmd.append("--disable-abnormal-behavior")
             if config.webrtc_enabled:
                 cmd.append("--webrtc-enabled")
             if config.decode_downlink:
@@ -315,8 +318,16 @@ def run_test_process(app, socketio, session_id):
                             except Exception as me:
                                 print(f"Error merging chunk logs: {me}")
                                 
-                        # Post-Process: Compile report if it doesn't exist
-                        if project_root and report_log and report_docx and os.path.exists(report_log):
+                        # Post-Process: Compile report if log file or chunk files exist
+                        has_log_or_chunks = os.path.exists(report_log)
+                        if not has_log_or_chunks:
+                            import glob
+                            base_dir = os.path.dirname(report_log) or "."
+                            base_name = os.path.basename(report_log).replace(".jsonl", "")
+                            pattern = os.path.join(base_dir, f"{base_name}_chunk_*.jsonl")
+                            has_log_or_chunks = bool(glob.glob(pattern))
+
+                        if project_root and report_log and report_docx and has_log_or_chunks:
                             try:
                                 compile_report_log(project_root, report_log, report_docx)
                             except Exception as cre:

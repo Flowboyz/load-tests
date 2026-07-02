@@ -16,7 +16,10 @@ def create_app(db_uri=None):
         db_path = os.path.join(project_root, 'konn3ct.db')
         db_uri = f'sqlite:///{db_path}'
         
-    app.config['SECRET_KEY'] = os.environ.get("DASHBOARD_SECRET_KEY", "konn3ct-super-secret-key-12345")
+    secret_key = os.environ.get("DASHBOARD_SECRET_KEY", "konn3ct-super-secret-key-12345-secure-64bytes-key-layout-standard")
+    if len(secret_key) < 32:
+        secret_key = secret_key.ljust(32, "x")
+    app.config['SECRET_KEY'] = secret_key
     app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     
@@ -85,6 +88,15 @@ def create_app(db_uri=None):
                 if "auto_screen_share" not in cfg_columns:
                     cursor.execute("ALTER TABLE configurations ADD COLUMN auto_screen_share BOOLEAN DEFAULT 0")
                     print("Self-healing: added auto_screen_share column to configurations table")
+                if "disable_ram_scenario_opt" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN disable_ram_scenario_opt BOOLEAN DEFAULT 0")
+                    print("Self-healing: added disable_ram_scenario_opt column to configurations table")
+                if "refresh_bots" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN refresh_bots INTEGER DEFAULT 0")
+                    print("Self-healing: added refresh_bots column to configurations table")
+                if "disable_abnormal_behavior" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN disable_abnormal_behavior BOOLEAN DEFAULT 0")
+                    print("Self-healing: added disable_abnormal_behavior column to configurations table")
                 conn.commit()
                 
             conn.close()

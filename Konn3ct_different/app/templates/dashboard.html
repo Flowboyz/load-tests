@@ -629,10 +629,21 @@
                             <div class="form-section">
                                 <div class="section-title"><i class="fa-solid fa-gears"></i> Scenarios & Actions</div>
                                 <div class="form-row">
-                                    <div class="form-group col-12">
+                                    <div class="form-group col-6">
                                         <label for="formTestScenarios">Active Test Scenarios (Comma separated)</label>
                                         <input type="text" id="formTestScenarios" value="camera_toggle,mic_toggle,hand_raise,chat">
                                     </div>
+                                    <div class="form-group col-6">
+                                        <label for="scenarioPresetSelect">Scenario Preset Templates</label>
+                                        <select id="scenarioPresetSelect">
+                                            <option value="camera_toggle,mic_toggle,hand_raise,chat">Standard Interaction (Cam, Mic, Chat, Handraise)</option>
+                                            <option value="abnormal_playground_20">20-Bot Abnormal Playground (Mic, Poll, Votes, Anomalies)</option>
+                                            <option value="breakout_rooms">Breakout Rooms Scenario (Split/Rejoin)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-row checkbox-grid" style="margin-top: 5px; margin-bottom: 10px; grid-template-columns: 1fr;">
+                                    <div class="checkbox-item"><input type="checkbox" id="formDisableAbnormalBehavior"><label for="formDisableAbnormalBehavior" style="font-weight: bold; color: #f39c12;">⚠️ Disable Abnormal Simulated Anomalies in Playground Scenario</label></div>
                                 </div>
                                 <div class="form-row">
                                     <div class="form-group col-6">
@@ -655,11 +666,20 @@
                             </div>
                             <div class="form-section">
                                 <div class="section-title"><i class="fa-solid fa-memory"></i> RAM & Scenario Optimization</div>
+                                <div class="form-row checkbox-grid" style="margin-bottom: 15px; grid-template-columns: 1fr;">
+                                    <div class="checkbox-item"><input type="checkbox" id="formDisableRamScenarioOpt"><label for="formDisableRamScenarioOpt" style="font-weight: bold; color: #f39c12;">⚠️ Disable All RAM & Scenario Optimizations</label></div>
+                                </div>
                                 <div class="form-row">
+                                    <div class="form-group col-6">
+                                        <label for="formRefreshBots">Session Refresh Bots (Count)</label>
+                                        <input type="number" id="formRefreshBots" value="0" min="0">
+                                    </div>
                                     <div class="form-group col-6">
                                         <label for="formCrossConfirmLimit">Cross-Confirm Max Observers</label>
                                         <input type="number" id="formCrossConfirmLimit" value="10" min="1">
                                     </div>
+                                </div>
+                                <div class="form-row">
                                     <div class="form-group col-6">
                                         <label for="formViewerMode">Viewer Mode</label>
                                         <select id="formViewerMode">

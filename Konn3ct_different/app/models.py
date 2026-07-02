@@ -100,6 +100,9 @@ class Configuration(db.Model):
     auto_camera = db.Column(db.Boolean, default=False)
     auto_mic = db.Column(db.Boolean, default=False)
     auto_screen_share = db.Column(db.Boolean, default=False)
+    disable_ram_scenario_opt = db.Column(db.Boolean, default=False)
+    refresh_bots = db.Column(db.Integer, default=0)
+    disable_abnormal_behavior = db.Column(db.Boolean, default=False)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

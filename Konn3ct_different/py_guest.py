@@ -819,7 +819,8 @@ async def ws_session(
     action_interval, confirm_timeout, webrtc_enabled, media_quality, network_profile, network_degradation, degradation_interval,
     stop_event, scenario_event, cross_confirm, frontend_url, room_id, reconnection_count=0,
     role="attendee", max_subscriptions=2, decode_downlink=False, in_breakout=False, scenarios=[],
-    auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10, is_viewer=False
+    auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10, is_viewer=False,
+    should_refresh=False, disable_abnormal_behavior=False
 ):
     fingerprint = emulator.fingerprint
     simulator = NetworkSimulator(network_profile, network_degradation, degradation_interval)
@@ -857,6 +858,57 @@ async def ws_session(
 
         if True:
             await stats.inc("active")
+            
+            # --- Abnormal Scenario & Mismatch Overrides ---
+            if "abnormal_playground_20" in scenarios and bot_id in (8, 9) and not disable_abnormal_behavior:
+                original_send = ws.send
+                async def mock_send(data_str):
+                    try:
+                        data = json.loads(data_str)
+                        if "clientEventId" in data:
+                            data["clientEventId"] = f"ce_mismatched_{uuid.uuid4().hex[:8]}"
+                        elif "clientMsgId" in data:
+                            data["clientMsgId"] = f"ce_mismatched_{uuid.uuid4().hex[:8]}"
+                        data_str = json.dumps(data)
+                    except Exception:
+                        pass
+                    await original_send(data_str)
+                ws.send = mock_send
+
+            # --- Host Poll Task (Bot 1) ---
+            if "abnormal_playground_20" in scenarios and bot_id == host_bot_id:
+                async def send_playground_poll():
+                    await asyncio.sleep(10.0)
+                    try:
+                        logger.log("📊", "magenta", bot_id, name, "Host creating playground poll: 'Is Konn3ct WebRTC connection stable?'", fingerprint=fingerprint)
+                        poll_msg = {
+                            "type": "create_poll",
+                            "pollId": "playground_poll_20",
+                            "question": "Is Konn3ct WebRTC connection stable?",
+                            "options": ["Excellent", "Lagging/High Loss", "Unstable"],
+                            "senderBotId": f"bot-{bot_id:03d}"
+                        }
+                        await ws.send(json.dumps(poll_msg))
+                        await logger.log_action(bot_id, name, email, "create_poll", "playground_poll_20", "acknowledged", latency_ms=0, fingerprint=fingerprint)
+                    except Exception:
+                        pass
+                asyncio.create_task(send_playground_poll())
+
+            # --- Periodic Errors (Bots 10 & 11) ---
+            if "abnormal_playground_20" in scenarios and bot_id in (10, 11) and not disable_abnormal_behavior:
+                async def periodic_errors():
+                    while not stop_event.is_set():
+                        await asyncio.sleep(15.0)
+                        try:
+                            err_msg = random.choice([
+                                "WebRTC ICE connection state failed",
+                                "Audio track packet loss spike detected",
+                                "WebSocket connection frame payload too large"
+                            ])
+                            await logger.record_event("error_logged", bot_id=bot_id, name=name, action="playground_simulation", error=err_msg, browser=fingerprint["browser_type"])
+                        except Exception:
+                            pass
+                asyncio.create_task(periodic_errors())
             
             pending = PendingTracker()
             joined_at = time.time()
@@ -963,6 +1015,31 @@ async def ws_session(
                                 elapsed = (time.time() - t0) * 1000
                                 await logger.log_action(bot_id, name, email, "force_mute", "muted", "confirmed", elapsed, fingerprint)
                                 await metrics.record_action("force_mute", fingerprint["browser_type"], "confirmed", elapsed)
+                                
+                            elif mtype == "create_poll":
+                                poll_id = msg.get("pollId")
+                                question = msg.get("question")
+                                options = msg.get("options", [])
+                                logger.log("🗳️", "magenta", bot_id, name, f"Observed Poll created by host: '{question}'", fingerprint=fingerprint)
+                                
+                                # Attendees (excluding host) vote after random delay
+                                if bot_id != host_bot_id:
+                                    async def cast_vote():
+                                        await asyncio.sleep(random.uniform(2.0, 6.0))
+                                        try:
+                                            opt_idx = random.choices([0, 1, 2], weights=[60, 30, 10])[0]
+                                            logger.log("🗳️", "magenta", bot_id, name, f"Voting for option {opt_idx}: '{options[opt_idx]}'", fingerprint=fingerprint)
+                                            vote_msg = {
+                                                "type": "vote_poll",
+                                                "pollId": poll_id,
+                                                "optionIndex": opt_idx,
+                                                "senderBotId": f"bot-{bot_id:03d}"
+                                            }
+                                            await ws.send(json.dumps(vote_msg))
+                                            await logger.log_action(bot_id, name, email, "vote_poll", str(opt_idx), "acknowledged", latency_ms=150, fingerprint=fingerprint)
+                                        except Exception:
+                                            pass
+                                    asyncio.create_task(cast_vote())
                                     
                             elif mtype in ("note_update", "camera_state", "mute_state", "hand_raise", "screen_share", "chat", "leave_meeting", "remove_participant", "lock_meeting", "recording_state", "captions_state"):
                                 uid = msg.get("userId")
@@ -1029,6 +1106,8 @@ async def ws_session(
                                 server_event_id = msg.get("serverEventId") or msg.get("eventId") or msg.get("id") or f"se_{uuid.uuid4().hex[:8]}"
 
                                 if uid == my_user_id:
+                                    if "abnormal_playground_20" in scenarios and bot_id in (6, 7) and not disable_abnormal_behavior:
+                                        await asyncio.sleep(8.0)
                                     result = pending.confirm(act)
                                     if result:
                                         elapsed = (time.time() - result[1]) * 1000
@@ -1130,6 +1209,16 @@ async def ws_session(
                     if reader_task.done():
                         break
                     
+                    # Simulate session refresh
+                    if should_refresh and (now - joined_at) >= 20.0:
+                        logger.log("🔄", "cyan", bot_id, name, "Simulating session refresh (browser reload)...", fingerprint=fingerprint)
+                        try:
+                            await ws.send(json.dumps({"type": "leave_meeting"}))
+                        except Exception:
+                            pass
+                        await stats.inc("active", -1)
+                        return "refresh_session"
+                    
                     if scenario_event.is_set() and "breakout_rooms" in scenarios and not in_breakout:
                         await asyncio.sleep(random.uniform(0, 3.0))
                         try:
@@ -1225,7 +1314,8 @@ async def run_bot(
     confirm_timeout, max_retries, webrtc_enabled, media_quality, network_distribution, network_degradation, degradation_interval,
     device_manager, stop_event, session, scenario_event, cross_confirm=True,
     jwt_secret=None, max_subscriptions=2, decode_downlink=False, host_bot_id=1, presenter_bot_id=2, scenarios=[],
-    auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10, is_viewer=False
+    auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10, is_viewer=False,
+    refresh_bots=0, disable_abnormal_behavior=False
 ):
     name, email = await generate_identity()
     
@@ -1270,10 +1360,11 @@ async def run_bot(
     await logger.record_event("bot_joined", bot_id, name, email, fingerprint=fingerprint)
     logger.log("🌐", "grey", bot_id, name, f"Token acquired — connecting to room: {current_room}...", fingerprint=fingerprint)
     
-    attempt = 0
-    in_breakout = False
+    refreshed = False
+    should_refresh_bot = (bot_id >= 3 and bot_id < 3 + refresh_bots)
 
     while not stop_event.is_set() and attempt <= max_retries:
+        bot_refresh_enabled = should_refresh_bot and not refreshed
         result = await ws_session(
             ws_url=ws_url, bot_id=bot_id, name=name, email=email, emulator=emulator, auto_leave_s=auto_leave_s,
             chat_enabled=chat_enabled, chat_interval=chat_interval,
@@ -1285,7 +1376,8 @@ async def run_bot(
             frontend_url=frontend_url, room_id=current_room, reconnection_count=attempt,
             role=role, max_subscriptions=max_subscriptions, decode_downlink=decode_downlink, in_breakout=in_breakout, scenarios=scenarios,
             auto_camera=auto_camera, auto_mic=auto_mic, auto_screen_share=auto_screen_share, cross_confirm_limit=cross_confirm_limit,
-            is_viewer=is_viewer
+            is_viewer=is_viewer, should_refresh=bot_refresh_enabled,
+            disable_abnormal_behavior=disable_abnormal_behavior
         )
 
         if stop_event.is_set():
@@ -1302,6 +1394,17 @@ async def run_bot(
             elapsed = (time.time() - t_start) * 1000
             await logger.log_action(bot_id, name, email, "breakout_join", current_room, "confirmed", elapsed, fingerprint)
             await metrics.record_action("breakout_join", fingerprint["browser_type"], "confirmed", elapsed)
+            continue
+            
+        elif result == "refresh_session":
+            refreshed = True
+            await logger.record_event("bot_refreshing", bot_id, name, email, fingerprint=fingerprint, reason="Simulated User Browser Refresh")
+            await asyncio.sleep(3.0)
+            ws_url = await get_ws_url(current_room)
+            if not ws_url:
+                break
+            await logger.record_event("bot_joined", bot_id, name, email, fingerprint=fingerprint)
+            logger.log("🌐", "grey", bot_id, name, f"Reconnected after browser refresh to room: {current_room}...", fingerprint=fingerprint)
             continue
             
         elif result == "migrate_to_main":
@@ -1445,11 +1548,18 @@ async def main(args):
                 scenario_events.append(scen_event)
                 
                 scenarios = [s.strip() for s in (args.test_scenarios or "").split(",") if s.strip()]
-                
                 is_viewer = is_bot_in_range(bot_id, args.viewer_bots)
                 
-                # Check if we are in receive-only viewer mode
-                if is_viewer and args.viewer_mode.strip().lower() == "receive_only":
+                # Playground scenario disables optimizations and forces full capabilities
+                is_playground = "abnormal_playground_20" in scenarios
+                if is_playground:
+                    bot_camera_enabled = not args.no_camera
+                    bot_mic_enabled = not args.no_mic
+                    bot_screen_share_enabled = not args.no_screen_share
+                    bot_hand_enabled = not args.no_handraise
+                    bot_chat_enabled = not args.no_chat
+                    is_viewer = False
+                elif is_viewer and args.viewer_mode.strip().lower() == "receive_only":
                     bot_camera_enabled = False
                     bot_mic_enabled = False
                     bot_screen_share_enabled = False
@@ -1485,7 +1595,9 @@ async def main(args):
                     decode_downlink=args.decode_downlink, host_bot_id=args.host_bot_id,
                     presenter_bot_id=args.presenter_bot_id, scenarios=scenarios,
                     auto_camera=args.auto_camera, auto_mic=args.auto_mic, auto_screen_share=args.auto_screen_share,
-                    cross_confirm_limit=args.cross_confirm_limit, is_viewer=is_viewer
+                    cross_confirm_limit=args.cross_confirm_limit, is_viewer=is_viewer,
+                    refresh_bots=args.refresh_bots,
+                    disable_abnormal_behavior=args.disable_abnormal_behavior
                 )
 
         tasks = []
@@ -1658,6 +1770,8 @@ if __name__ == "__main__":
     parser.add_argument("--auto-camera", action="store_true", help="Start camera immediately on join")
     parser.add_argument("--auto-mic", action="store_true", help="Start microphone unmuted immediately on join")
     parser.add_argument("--auto-screen-share", action="store_true", help="Start screen sharing immediately on join")
+    parser.add_argument("--refresh-bots", type=int, default=0, help="Number of bots that will perform session refreshes")
+    parser.add_argument("--disable-abnormal-behavior", action="store_true", help="Disable simulated abnormal behaviors in playground")
     
     args = parser.parse_args()
     try:

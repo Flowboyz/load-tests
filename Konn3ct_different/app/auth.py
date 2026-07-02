@@ -7,7 +7,9 @@ from app.models import db, User
 
 auth_bp = Blueprint('auth', __name__)
 
-SECRET_KEY = os.environ.get("DASHBOARD_SECRET_KEY", "konn3ct-super-secret-key-12345")
+SECRET_KEY = os.environ.get("DASHBOARD_SECRET_KEY", "konn3ct-super-secret-key-12345-secure-64bytes-key-layout-standard")
+if len(SECRET_KEY) < 32:
+    SECRET_KEY = SECRET_KEY.ljust(32, "x")
 
 def token_required(f):
     @wraps(f)

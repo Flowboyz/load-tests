@@ -1115,6 +1115,20 @@ function setupFormActions() {
         if (!resp.ok) alert("Stop request failed.");
     });
 
+    // RAM & Scenario Optimization Fields Disable Toggle
+    const disableCheckbox = document.getElementById('formDisableRamScenarioOpt');
+    if (disableCheckbox) {
+        disableCheckbox.addEventListener('change', toggleRamFields);
+    }
+
+    // Scenario Preset Select Change handler
+    const presetSelect = document.getElementById('scenarioPresetSelect');
+    if (presetSelect) {
+        presetSelect.addEventListener('change', () => {
+            document.getElementById('formTestScenarios').value = presetSelect.value;
+        });
+    }
+
     // Clear Console Console
     document.getElementById('clearConsoleBtn').addEventListener('click', () => {
         document.getElementById('consoleTerminal').innerHTML = '';
@@ -1168,8 +1182,32 @@ function getFormData() {
         viewer_mode: document.getElementById('formViewerMode').value,
         auto_camera: document.getElementById('formAutoCamera').checked,
         auto_mic: document.getElementById('formAutoMic').checked,
-        auto_screen_share: document.getElementById('formAutoScreenShare').checked
+        auto_screen_share: document.getElementById('formAutoScreenShare').checked,
+        disable_ram_scenario_opt: document.getElementById('formDisableRamScenarioOpt').checked,
+        refresh_bots: parseInt(document.getElementById('formRefreshBots').value) || 0,
+        disable_abnormal_behavior: document.getElementById('formDisableAbnormalBehavior').checked
     };
+}
+
+function toggleRamFields() {
+    const disableCheckbox = document.getElementById('formDisableRamScenarioOpt');
+    if (!disableCheckbox) return;
+    const disabled = disableCheckbox.checked;
+    const ramFields = [
+        'formCrossConfirmLimit', 'formViewerMode', 'formCameraPublishers', 
+        'formMicPublishers', 'formScreenSharePublishers', 'formViewerBotIds',
+        'formAutoCamera', 'formAutoMic', 'formAutoScreenShare'
+    ];
+    ramFields.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.disabled = disabled;
+            const fg = el.closest('.form-group');
+            const ci = el.closest('.checkbox-item');
+            if (fg) fg.style.opacity = disabled ? '0.5' : '1';
+            if (ci) ci.style.opacity = disabled ? '0.5' : '1';
+        }
+    });
 }
 
 // Load template variables into the configuration form
@@ -1226,6 +1264,10 @@ async function loadConfigIntoForm(cfgId) {
         document.getElementById('formAutoCamera').checked = cfg.auto_camera !== undefined ? cfg.auto_camera : false;
         document.getElementById('formAutoMic').checked = cfg.auto_mic !== undefined ? cfg.auto_mic : false;
         document.getElementById('formAutoScreenShare').checked = cfg.auto_screen_share !== undefined ? cfg.auto_screen_share : false;
+        document.getElementById('formDisableRamScenarioOpt').checked = cfg.disable_ram_scenario_opt !== undefined ? cfg.disable_ram_scenario_opt : false;
+        document.getElementById('formRefreshBots').value = cfg.refresh_bots !== undefined ? cfg.refresh_bots : 0;
+        document.getElementById('formDisableAbnormalBehavior').checked = cfg.disable_abnormal_behavior !== undefined ? cfg.disable_abnormal_behavior : false;
+        toggleRamFields();
         
         loadCheckboxesFromSerialized('network');
         loadCheckboxesFromSerialized('browser');

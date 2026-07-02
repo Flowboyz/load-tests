@@ -80,6 +80,9 @@ def upgrade():
             auto_camera BOOLEAN DEFAULT 0,
             auto_mic BOOLEAN DEFAULT 0,
             auto_screen_share BOOLEAN DEFAULT 0,
+            disable_ram_scenario_opt BOOLEAN DEFAULT 0,
+            refresh_bots INTEGER DEFAULT 0,
+            disable_abnormal_behavior BOOLEAN DEFAULT 0,
             created_at DATETIME,
             updated_at DATETIME
         )
@@ -155,7 +158,10 @@ def upgrade():
             "viewer_mode": "TEXT DEFAULT 'receive_only'",
             "auto_camera": "BOOLEAN DEFAULT 0",
             "auto_mic": "BOOLEAN DEFAULT 0",
-            "auto_screen_share": "BOOLEAN DEFAULT 0"
+            "auto_screen_share": "BOOLEAN DEFAULT 0",
+            "disable_ram_scenario_opt": "BOOLEAN DEFAULT 0",
+            "refresh_bots": "INTEGER DEFAULT 0",
+            "disable_abnormal_behavior": "BOOLEAN DEFAULT 0"
         }
         add_missing_columns("configurations", config_cols)
         

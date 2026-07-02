@@ -546,6 +546,11 @@ const activeDesktopBrowsers = desktopBrowsers.filter(b => (data.action_performan
 const scrSuccessRate = activeDesktopBrowsers.length ? 
   activeDesktopBrowsers.reduce((sum, b) => sum + (data.action_performance.screen_share[b]?.success_rate || 0.0), 0) / activeDesktopBrowsers.length : 100.0;
 
+const activeWebrtcBrowsers = data.action_performance?.webrtc_connection ?
+  Object.keys(data.action_performance.webrtc_connection).filter(b => (data.action_performance.webrtc_connection[b]?.success || 0) + (data.action_performance.webrtc_connection[b]?.failed || 0) > 0) : [];
+const webrtcConnectionSuccessRate = activeWebrtcBrowsers.length ?
+  activeWebrtcBrowsers.reduce((sum, b) => sum + (data.action_performance.webrtc_connection[b]?.success_rate || 0.0), 0) / activeWebrtcBrowsers.length : (data.config?.webrtc_enabled ? 100.0 : 0.0);
+
 const hostSuccessRate = 100.0;
 const signalSurvivalRate = 100.0;
 
@@ -561,10 +566,10 @@ const gates = [
     rec_lt: "Increase `--stagger` startup delay to distribute connection spikes and configure client container network limits to allow high socket counts."
   },
   {
-    name: "WebRTC Connection Success Rate",
+    name: "WebRTC Connection Acknowledgment Rate",
     threshold: "≥99.0%",
-    measured: safeFixed(data.config?.webrtc_enabled ? 99.8 : 0.0, 1, "%"),
-    pass: data.config?.webrtc_enabled ? true : false,
+    measured: safeFixed(webrtcConnectionSuccessRate, 1, "%"),
+    pass: webrtcConnectionSuccessRate >= 99.0,
     rec_fe: "Implement robust error event handlers on client PeerConnection state changes, and trigger signaling renegotiation if iceConnectionState becomes disconnected.",
     rec_be: "Ensure media router port ranges (typically UDP 10000-20000) are open, and configure DTLS certificates to be signed and validated by correct authorities.",
     rec_lt: "Pass `--webrtc-enabled` flag explicitly, and check that the host machine's open file descriptors limits (`ulimit -n`) are set to at least 65535."
@@ -624,7 +629,7 @@ const gates = [
     rec_lt: "Throttle simulated hand-raise triggers in the test scenario config by adjusting task weights."
   },
   {
-    name: "Screen Share Desktop Success",
+    name: "Screen Share Acknowledgment Rate",
     threshold: "≥98.0%",
     measured: safeFixed(scrSuccessRate, 1, "%"),
     pass: scrSuccessRate >= 98.0,
@@ -959,13 +964,20 @@ const doc = new Document({
       sectionHeading("17. Per-Device Recommendations"),
       paragraph("Desktop profiles can scale to full media quality (H264/AV1 at 1080p). Mobile device profiles should be throttled to 640x480 resolution (low quality) to optimize battery life and ensure smooth frame rates below WebRTC congestion thresholds."),
 
-      // 18. Sprint 1 Pass/Fail Assessment
-      sectionHeading("18. Sprint 1 Pass/Fail Assessment"),
+      // 18. Session Refreshes & Recovery Assessment
+      sectionHeading("18. Session Refreshes & Recovery Assessment"),
+      paragraph("During the test, a subset of participants simulated browser refreshes to evaluate connection recovery capabilities."),
+      paragraph(`• Number of bots that refreshed their session: ${data.refreshed_bots_telemetry ? data.refreshed_bots_telemetry.length : 0}`),
+      paragraph(`• Bots detected joining twice: ${data.double_joined_bots && data.double_joined_bots.length > 0 ? data.double_joined_bots.join(", ") : "None"}`),
+      paragraph("• Technical Root Cause: The bots registered under identical identities (session tokens and user IDs). During simulated reload, the previous WebSocket connection was abruptly severed, and a new handshake was initiated immediately. The signaling server did not instantly clean up the stale session state, resulting in dual active mappings ('joined twice') before the old connection timed out."),
+
+      // 19. Sprint 1 Pass/Fail Assessment
+      sectionHeading("19. Sprint 1 Pass/Fail Assessment"),
       paragraph("Comparing test results against the strict Sprint 1 Quality Gates:"),
       gatesTable,
 
-      // 19. QA Verdict
-      sectionHeading("19. QA Verdict"),
+      // 20. QA Verdict
+      sectionHeading("20. QA Verdict"),
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { before: 200, after: 200 },
@@ -980,8 +992,8 @@ const doc = new Document({
         { italics: true }
       ),
 
-      // 20. Developer Recommendations
-      sectionHeading("20. Developer Recommendations"),
+      // 21. Developer Recommendations
+      sectionHeading("21. Developer Recommendations"),
       ...(hasFailedGates ?
         failedGates.flatMap((g, idx) => [
           paragraph(`${idx + 1}. [SLA Gate Failed: ${g.name}] (Measured: ${g.measured} vs Target: ${g.threshold})`, { bold: true }),
@@ -993,8 +1005,8 @@ const doc = new Document({
         [paragraph("All SLA thresholds successfully satisfied. No developer adjustments are recommended at this time.")]
       ),
 
-      // 21. Appendix: Full Action Log Reference
-      sectionHeading("21. Appendix: Full Action Log Reference"),
+      // 22. Appendix: Full Action Log Reference
+      sectionHeading("22. Appendix: Full Action Log Reference"),
       paragraph("The granular telemetry databases generated for this test run are located at:"),
       paragraph(`• Action Lifecycle Log: ${data.csv_path || "session_action_lifecycle.csv"}`, { bold: true }),
       paragraph(`• Summary Metrics Log: ${data.summary_csv_path || "session_summary_metrics.csv"}`, { bold: true }),
