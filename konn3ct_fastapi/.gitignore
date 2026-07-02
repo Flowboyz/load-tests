@@ -1,0 +1,45 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+bin/
+lib/
+include/
+
+# Local databases and locks
+*.db
+*.sqlite
+*.sqlite3
+pipeline_temp_*.db
+
+# Temporary report files
+_report_data.json
+
+# Session runs and outputs
+sessions/
+*.docx
+*.pdf
+*.csv
+report_log.jsonl
+load_test_report.docx
+
+# IDEs and editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS generated files
+.DS_Store
+Thumbs.db

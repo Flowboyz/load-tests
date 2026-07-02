@@ -14,60 +14,7 @@ if (!fs.existsSync(dataPath)) {
   process.exit(1);
 }
 
-function deepMerge(target, source) {
-  if (!target) return source || {};
-  if (!source) return target || {};
-  for (const key of Object.keys(target)) {
-    if (target[key] instanceof Object && !Array.isArray(target[key])) {
-      source[key] = deepMerge(target[key], source[key] || {});
-    } else if (source[key] === undefined) {
-      source[key] = target[key];
-    }
-  }
-  return source;
-}
-
-const defaults = {
-  total_bots: 0,
-  duration_str: "N/A",
-  config: {
-    room: "N/A",
-    bots: 0,
-    batch: 1,
-    stagger: 0.0,
-    webrtc_enabled: false,
-    media_quality: "medium",
-    network_degradation: false,
-    action_interval: 10,
-    chat_interval: 10,
-    max_retries: 5,
-    host_bot_id: 1,
-    presenter_bot_id: 2,
-    signal: "N/A"
-  },
-  browser_distribution: {},
-  os_distribution: {},
-  device_distribution: {},
-  join_performance: {},
-  webrtc_performance: {},
-  action_performance: {},
-  observation_stats: { performance: {} },
-  global_latencies: { avg_ack: 0, p95_ack: 0, avg_broadcast: 0, avg_ui_render: 0, avg_observer: 0, p95_observer: 0 },
-  timeout_stage_breakdown: {},
-  unsupported_reason_breakdown: {},
-  error_code_breakdown: {}
-};
-
-console.log("📄 [1/7] Loading input JSON dataset...");
-const rawData = JSON.parse(fs.readFileSync(dataPath, "utf8"));
-const data = deepMerge(defaults, rawData);
-
-function safeFixed(val, decimals, suffix = "") {
-  if (val === undefined || val === null || isNaN(Number(val))) {
-    return "N/A";
-  }
-  return Number(val).toFixed(decimals) + suffix;
-}
+const data = JSON.parse(fs.readFileSync(dataPath, "utf8"));
 
 const PAGE_WIDTH    = 12240;
 const PAGE_HEIGHT   = 15840;
@@ -187,7 +134,6 @@ const friendlyOSName = (o) => {
 };
 
 // ── 1. Executive Summary Table ──────────────────────────────────────────
-console.log("📊 [2/7] Building Executive Summary & Dashboard...");
 const cardWidth = Math.floor(CONTENT_WIDTH / 4);
 const execSummaryTable = new Table({
   width: { size: CONTENT_WIDTH, type: WidthType.DXA },
@@ -216,7 +162,48 @@ const configRows = [
   ["Action Interval / Chat Interval", `Actions: ${data.config?.action_interval || "N/A"}s / Chat: ${data.config?.chat_interval || "N/A"}s`],
   ["Max Connection Retries", data.config?.max_retries || "N/A"],
   ["Host / Presenter Bot IDs", `Host: Bot-${data.config?.host_bot_id || 1} / Presenter: Bot-${data.config?.presenter_bot_id || 2}`],
-  ["Signaling Gateway URL", data.config?.signal || "N/A"]
+  ["Signaling Gateway URL", data.config?.signal || "N/A"],
+  ["Chromium Launch Flags", (function() {
+      if (!data.config || !data.config.browser_launch_options) return "Default Flags";
+      try {
+          const opts = typeof data.config.browser_launch_options === 'string' ? JSON.parse(data.config.browser_launch_options) : data.config.browser_launch_options;
+          const flags = [];
+          if (opts.use_fake_ui_for_media_stream) flags.push("--use-fake-ui-for-media-stream");
+          if (opts.use_fake_device_for_media_stream) flags.push("--use-fake-device-for-media-stream");
+          if (opts.autoplay_policy) flags.push(`--autoplay-policy=${opts.autoplay_policy}`);
+          if (opts.disable_notifications) flags.push("--disable-notifications");
+          if (opts.disable_popup_blocking) flags.push("--disable-popup-blocking");
+          if (opts.disable_infobars) flags.push("--disable-infobars");
+          if (opts.disable_dev_shm_usage) flags.push("--disable-dev-shm-usage");
+          if (opts.no_sandbox) flags.push("--no-sandbox");
+          if (opts.ignore_certificate_errors) flags.push("--ignore-certificate-errors");
+          if (opts.disable_web_security) flags.push("--disable-web-security");
+          if (opts.allow_running_insecure_content) flags.push("--allow-running-insecure-content");
+          if (opts.custom_flags) flags.push(opts.custom_flags);
+          return flags.join(" ");
+      } catch(e) {
+          return "Default Flags";
+      }
+  })()],
+  ["Configured SLA Thresholds", (function() {
+      if (!data.config || !data.config.sla_thresholds) return "Default SLA Thresholds";
+      try {
+          const sla = typeof data.config.sla_thresholds === 'string' ? JSON.parse(data.config.sla_thresholds) : data.config.sla_thresholds;
+          const items = [];
+          if (sla.max_ack_latency) items.push(`Max ACK Latency: ${sla.max_ack_latency}ms`);
+          if (sla.max_join_time) items.push(`Max Join Time: ${sla.max_join_time}ms`);
+          if (sla.max_connection_time) items.push(`Max Connection Time: ${sla.max_connection_time}ms`);
+          if (sla.max_webrtc_setup_time) items.push(`Max WebRTC Setup: ${sla.max_webrtc_setup_time}ms`);
+          if (sla.max_packet_loss) items.push(`Max Packet Loss: ${sla.max_packet_loss}%`);
+          if (sla.max_jitter) items.push(`Max Jitter: ${sla.max_jitter}ms`);
+          if (sla.min_success_rate) items.push(`Min Success Rate: ${sla.min_success_rate}%`);
+          if (sla.max_cpu_usage) items.push(`Max CPU: ${sla.max_cpu_usage}%`);
+          if (sla.max_memory_usage) items.push(`Max Memory: ${sla.max_memory_usage}%`);
+          return items.join(", ");
+      } catch(e) {
+          return "Default SLA Thresholds";
+      }
+  })()]
 ].map((row, i) => {
   const fill = i % 2 === 0 ? "FFFFFF" : LIGHT;
   return new TableRow({
@@ -247,8 +234,8 @@ const bMatrixRows = Object.keys(data.browser_distribution || {}).map((b, i) => {
     children: [
       bodyCell(friendlyBrowserName(b), bMatrixCols[0], { fill, bold: true, color: NAVY }),
       bodyCell(count, bMatrixCols[1], { fill, align: AlignmentType.CENTER }),
-      bodyCell(safeFixed(perf.success_rate, 1, "%"), bMatrixCols[2], { fill, align: AlignmentType.CENTER, color: perf.success_rate >= 90 ? GREEN : AMBER }),
-      bodyCell(safeFixed(perf.avg_join_time, 0, " ms"), bMatrixCols[3], { fill, align: AlignmentType.CENTER })
+      bodyCell(`${perf.success_rate.toFixed(1)}%`, bMatrixCols[2], { fill, align: AlignmentType.CENTER, color: perf.success_rate >= 90 ? GREEN : AMBER }),
+      bodyCell(`${perf.avg_join_time.toFixed(0)} ms`, bMatrixCols[3], { fill, align: AlignmentType.CENTER })
     ]
   });
 });
@@ -271,7 +258,7 @@ const osRows = Object.keys(data.os_distribution || {}).map((o, i) => {
     children: [
       bodyCell(friendlyOSName(o), osCols[0], { fill, bold: true, color: NAVY }),
       bodyCell(count, osCols[1], { fill, align: AlignmentType.CENTER }),
-      bodyCell(safeFixed(percentage, 1, "%"), osCols[2], { fill, align: AlignmentType.CENTER })
+      bodyCell(`${percentage.toFixed(1)}%`, osCols[2], { fill, align: AlignmentType.CENTER })
     ]
   });
 });
@@ -294,7 +281,7 @@ const devRows = Object.keys(data.device_distribution || {}).map((d, i) => {
     children: [
       bodyCell(d.charAt(0).toUpperCase() + d.slice(1), devCols[0], { fill, bold: true, color: NAVY }),
       bodyCell(count, devCols[1], { fill, align: AlignmentType.CENTER }),
-      bodyCell(safeFixed(percentage, 1, "%"), devCols[2], { fill, align: AlignmentType.CENTER })
+      bodyCell(`${percentage.toFixed(1)}%`, devCols[2], { fill, align: AlignmentType.CENTER })
     ]
   });
 });
@@ -317,12 +304,12 @@ const webrtcRows = webrtcBrowsers.map((b, i) => {
   return new TableRow({
     children: [
       bodyCell(friendlyBrowserName(b), t2Cols[0], { fill, bold: true, color: NAVY }),
-      bodyCell(safeFixed(p.avg_ice_time, 0, " ms"), t2Cols[1], { fill, align: AlignmentType.CENTER }),
-      bodyCell(safeFixed(p.avg_dtls_time, 0, " ms"), t2Cols[2], { fill, align: AlignmentType.CENTER }),
-      bodyCell(safeFixed(p.avg_rtt, 0, " ms"), t2Cols[3], { fill, align: AlignmentType.CENTER }),
-      bodyCell(safeFixed(p.avg_packet_loss * 100, 2, "%"), t2Cols[4], { fill, align: AlignmentType.CENTER, color: p.avg_packet_loss > 0.02 ? RED : "1F2937" }),
-      bodyCell(safeFixed(p.avg_jitter, 1, " ms"), t2Cols[5], { fill, align: AlignmentType.CENTER }),
-      bodyCell(safeFixed(p.avg_bitrate, 0, " kbps"), t2Cols[6], { fill, align: AlignmentType.CENTER }),
+      bodyCell(`${p.avg_ice_time.toFixed(0)} ms`, t2Cols[1], { fill, align: AlignmentType.CENTER }),
+      bodyCell(`${p.avg_dtls_time.toFixed(0)} ms`, t2Cols[2], { fill, align: AlignmentType.CENTER }),
+      bodyCell(`${p.avg_rtt.toFixed(0)} ms`, t2Cols[3], { fill, align: AlignmentType.CENTER }),
+      bodyCell(`${(p.avg_packet_loss * 100).toFixed(2)}%`, t2Cols[4], { fill, align: AlignmentType.CENTER, color: p.avg_packet_loss > 0.02 ? RED : "1F2937" }),
+      bodyCell(`${p.avg_jitter.toFixed(1)} ms`, t2Cols[5], { fill, align: AlignmentType.CENTER }),
+      bodyCell(`${p.avg_bitrate.toFixed(0)} kbps`, t2Cols[6], { fill, align: AlignmentType.CENTER }),
       bodyCell(p.codecs_used?.length ? p.codecs_used.join(", ") : "N/A", t2Cols[7], { fill, align: AlignmentType.CENTER }),
       bodyCell(p.resolutions?.length ? p.resolutions.join(", ") : "N/A", t2Cols[8], { fill, align: AlignmentType.CENTER })
     ]
@@ -356,13 +343,30 @@ const actPerformanceRows = Object.keys(data.action_performance || {}).map((act, 
   
   // Aggregate averages across browsers
   const browsers = Object.keys(data.action_performance[act] || {});
-  let successRate = 0.0;
+  let successRate = 100.0;
   let avgLatency = 0.0;
-  if (browsers.length > 0) {
-    const sumRate = browsers.reduce((sum, b) => sum + (data.action_performance[act][b]?.success_rate || 0.0), 0);
-    const sumLat = browsers.reduce((sum, b) => sum + (data.action_performance[act][b]?.avg_latency || 0.0), 0);
-    successRate = sumRate / browsers.length;
-    avgLatency = sumLat / browsers.length;
+  
+  let totalSuccess = 0;
+  let totalFailed = 0;
+  let sumLat = 0;
+  let countLat = 0;
+  
+  browsers.forEach(b => {
+    const bData = data.action_performance[act][b];
+    if (bData) {
+      totalSuccess += (bData.success || 0);
+      totalFailed += (bData.failed || 0);
+      if (bData.avg_latency) {
+        sumLat += bData.avg_latency;
+        countLat++;
+      }
+    }
+  });
+  
+  const totalAttempts = totalSuccess + totalFailed;
+  if (totalAttempts > 0) {
+    successRate = (totalSuccess / totalAttempts) * 100.0;
+    avgLatency = countLat > 0 ? (sumLat / countLat) : 0.0;
   }
   
   const obsPerf = data.observation_stats?.performance?.[act] || { count: 0, avg_latency: 0.0 };
@@ -371,9 +375,9 @@ const actPerformanceRows = Object.keys(data.action_performance || {}).map((act, 
     children: [
       bodyCell(act.charAt(0).toUpperCase() + act.slice(1).replace("_", " "), actCols[0], { fill, bold: true, color: NAVY }),
       bodyCell(browsers.length, actCols[1], { fill, align: AlignmentType.CENTER }),
-      bodyCell(safeFixed(successRate, 1, "%"), actCols[2], { fill, align: AlignmentType.CENTER, color: successRate >= 90 ? GREEN : AMBER }),
-      bodyCell(safeFixed(avgLatency, 0, " ms"), actCols[3], { fill, align: AlignmentType.CENTER }),
-      bodyCell(obsPerf.count > 0 ? safeFixed(obsPerf.avg_latency, 0, " ms") : "N/A", actCols[4], { fill, align: AlignmentType.CENTER })
+      bodyCell(`${successRate.toFixed(1)}%`, actCols[2], { fill, align: AlignmentType.CENTER, color: successRate >= 90 ? GREEN : AMBER }),
+      bodyCell(`${avgLatency.toFixed(0)} ms`, actCols[3], { fill, align: AlignmentType.CENTER }),
+      bodyCell(obsPerf.count > 0 ? `${obsPerf.avg_latency.toFixed(0)} ms` : "N/A", actCols[4], { fill, align: AlignmentType.CENTER })
     ]
   });
 });
@@ -398,10 +402,10 @@ const actionLifecycleTable = new Table({
 const chatCols = [3000, 3180, 3180];
 const chatDeepRows = [
   ["Total Chat Messages Sent", data.observation_stats?.performance?.chat?.count || 0],
-  ["Averaged Ack Confirmation Latency", safeFixed(data.global_latencies?.avg_ack, 1, " ms")],
-  ["Peak (P95) Ack Latency", safeFixed(data.global_latencies?.p95_ack, 1, " ms")],
-  ["Averaged Broadcast Propagation Latency", safeFixed(data.global_latencies?.avg_broadcast, 1, " ms")],
-  ["Averaged UI Render Latency", safeFixed(data.global_latencies?.avg_ui_render, 1, " ms")],
+  ["Averaged Ack Confirmation Latency", `${data.global_latencies?.avg_ack.toFixed(1)} ms`],
+  ["Peak (P95) Ack Latency", `${data.global_latencies?.p95_ack.toFixed(1)} ms`],
+  ["Averaged Broadcast Propagation Latency", `${data.global_latencies?.avg_broadcast.toFixed(1)} ms`],
+  ["Averaged UI Render Latency", `${data.global_latencies?.avg_ui_render.toFixed(1)} ms`],
   ["Chat Message Correlation Rate", "100.0% (Correlated via clientEventId)"],
 ].map((row, i) => {
   const fill = i % 2 === 0 ? "FFFFFF" : LIGHT;
@@ -501,6 +505,119 @@ const errorCodeTable = data.error_code_breakdown && Object.keys(data.error_code_
   rows: [new TableRow({ children: [bodyCell("No actions encountered errors during this load test run.", CONTENT_WIDTH, { fill: LIGHT, align: AlignmentType.CENTER, color: GREEN, bold: true })] })]
 });
 
+// ── OS Rankings Table ──────────────────────────────────────────────────
+const osRankCols = [2500, 1500, 1500, 1500, 2360];
+const osRankRows = (data.os_rankings || []).map((row, i) => {
+  const fill = i % 2 === 0 ? "FFFFFF" : LIGHT;
+  return new TableRow({
+    children: [
+      bodyCell(friendlyOSName(row.os), osRankCols[0], { fill, bold: true, color: NAVY }),
+      bodyCell(row.bots_count, osRankCols[1], { fill, align: AlignmentType.CENTER }),
+      bodyCell(`${row.success_rate.toFixed(1)}%`, osRankCols[2], { fill, align: AlignmentType.CENTER, color: row.success_rate >= 90 ? GREEN : AMBER }),
+      bodyCell(`${row.avg_latency.toFixed(0)} ms`, osRankCols[3], { fill, align: AlignmentType.CENTER }),
+      bodyCell(`${row.stability_score.toFixed(1)}%`, osRankCols[4], { fill, align: AlignmentType.CENTER, color: row.stability_score >= 95 ? GREEN : AMBER })
+    ]
+  });
+});
+const osRankTable = new Table({
+  width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+  columnWidths: osRankCols,
+  rows: [
+    new TableRow({ children: [
+      headerCell("Operating System & Version", osRankCols[0]),
+      headerCell("Bots Count", osRankCols[1]),
+      headerCell("Success Rate", osRankCols[2]),
+      headerCell("Avg Latency", osRankCols[3]),
+      headerCell("Stability Index", osRankCols[4])
+    ] }),
+    ...osRankRows
+  ]
+});
+
+// ── Device Rankings Table ──────────────────────────────────────────────
+const devRankCols = [2500, 1500, 1500, 1500, 2360];
+const devRankRows = (data.device_rankings || []).map((row, i) => {
+  const fill = i % 2 === 0 ? "FFFFFF" : LIGHT;
+  return new TableRow({
+    children: [
+      bodyCell(row.device.charAt(0).toUpperCase() + row.device.slice(1), devRankCols[0], { fill, bold: true, color: NAVY }),
+      bodyCell(row.bots_count, devRankCols[1], { fill, align: AlignmentType.CENTER }),
+      bodyCell(`${row.success_rate.toFixed(1)}%`, devRankCols[2], { fill, align: AlignmentType.CENTER, color: row.success_rate >= 90 ? GREEN : AMBER }),
+      bodyCell(`${row.avg_latency.toFixed(0)} ms`, devRankCols[3], { fill, align: AlignmentType.CENTER }),
+      bodyCell(`${row.error_rate.toFixed(2)}%`, devRankCols[4], { fill, align: AlignmentType.CENTER, color: row.error_rate < 1.0 ? GREEN : RED })
+    ]
+  });
+});
+const devRankTable = new Table({
+  width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+  columnWidths: devRankCols,
+  rows: [
+    new TableRow({ children: [
+      headerCell("Simulated Device Cohort", devRankCols[0]),
+      headerCell("Bots Count", devRankCols[1]),
+      headerCell("Join Success Rate", devRankCols[2]),
+      headerCell("Average Latency", devRankCols[3]),
+      headerCell("Error Rate %", devRankCols[4])
+    ] }),
+    ...devRankRows
+  ]
+});
+
+// ── Error Dashboard Table ──────────────────────────────────────────────
+const errDashCols = [2200, 1200, 1200, 1300, 3460];
+const errDashRows = (data.categorized_errors || []).map((row, i) => {
+  const fill = i % 2 === 0 ? "FFFFFF" : LIGHT;
+  const sevColor = (row.severity === "Critical" || row.severity === "High") ? RED : AMBER;
+  return new TableRow({
+    children: [
+      bodyCell(row.category, errDashCols[0], { fill, bold: true, color: NAVY }),
+      bodyCell(row.count, errDashCols[1], { fill, align: AlignmentType.CENTER, color: row.count > 0 ? RED : GREEN, bold: row.count > 0 }),
+      bodyCell(row.severity, errDashCols[2], { fill, align: AlignmentType.CENTER, color: sevColor, bold: true }),
+      bodyCell(row.last_seen || "N/A", errDashCols[3], { fill, align: AlignmentType.CENTER }),
+      bodyCell(row.suggested_cause, errDashCols[4], { fill })
+    ]
+  });
+});
+const errDashTable = new Table({
+  width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+  columnWidths: errDashCols,
+  rows: [
+    new TableRow({ children: [
+      headerCell("Error Category", errDashCols[0]),
+      headerCell("Occurrences", errDashCols[1]),
+      headerCell("Severity", errDashCols[2]),
+      headerCell("Last Seen", errDashCols[3]),
+      headerCell("Suggested Cause & Solution", errDashCols[4])
+    ] }),
+    ...errDashRows
+  ]
+});
+
+// ── Timeline Table ─────────────────────────────────────────────────────
+const timelineCols = [1500, 2000, 5860];
+const timelineRows = (data.test_timeline || []).map((row, i) => {
+  const fill = i % 2 === 0 ? "FFFFFF" : LIGHT;
+  return new TableRow({
+    children: [
+      bodyCell(row.ts_offset, timelineCols[0], { fill, align: AlignmentType.CENTER, bold: true, color: TEAL }),
+      bodyCell(row.event_type.toUpperCase(), timelineCols[1], { fill, bold: true, color: NAVY }),
+      bodyCell(row.description, timelineCols[2], { fill })
+    ]
+  });
+});
+const timelineTable = new Table({
+  width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+  columnWidths: timelineCols,
+  rows: [
+    new TableRow({ children: [
+      headerCell("Time Offset", timelineCols[0]),
+      headerCell("Event Category", timelineCols[1]),
+      headerCell("Timeline Activity Details", timelineCols[2])
+    ] }),
+    ...timelineRows
+  ]
+});
+
 // ── 12. Sprint 1 Pass/Fail Assessment Table ──────────────────────────────────
 const gateCols = [3200, 2000, 2160, 2000];
 
@@ -522,265 +639,48 @@ const avgSpeakerSwitch = getAvg(webrtcPerfList.map(wp => wp.avg_active_speaker_s
 const joinPerfList = Object.values(data.join_performance || {});
 const avgJoinTime = getAvg(joinPerfList.map(jp => jp.avg_join_time || 0));
 
-const activeChatBrowsers = data.action_performance?.chat ? 
-  Object.keys(data.action_performance.chat).filter(b => (data.action_performance.chat[b]?.success || 0) + (data.action_performance.chat[b]?.failed || 0) > 0) : [];
-const chatSuccessRate = activeChatBrowsers.length ? 
-  activeChatBrowsers.reduce((sum, b) => sum + (data.action_performance.chat[b]?.success_rate || 0.0), 0) / activeChatBrowsers.length : 100.0;
+function getActionSuccessRate(actionName) {
+  const actData = data.action_performance?.[actionName];
+  if (!actData) return 100.0;
+  
+  const browsers = Object.keys(actData);
+  let totalSuccess = 0;
+  let totalFailed = 0;
+  
+  browsers.forEach(b => {
+    totalSuccess += (actData[b]?.success || 0);
+    totalFailed += (actData[b]?.failed || 0);
+  });
+  
+  const totalAttempts = totalSuccess + totalFailed;
+  if (totalAttempts === 0) {
+    return 100.0; // If never attempted, default to 100.0% passing rate
+  }
+  
+  return (totalSuccess / totalAttempts) * 100.0;
+}
 
-const activeCamBrowsers = data.action_performance?.camera ? 
-  Object.keys(data.action_performance.camera).filter(b => (data.action_performance.camera[b]?.success || 0) + (data.action_performance.camera[b]?.failed || 0) > 0) : [];
-const camSuccessRate = activeCamBrowsers.length ? 
-  activeCamBrowsers.reduce((sum, b) => sum + (data.action_performance.camera[b]?.success_rate || 0.0), 0) / activeCamBrowsers.length : 100.0;
-
-const activeMicBrowsers = data.action_performance?.mic ? 
-  Object.keys(data.action_performance.mic).filter(b => (data.action_performance.mic[b]?.success || 0) + (data.action_performance.mic[b]?.failed || 0) > 0) : [];
-const micSuccessRate = activeMicBrowsers.length ? 
-  activeMicBrowsers.reduce((sum, b) => sum + (data.action_performance.mic[b]?.success_rate || 0.0), 0) / activeMicBrowsers.length : 100.0;
-
-const activeHandBrowsers = data.action_performance?.hand ? 
-  Object.keys(data.action_performance.hand).filter(b => (data.action_performance.hand[b]?.success || 0) + (data.action_performance.hand[b]?.failed || 0) > 0) : [];
-const handSuccessRate = activeHandBrowsers.length ? 
-  activeHandBrowsers.reduce((sum, b) => sum + (data.action_performance.hand[b]?.success_rate || 0.0), 0) / activeHandBrowsers.length : 100.0;
-
-const desktopBrowsers = data.action_performance?.screen_share ? 
-  Object.keys(data.action_performance.screen_share).filter(b => !b.includes("mobile") && b !== "samsung") : [];
-const activeDesktopBrowsers = desktopBrowsers.filter(b => (data.action_performance.screen_share[b]?.success || 0) + (data.action_performance.screen_share[b]?.failed || 0) > 0);
-const scrSuccessRate = activeDesktopBrowsers.length ? 
-  activeDesktopBrowsers.reduce((sum, b) => sum + (data.action_performance.screen_share[b]?.success_rate || 0.0), 0) / activeDesktopBrowsers.length : 100.0;
-
-const activeWebrtcBrowsers = data.action_performance?.webrtc_connection ?
-  Object.keys(data.action_performance.webrtc_connection).filter(b => (data.action_performance.webrtc_connection[b]?.success || 0) + (data.action_performance.webrtc_connection[b]?.failed || 0) > 0) : [];
-const webrtcConnectionSuccessRate = activeWebrtcBrowsers.length ?
-  activeWebrtcBrowsers.reduce((sum, b) => sum + (data.action_performance.webrtc_connection[b]?.success_rate || 0.0), 0) / activeWebrtcBrowsers.length : (data.config?.webrtc_enabled ? 100.0 : 0.0);
+const chatSuccessRate = getActionSuccessRate('chat');
+const camSuccessRate = getActionSuccessRate('camera');
+const micSuccessRate = getActionSuccessRate('mic');
+const handSuccessRate = getActionSuccessRate('hand');
+const scrSuccessRate = getActionSuccessRate('screen_share');
 
 const hostSuccessRate = 100.0;
 const signalSurvivalRate = 100.0;
 
-// Setup comprehensive SLA Gates
-const gates = [
-  {
-    name: "WebSocket Survival Rate",
-    threshold: "≥99.5%",
-    measured: safeFixed(signalSurvivalRate, 1, "%"),
-    pass: signalSurvivalRate >= 99.5,
-    rec_fe: "Configure the WebSocket client with exponential backoff connection retries, dynamic token refresh before timeout, and local event queueing during disconnected phases.",
-    rec_be: "Optimize load balancer session affinity cookie policies, tune connection broker socket keep-alive ping intervals to 25s, and adjust TCP backlog queue size.",
-    rec_lt: "Increase `--stagger` startup delay to distribute connection spikes and configure client container network limits to allow high socket counts."
-  },
-  {
-    name: "WebRTC Connection Acknowledgment Rate",
-    threshold: "≥99.0%",
-    measured: safeFixed(webrtcConnectionSuccessRate, 1, "%"),
-    pass: webrtcConnectionSuccessRate >= 99.0,
-    rec_fe: "Implement robust error event handlers on client PeerConnection state changes, and trigger signaling renegotiation if iceConnectionState becomes disconnected.",
-    rec_be: "Ensure media router port ranges (typically UDP 10000-20000) are open, and configure DTLS certificates to be signed and validated by correct authorities.",
-    rec_lt: "Pass `--webrtc-enabled` flag explicitly, and check that the host machine's open file descriptors limits (`ulimit -n`) are set to at least 65535."
-  },
-  {
-    name: "ICE Connection Setup Time",
-    threshold: "Avg <500ms",
-    measured: safeFixed(avgIceTime, 0, " ms"),
-    pass: avgIceTime < 500,
-    rec_fe: "Filter out unused local host candidates (e.g. IPv6 or loopback) before sending iceCandidate signaling messages to decrease connection path options.",
-    rec_be: "Deploy geo-routed STUN/TURN clusters closer to client network hubs and enable ICE Lite on the SFU endpoint servers to bypass client-side checks.",
-    rec_lt: "Set `--confirm-timeout` to at least 15000ms to allow sufficient time for ICE candidates gathering under congested networks."
-  },
-  {
-    name: "DTLS Handshake Time",
-    threshold: "Avg <500ms",
-    measured: safeFixed(avgDtlsTime, 0, " ms"),
-    pass: avgDtlsTime < 500,
-    rec_fe: "Prefetch media stream configuration parameters and initiate ICE gathering prior to signaling handshake, and cache cryptographic session contexts.",
-    rec_be: "Optimize DTLS certificate chains on media workers and tune router MTU UDP payload sizing to prevent fragmentation during the DTLS exchange.",
-    rec_lt: "Ensure the runner's UDP packet buffer sizes are aligned to prevent packet drops and limit concurrent signaling threads using `--concurrency`."
-  },
-  {
-    name: "Chat Message Delivery Rate",
-    threshold: "≥99.0%",
-    measured: safeFixed(chatSuccessRate, 1, "%"),
-    pass: chatSuccessRate >= 99.0,
-    rec_fe: "Implement local delivery confirmation loops with matching client-side transaction IDs, and buffer chat payloads in a retry queue.",
-    rec_be: "Increase Redis Pub/Sub cluster shards, scale up message broker memory allocation limits, and run async signaling queue workers.",
-    rec_lt: "Increase `--chat-interval` parameter to prevent client simulation threads from overloading signaling message queues."
-  },
-  {
-    name: "Camera Toggle Success Rate",
-    threshold: "≥99.0%",
-    measured: safeFixed(camSuccessRate, 1, "%"),
-    pass: camSuccessRate >= 99.0,
-    rec_fe: "Introduce client-side input throttling, release hardware camera tracks cleanly, and display local virtual tracks immediately.",
-    rec_be: "Scale SFU media worker CPU core allocation and tune signaling acknowledgments to prevent track state synchronization bottlenecks.",
-    rec_lt: "Increase `--action-interval` dynamically to avoid overlapping camera toggle simulation events on the client threads."
-  },
-  {
-    name: "Mic Toggle Success Rate",
-    threshold: "≥99.0%",
-    measured: safeFixed(micSuccessRate, 1, "%"),
-    pass: micSuccessRate >= 99.0,
-    rec_fe: "Call `.stop()` on microphone tracks and release WebAudio contexts to free hardware audio capture layers immediately.",
-    rec_be: "Optimize voice activity detection (VAD) parsing threads and expedite track state synchronization messages across media worker nodes.",
-    rec_lt: "Set `--media-quality` to 'audio-only' or configure lower audio sample rates to limit bandwidth consumption on the runner host."
-  },
-  {
-    name: "Hand Raise Toggle Success Rate",
-    threshold: "≥99.0%",
-    measured: safeFixed(handSuccessRate, 1, "%"),
-    pass: handSuccessRate >= 99.0,
-    rec_fe: "Debounce hand-raise click actions to prevent multiple fast clicks from flooding the server socket.",
-    rec_be: "Optimize database signaling lock contention and process non-blocking state updates in separate queues.",
-    rec_lt: "Throttle simulated hand-raise triggers in the test scenario config by adjusting task weights."
-  },
-  {
-    name: "Screen Share Acknowledgment Rate",
-    threshold: "≥98.0%",
-    measured: safeFixed(scrSuccessRate, 1, "%"),
-    pass: scrSuccessRate >= 98.0,
-    rec_fe: "Gracefully catch NotAllowedError rejections and prompt users to enable system screen capture permissions.",
-    rec_be: "Configure standard Screen Capture Permissions-Policy HTTP headers on the web host server.",
-    rec_lt: "Configure test runner chromium launch arguments to bypass media stream confirmation (e.g. `--use-fake-ui-for-media-stream`)."
-  },
-  {
-    name: "Mobile Screen Share Rejection",
-    threshold: "100.0%",
-    measured: "100.0%",
-    pass: true,
-    rec_fe: "Implement user agent checks to disable and hide screen sharing controls on mobile browsers.",
-    rec_be: "Enforce server-side rejection of screen share negotiation descriptors if client-type header is mobile.",
-    rec_lt: "Verify that simulated mobile agents run with appropriate device profiles that correctly trigger screen share rejections."
-  },
-  {
-    name: "Join Meeting Latency (P95)",
-    threshold: "<2,000ms",
-    measured: safeFixed(avgJoinTime, 0, " ms"),
-    pass: avgJoinTime < 2000,
-    rec_fe: "Lazy-load heavy dashboard bundles and optimize pre-fetch/cache calls during initial room routing.",
-    rec_be: "Cache pre-join meeting details in Redis and index authorization database queries.",
-    rec_lt: "Use `--batch` sizing control to serialize client logins and prevent login surges from overwhelming authentication servers."
-  },
-  {
-    name: "First Audio Packet Received",
-    threshold: "<3,000ms",
-    measured: safeFixed(avgFirstAudio, 0, " ms"),
-    pass: avgFirstAudio < 3000,
-    rec_fe: "Pre-warm and initialize WebAudio player components on pre-join screens before complete connection handshake.",
-    rec_be: "Send silent audio packet sequences immediately upon connection creation to pre-warm server paths.",
-    rec_lt: "Increase client start stagger settings using `--stagger` to prevent connection spikes from queueing media processing."
-  },
-  {
-    name: "First Video Frame Rendered",
-    threshold: "<5,000ms",
-    measured: safeFixed(avgFirstVideo, 0, " ms"),
-    pass: avgFirstVideo < 5000,
-    rec_fe: "Ignore leading video frame packets preceding the first keyframe (I-frame) to prevent decoder lag.",
-    rec_be: "Instruct the SFU to force a keyframe request (PLI/FIR) immediately when a new video consumer joins.",
-    rec_lt: "Limit subscription bounds via `--max-subscriptions` to reduce downstream video decoder queues on client threads."
-  },
-  {
-    name: "Audio Packet Loss",
-    threshold: "Avg <1.0%",
-    measured: safeFixed(avgLoss * 100, 2, "%"),
-    pass: avgLoss < 0.01,
-    rec_fe: "Enable Opus in-band Forward Error Correction (FEC) and enable packet loss concealment in jitter buffers.",
-    rec_be: "Scale TURN server instance nodes and configure QoS routing rules (DSCP EF) on regional gate networks.",
-    rec_lt: "Adjust `--media-quality` parameters to choose lower bitrate voice profiles, reducing output network bandwidth requirements."
-  },
-  {
-    name: "Video Packet Loss",
-    threshold: "Avg <2.0%",
-    measured: safeFixed(avgLoss * 100, 2, "%"),
-    pass: avgLoss < 0.02,
-    rec_fe: "Configure RTCP NACK/retransmissions and adjust video sender bandwidth parameters dynamically.",
-    rec_be: "Tune SFU RTX retransmission buffer sizes and scale up downstream media bandwidth allocation parameters.",
-    rec_lt: "Ensure simulator nodes have sufficient network egress throughput and limit the number of active video publishers."
-  },
-  {
-    name: "WebRTC RTT (Latency)",
-    threshold: "Avg <150ms",
-    measured: safeFixed(avgRtt, 1, " ms"),
-    pass: avgRtt < 150,
-    rec_fe: "Enable client-side measurement and auto-selection of the nearest edge node during initial handshake.",
-    rec_be: "Deploy regional SFU instances closer to user clusters to shorten packet routing paths.",
-    rec_lt: "Deploy simulator runners in the same cloud availability zone as the target media servers to eliminate external latency routing overhead."
-  },
-  {
-    name: "WebRTC Jitter",
-    threshold: "Avg <30ms",
-    measured: safeFixed(avgJitter, 1, " ms"),
-    pass: avgJitter < 30,
-    rec_fe: "Deploy adaptive jitter buffer management and dynamic speed-adjustment algorithms on client players.",
-    rec_be: "Optimize thread execution priority and minimize context-switch overhead on the media router.",
-    rec_lt: "Optimize simulator runner CPU allocation, as local thread scheduling delays on overloaded hosts can report false jitter."
-  },
-  {
-    name: "Audio Freeze/Stall Ratio",
-    threshold: "<0.5%",
-    measured: safeFixed(avgAudioFreeze * 100, 2, "%"),
-    pass: avgAudioFreeze < 0.005,
-    rec_fe: "Adjust audio playout delay thresholds and enable audio packet loss concealment algorithms.",
-    rec_be: "Prioritize audio streams over video packets in the SFU network output buffer controller.",
-    rec_lt: "Ensure that CPU utilization of the client simulator host remains below 80% to prevent local decoder starvation freezes."
-  },
-  {
-    name: "Video Freeze/Stall Ratio",
-    threshold: "<1.0%",
-    measured: safeFixed(avgVideoFreeze * 100, 2, "%"),
-    pass: avgVideoFreeze < 0.01,
-    rec_fe: "Adjust frame rendering buffer thresholds and request PLI when loss is detected.",
-    rec_be: "Instruct the SFU media worker to switch to a lower quality layer if the bandwidth estimate drops.",
-    rec_lt: "Reduce the count of active screen sharing and camera streams to fit the bandwidth limits of the testing node."
-  },
-  {
-    name: "ICE Restart Recovery Delay",
-    threshold: "<10.0s",
-    measured: safeFixed(avgIceRecovery / 1000, 1, "s"),
-    pass: (avgIceRecovery / 1000) < 10.0,
-    rec_fe: "Monitor iceconnectionstate changes and trigger ICE restart immediately upon connection drop.",
-    rec_be: "Speed up ICE candidate aggregation cache on media bridge.",
-    rec_lt: "Avoid high client simulator network congestions that might drop the binding request packets required for ICE restarts."
-  },
-  {
-    name: "Active Speaker Switch Delay",
-    threshold: "Avg <500ms",
-    measured: safeFixed(avgSpeakerSwitch, 0, " ms"),
-    pass: avgSpeakerSwitch < 500,
-    rec_fe: "Process speaker active indicators in local web workers to reduce UI main thread blockage.",
-    rec_be: "Increase audio level sampling frequency and decrease window size in media router voice activity detector.",
-    rec_lt: "Ensure the presenter bot ID (`--presenter-bot-id`) is set correctly to ensure reliable test target measurement."
-  },
-  {
-    name: "Server CPU Load",
-    threshold: "Avg <60%",
-    measured: safeFixed(data.config?.bots > 50 ? 54.5 : 32.0, 1, "%"),
-    pass: (data.config?.bots > 50 ? 54.5 : 32.0) < 60,
-    rec_fe: "Choose VP8/H.264 video streams instead of high-compute AV1 to limit server decoding load.",
-    rec_be: "Distribute media worker threads across multiple processor cores using cluster modules.",
-    rec_lt: "Lower the simulator concurrent count (`--concurrency`) or adjust toggle action rates to reduce incoming media request load."
-  },
-  {
-    name: "Server Memory Usage",
-    threshold: "Avg <70%",
-    measured: safeFixed(data.config?.bots > 50 ? 45.0 : 28.0, 1, "%"),
-    pass: (data.config?.bots > 50 ? 45.0 : 28.0) < 70,
-    rec_fe: "Properly clean up and unbind HTML video tag elements to avoid memory leaks in the browser.",
-    rec_be: "Optimize Node.js garbage collection options and profile memory allocation leaks."
-  },
-  {
-    name: "Database P95 Query Latency",
-    threshold: "<100ms",
-    measured: "18 ms",
-    pass: true,
-    rec_fe: "Throttling/debouncing state synchronizations (such as user presence) from the client application.",
-    rec_be: "Add database index tables on roomId, sessionId, and user session records."
-  },
-  {
-    name: "Redis Queue P95 Delay",
-    threshold: "<10ms",
-    measured: "2 ms",
-    pass: true,
-    rec_fe: "Reduce custom payload sizes of signaling messages transmitted over WebSockets.",
-    rec_be: "Run Redis in-memory and disable expensive disk snapshot logging during load."
-  }
-];
+// Setup comprehensive SLA Gates dynamically passed from Python
+const gates = (data.gates || []).map(g => {
+  return {
+    name: g.name,
+    threshold: g.threshold,
+    measured: g.measured,
+    pass: g.pass,
+    rec_fe: g.rec_fe,
+    rec_be: g.rec_be,
+    rec_lt: g.rec_lt
+  };
+});
 
 const gateRows = gates.map((g, i) => {
   const fill = i % 2 === 0 ? "FFFFFF" : LIGHT;
@@ -928,16 +828,16 @@ const doc = new Document({
       paragraph("Desktop screen sharing establishes a WebRTC screen-producer track. Mobile devices (iOS, Android) and unsupported browsers are rejected instantly. Below is the compatibility and latency summary:"),
       paragraph(`• Unsupported Screen Shares Logged: ${data.unsupported_reason_breakdown?.["IOS_SAFARI_SCREEN_SHARE_UNSUPPORTED"] || 0} (Mobile Safari rejection)`),
       paragraph(`• Desktop Screen Share Success Rate: 100.0% (Meets the 95.0% target for Chrome/Firefox)`),
-      paragraph(`• Screen Share Avg Start Delay: ${data.action_performance?.screen_share ? safeFixed(Object.values(data.action_performance.screen_share)[0]?.avg_latency, 0) : "N/A"} ms`),
+      paragraph(`• Screen Share Avg Start Delay: ${data.action_performance?.screen_share ? Object.values(data.action_performance.screen_share)[0]?.avg_latency.toFixed(0) : "N/A"} ms`),
 
       // 11. Camera/Mic/Hand Raise Deep-Dive
       sectionHeading("11. Camera/Mic/Hand Raise Deep-Dive"),
       paragraph(`• Total Camera Toggles Sent: ${data.action_performance?.camera ? Object.values(data.action_performance.camera).reduce((sum, b) => sum + (b.success + b.failed), 0) : 0}`),
-      paragraph(`• Camera Toggle Success Rate: ${safeFixed(camSuccessRate, 1, "%")}`),
+      paragraph(`• Camera Toggle Success Rate: ${camSuccessRate.toFixed(1)}%`),
       paragraph(`• Total Mic Toggles Sent: ${data.action_performance?.mic ? Object.values(data.action_performance.mic).reduce((sum, b) => sum + (b.success + b.failed), 0) : 0}`),
-      paragraph(`• Mic Toggle Success Rate: ${safeFixed(micSuccessRate, 1, "%")}`),
+      paragraph(`• Mic Toggle Success Rate: ${micSuccessRate.toFixed(1)}%`),
       paragraph(`• Total Hand Raises Sent: ${data.action_performance?.hand ? Object.values(data.action_performance.hand).reduce((sum, b) => sum + (b.success + b.failed), 0) : 0}`),
-      paragraph(`• Hand Raise Success Rate: ${safeFixed(handSuccessRate, 1, "%")}`),
+      paragraph(`• Hand Raise Success Rate: ${handSuccessRate.toFixed(1)}%`),
 
       // 12. Timeout Stage Analysis
       sectionHeading("12. Timeout Stage Analysis"),
@@ -954,6 +854,26 @@ const doc = new Document({
       paragraph("Breakdown of failure codes recorded during the load test session:"),
       errorCodeTable,
 
+      // 14b. Operating System Performance and Stability Analysis
+      sectionHeading("14b. Operating System Performance and Stability Analysis"),
+      paragraph("This section breaks down action success rates, average latencies, and stability indexes grouped by the simulated operating system client cohorts:"),
+      osRankTable,
+
+      // 14c. Simulated Device Performance Breakdown
+      sectionHeading("14c. Simulated Device Performance Breakdown"),
+      paragraph("Performance aggregates of simulated device profiles, showing stability indexes and WebRTC connection error frequencies:"),
+      devRankTable,
+
+      // 14d. Categorized Error Telemetry Dashboard
+      sectionHeading("14d. Categorized Error Telemetry Dashboard"),
+      paragraph("Detailed categorization of load test errors, mapped by frequency, severity level, and suggested root causes:"),
+      errDashTable,
+
+      // 14e. Event Timeline
+      sectionHeading("14e. Event Timeline"),
+      paragraph("Chronological event log progression showing user joins, activity spikes, connection drops, and test milestones:"),
+      timelineTable,
+
       // 15. Per-Browser Recommendations
       sectionHeading("15. Per-Browser Recommendations"),
       paragraph("Chrome, Edge, and Brave (Chromium-based engines) demonstrated the lowest action propagation and acknowledgment latencies (<200ms). Firefox was stable but showed slightly higher ICE connection delays (~140ms). Safari Mobile was successfully emulated, and screen sharing was correctly blocked on mobile iOS profiles."),
@@ -966,20 +886,13 @@ const doc = new Document({
       sectionHeading("17. Per-Device Recommendations"),
       paragraph("Desktop profiles can scale to full media quality (H264/AV1 at 1080p). Mobile device profiles should be throttled to 640x480 resolution (low quality) to optimize battery life and ensure smooth frame rates below WebRTC congestion thresholds."),
 
-      // 18. Session Refreshes & Recovery Assessment
-      sectionHeading("18. Session Refreshes & Recovery Assessment"),
-      paragraph("During the test, a subset of participants simulated browser refreshes to evaluate connection recovery capabilities."),
-      paragraph(`• Number of bots that refreshed their session: ${data.refreshed_bots_telemetry ? data.refreshed_bots_telemetry.length : 0}`),
-      paragraph(`• Bots detected joining twice: ${data.double_joined_bots && data.double_joined_bots.length > 0 ? data.double_joined_bots.join(", ") : "None"}`),
-      paragraph("• Technical Root Cause: The bots registered under identical identities (session tokens and user IDs). During simulated reload, the previous WebSocket connection was abruptly severed, and a new handshake was initiated immediately. The signaling server did not instantly clean up the stale session state, resulting in dual active mappings ('joined twice') before the old connection timed out."),
-
-      // 19. Sprint 1 Pass/Fail Assessment
-      sectionHeading("19. Sprint 1 Pass/Fail Assessment"),
+      // 18. Sprint 1 Pass/Fail Assessment
+      sectionHeading("18. Sprint 1 Pass/Fail Assessment"),
       paragraph("Comparing test results against the strict Sprint 1 Quality Gates:"),
       gatesTable,
 
-      // 20. QA Verdict
-      sectionHeading("20. QA Verdict"),
+      // 19. QA Verdict
+      sectionHeading("19. QA Verdict"),
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { before: 200, after: 200 },
@@ -994,8 +907,8 @@ const doc = new Document({
         { italics: true }
       ),
 
-      // 21. Developer Recommendations
-      sectionHeading("21. Developer Recommendations"),
+      // 20. Developer Recommendations
+      sectionHeading("20. Developer Recommendations"),
       ...(hasFailedGates ?
         failedGates.flatMap((g, idx) => [
           paragraph(`${idx + 1}. [SLA Gate Failed: ${g.name}] (Measured: ${g.measured} vs Target: ${g.threshold})`, { bold: true }),
@@ -1007,8 +920,8 @@ const doc = new Document({
         [paragraph("All SLA thresholds successfully satisfied. No developer adjustments are recommended at this time.")]
       ),
 
-      // 22. Appendix: Full Action Log Reference
-      sectionHeading("22. Appendix: Full Action Log Reference"),
+      // 21. Appendix: Full Action Log Reference
+      sectionHeading("21. Appendix: Full Action Log Reference"),
       paragraph("The granular telemetry databases generated for this test run are located at:"),
       paragraph(`• Action Lifecycle Log: ${data.csv_path || "session_action_lifecycle.csv"}`, { bold: true }),
       paragraph(`• Summary Metrics Log: ${data.summary_csv_path || "session_summary_metrics.csv"}`, { bold: true }),
