@@ -1694,18 +1694,14 @@ class ReportPipeline:
         build_script = os.path.join(script_dir, "build_docx_report.js")
         
         result = subprocess.run(
-            ["node", build_script, temp_json, self.output_docx],
-            capture_output=True, text=True
+            ["node", build_script, temp_json, self.output_docx]
         )
         
         if result.returncode != 0:
-            print("ERROR: Report generation failed:")
-            print(result.stdout)
-            print(result.stderr)
+            print("ERROR: Report generation failed.")
             self._cleanup_temp_files(temp_json)
             sys.exit(1)
             
-        print(result.stdout)
         print(f"SUCCESS: Beautiful Word report saved to: {self.output_docx}")
         
         try:

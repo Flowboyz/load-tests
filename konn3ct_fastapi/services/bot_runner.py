@@ -84,7 +84,7 @@ async def run_test_process_async(session_id: int):
         py_guest_path = os.path.join(project_root, "py_guest.py")
         
         cmd = [
-            get_python_executable(project_root), py_guest_path,
+            get_python_executable(project_root), "-u", py_guest_path,
             "--room", config.room,
             "--bots", str(config.bots),
             "--stagger", str(config.stagger),

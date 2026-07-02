@@ -21,7 +21,7 @@ async def stream_metrics_and_logs_async(session_id: int, log_path: str, stop_eve
     chunk_1_path = log_path.replace(".jsonl", "_chunk_1.jsonl")
     
     start_wait = time.time()
-    while time.time() - start_wait < 10.0:
+    while time.time() - start_wait < 60.0:
         if os.path.exists(chunk_1_path):
             target_path = chunk_1_path
             break

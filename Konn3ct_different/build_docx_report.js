@@ -237,6 +237,7 @@ const configTable = new Table({
 });
 
 // ── 3. Browser Distribution Matrix ──────────────────────────────────────────
+console.log("🌐 [3/7] Compiling Browser, Device & OS Performance Matrices...");
 const bMatrixCols = [3000, 2120, 2120, 2120];
 const bMatrixHeaders = ["Browser Client Type", "Simulated Bots Count", "Join Success %", "Avg Join Time"];
 const bMatrixRows = Object.keys(data.browser_distribution || {}).map((b, i) => {
@@ -308,6 +309,7 @@ const devTable = new Table({
 });
 
 // ── 6. WebRTC Performance Summary ────────────────────────────────────────────
+console.log("⚡ [4/7] Aggregating WebRTC audio/video stream metrics...");
 const t2Cols = [1500, 900, 900, 900, 900, 900, 1000, 1100, 1260];
 const webrtcBrowsers = Object.keys(data.webrtc_performance || {});
 const webrtcRows = webrtcBrowsers.map((b, i) => {
@@ -350,6 +352,7 @@ const webrtcTable = new Table({
 });
 
 // ── 7. Action Lifecycle Summary ──────────────────────────────────────────────
+console.log("⏱️ [5/7] Analyzing Action Propagation Latency & timeouts...");
 const actCols = [2500, 1500, 1700, 1700, 1960];
 const actPerformanceRows = Object.keys(data.action_performance || {}).map((act, i) => {
   const fill = i % 2 === 0 ? "FFFFFF" : LIGHT;
@@ -811,6 +814,7 @@ const gatesTable = new Table({
 });
 
 // Determine QA Verdict
+console.log("⚖️ [6/7] Evaluating SLA Quality Gates & compiling QA Verdict...");
 const hasFailedGate = gates.some(g => !g.pass);
 const qaVerdict = hasFailedGate ? "FAILED" : "PASSED";
 const qaVerdictColor = hasFailedGate ? RED : GREEN;
@@ -1017,6 +1021,7 @@ const doc = new Document({
   }]
 });
 
+console.log("💾 [7/7] Packaging document & writing to Word file...");
 Packer.toBuffer(doc).then((buffer) => {
   fs.writeFileSync(outputPath, buffer);
   console.log(`Document written successfully: ${outputPath}`);
