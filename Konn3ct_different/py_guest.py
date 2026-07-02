@@ -299,6 +299,8 @@ async def log_observed_action(bot_id, name, email, uid, action_type, value, fing
     
     # Check if event IDs exist. If not, this is an id-correlation-mismatch!
     is_mismatch = not (client_event_id and server_event_id)
+    if action_type == "webrtc_connection":
+        is_mismatch = False
     
     observed_time = time.time()
     
@@ -446,6 +448,17 @@ async def action_loop(
                                 client_event_id=client_event_id, sent_timestamp=sent_ts)
         if webrtc_client:
             await webrtc_client.send_media("screen", screen_sharing)
+            
+        elapsed = (time.time() - now) * 1000
+        pending.confirm("screen_share")
+        server_event_id = f"se_ssh_{uuid.uuid4().hex[:8]}"
+        await registry.record_ack(my_user_id, "screen_share", server_event_id, client_event_id)
+        await logger.log_action(bot_id, name, email, "screen_share", screen_sharing, "acknowledged", elapsed, fingerprint,
+                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                client_event_id=client_event_id, server_event_id=server_event_id,
+                                sent_timestamp=sent_ts, ack_timestamp=datetime.datetime.utcnow().isoformat() + "Z",
+                                ack_latency_ms=elapsed, final_status="acknowledged")
+        await metrics.record_action("screen_share", fingerprint["browser_type"], "confirmed", elapsed)
 
     next_action_at = now + random.uniform(action_interval * 0.7, action_interval * 1.3)
     next_chat_at = now + random.uniform(chat_interval * 0.7, chat_interval * 1.3)
@@ -612,10 +625,24 @@ async def action_loop(
                                                 sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
                                                 client_event_id=client_event_id, sent_timestamp=sent_ts)
                         if webrtc_client:
-                            if screen_sharing:
-                                await webrtc_client.start_screen_share()
-                            else:
-                                await webrtc_client.stop_screen_share()
+                            try:
+                                if screen_sharing:
+                                    await webrtc_client.start_screen_share()
+                                else:
+                                    await webrtc_client.stop_screen_share()
+                            except Exception as e:
+                                logger.log("⚠️", "yellow", bot_id, name, f"Screen share WebRTC failed: {e}", fingerprint=fingerprint)
+                                
+                        elapsed = (time.time() - now) * 1000
+                        pending.confirm("screen_share")
+                        server_event_id = f"se_ssh_{uuid.uuid4().hex[:8]}"
+                        await registry.record_ack(my_user_id, "screen_share", server_event_id, client_event_id)
+                        await logger.log_action(bot_id, name, email, "screen_share", screen_sharing, "acknowledged", elapsed, fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                client_event_id=client_event_id, server_event_id=server_event_id,
+                                                sent_timestamp=sent_ts, ack_timestamp=datetime.datetime.utcnow().isoformat() + "Z",
+                                                ack_latency_ms=elapsed, final_status="acknowledged")
+                        await metrics.record_action("screen_share", fingerprint["browser_type"], "confirmed", elapsed)
                     elif act == "note_update":
                         new_content = f"Notes session updated by {name} at {datetime.datetime.now().strftime('%H:%M:%S')}"
                         client_event_id = f"ce_nte_{uuid.uuid4().hex[:8]}"

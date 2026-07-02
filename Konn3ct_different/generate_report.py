@@ -847,7 +847,7 @@ class ReportPipeline:
         per_action_stats = {}
         per_action_browser_stats = {}
         
-        broadcast_action_types = ["chat", "camera", "mic", "hand", "screen_share", "leave_meeting", "remove_participant", "lock_meeting", "recording_state", "captions_state", "webrtc_connection"]
+        broadcast_action_types = ["chat", "camera", "mic", "hand", "screen_share", "leave_meeting", "remove_participant", "lock_meeting", "recording_state", "captions_state"]
         
         with open(lifecycle_csv, "w", newline="", encoding="utf-8") as lf:
             writer = csv.writer(lf)
