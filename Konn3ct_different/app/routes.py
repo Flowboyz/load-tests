@@ -282,6 +282,46 @@ def download_report(session_id, fmt):
     pdf_path = os.path.join(session_dir, "report.pdf")
     csv_path = os.path.join(session_dir, "session_action_lifecycle.csv")
     
+    # Check for chunk log files if main log file doesn't exist
+    import glob
+    import json
+    base_name = os.path.basename(log_path).replace(".jsonl", "")
+    chunk_files = glob.glob(os.path.join(session_dir, f"{base_name}_chunk_*.jsonl"))
+    
+    if not os.path.exists(log_path) and chunk_files:
+        try:
+            # Sort chunk files sequentially
+            chunk_files = sorted(
+                chunk_files,
+                key=lambda x: int(os.path.basename(x).split("_")[-1].replace(".jsonl", ""))
+            )
+            
+            test_start_time = session.started_at.isoformat() + "Z" if session.started_at else datetime.utcnow().isoformat() + "Z"
+            
+            with open(log_path, "w", encoding="utf-8") as main_f:
+                # Write standard test_started header
+                main_f.write(json.dumps({
+                    "event": "test_started",
+                    "ts": test_start_time
+                }) + "\n")
+                
+                # Stream chunk contents sequentially into main file
+                for chunk_file in chunk_files:
+                    with open(chunk_file, "r", encoding="utf-8") as chunk_f:
+                        for line in chunk_f:
+                            if "test_started" in line:
+                                continue
+                            main_f.write(line)
+            
+            # Clean up chunks after successful merge to conserve space
+            for chunk_file in chunk_files:
+                try:
+                    os.remove(chunk_file)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"Error merging chunk logs on download: {e}")
+
     if not os.path.exists(log_path) and not os.path.exists(docx_path) and not os.path.exists(pdf_path) and not os.path.exists(csv_path):
         return jsonify({'message': 'No logs or report documents found for this session. The test may have failed to start or write telemetry.'}), 400
 
