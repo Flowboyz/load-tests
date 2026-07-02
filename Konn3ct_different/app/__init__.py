@@ -1,5 +1,5 @@
 import os
-from flask import Flask, render_template, redirect, url_for, request
+from flask import Flask, render_template, redirect, url_for, request, make_response
 from flask_socketio import SocketIO, join_room, leave_room
 from app.models import db, User, Configuration, TestSession
 from app.auth import auth_bp
@@ -124,15 +124,30 @@ def create_app(db_uri=None):
     @app.route('/')
     def index():
         token = request.cookies.get('token')
-        if not token:
-            return redirect(url_for('login_page'))
-        return render_template('dashboard.html')
+        if token:
+            try:
+                import jwt
+                from app.auth import SECRET_KEY
+                jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+                return render_template('dashboard.html')
+            except Exception:
+                pass
+        return redirect(url_for('login_page'))
         
     @app.route('/login')
     def login_page():
         token = request.cookies.get('token')
         if token:
-            return redirect(url_for('index'))
+            try:
+                import jwt
+                from app.auth import SECRET_KEY
+                jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+                return redirect(url_for('index'))
+            except Exception:
+                # If invalid or expired token cookie, clear it to avoid loops
+                response = make_response(render_template('login.html'))
+                response.delete_cookie('token')
+                return response
         return render_template('login.html')
         
     # --- Socket.IO Room Coordination ---

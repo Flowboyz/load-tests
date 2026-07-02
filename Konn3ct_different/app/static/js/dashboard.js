@@ -335,9 +335,9 @@ async function loadSessionHistory() {
                 <td>
                     <div class="btn-group">
                         <button class="btn btn-sm btn-secondary" onclick="viewHistoricalLogs(${sess.id})" title="View Logs"><i class="fa-solid fa-terminal"></i> Logs</button>
-                        ${isFinished ? `<a class="btn btn-sm btn-secondary" href="/api/sessions/${sess.id}/download/docx" title="Download Word"><i class="fa-solid fa-file-word text-cyan"></i> DOCX</a>` : ''}
-                        ${isFinished ? `<a class="btn btn-sm btn-secondary" href="/api/sessions/${sess.id}/download/pdf" title="Download PDF"><i class="fa-solid fa-file-pdf text-red"></i> PDF</a>` : ''}
-                        ${isFinished ? `<a class="btn btn-sm btn-secondary" href="/api/sessions/${sess.id}/download/csv" title="Download CSV"><i class="fa-solid fa-file-csv text-green"></i> CSV</a>` : ''}
+                        ${isFinished ? `<button class="btn btn-sm btn-secondary" onclick="triggerReportDownload(${sess.id}, 'docx')" title="Download Word"><i class="fa-solid fa-file-word text-cyan"></i> DOCX</button>` : ''}
+                        ${isFinished ? `<button class="btn btn-sm btn-secondary" onclick="triggerReportDownload(${sess.id}, 'pdf')" title="Download PDF"><i class="fa-solid fa-file-pdf text-red"></i> PDF</button>` : ''}
+                        ${isFinished ? `<button class="btn btn-sm btn-secondary" onclick="triggerReportDownload(${sess.id}, 'csv')" title="Download CSV"><i class="fa-solid fa-file-csv text-green"></i> CSV</button>` : ''}
                     </div>
                 </td>
                 <td>
@@ -1602,3 +1602,121 @@ function loadCheckboxesFromSerialized(type) {
     const badge = document.getElementById(`badge-${type}`);
     badge.textContent = `${keysInSerialized.size} selected`;
 }
+
+// Custom interactive download handler with smooth progress animation overlay
+async function triggerReportDownload(sessionId, format) {
+    const modal = document.getElementById('reportProgressModal');
+    const progressFill = document.getElementById('progressBarFill');
+    const percentageLabel = document.getElementById('progressPercentageLabel');
+    const statusText = document.getElementById('progressStatusText');
+    const subDetails = document.getElementById('progressSubDetails');
+    
+    if (!modal) return;
+    
+    // Show modal overlay
+    modal.style.display = 'flex';
+    
+    // Reset indicators
+    progressFill.style.width = '0%';
+    percentageLabel.textContent = '0%';
+    statusText.textContent = 'Contacting server...';
+    subDetails.textContent = 'Requesting file conversion session...';
+    
+    // Wire up close overlay callback
+    let isCancelled = false;
+    const closeBtn = document.getElementById('closeProgressModalBtn');
+    if (closeBtn) {
+        closeBtn.onclick = () => {
+            isCancelled = true;
+            modal.style.display = 'none';
+        };
+    }
+    
+    // Setup incremental smooth ease-out progress steps
+    let progress = 0;
+    const progressSteps = [
+        { limit: 25, label: "Parsing raw action logs...", speed: 1.5 },
+        { limit: 55, label: "Running WebRTC SLA analytics...", speed: 0.8 },
+        { limit: 80, label: "Building document templates...", speed: 0.4 },
+        { limit: 95, label: "Applying layouts and formatting...", speed: 0.1 }
+    ];
+    
+    let stepIdx = 0;
+    const timer = setInterval(() => {
+        if (isCancelled) {
+            clearInterval(timer);
+            return;
+        }
+        
+        const currentStep = progressSteps[stepIdx];
+        if (progress < currentStep.limit) {
+            progress += currentStep.speed;
+            if (progress > currentStep.limit) progress = currentStep.limit;
+            
+            const displayPct = Math.min(Math.floor(progress), 95);
+            progressFill.style.width = `${displayPct}%`;
+            percentageLabel.textContent = `${displayPct}%`;
+            statusText.textContent = `Converting to ${format.toUpperCase()}...`;
+            subDetails.textContent = currentStep.label;
+        } else if (stepIdx < progressSteps.length - 1) {
+            stepIdx++;
+        }
+    }, 50);
+    
+    try {
+        const response = await fetch(`/api/sessions/${sessionId}/download/${format}`);
+        if (isCancelled) return;
+        
+        if (!response.ok) {
+            clearInterval(timer);
+            const errData = await response.json().catch(() => ({}));
+            alert(errData.message || `Failed to download ${format.toUpperCase()} report.`);
+            modal.style.display = 'none';
+            return;
+        }
+        
+        // Finalize progress bar
+        clearInterval(timer);
+        progressFill.style.width = '100%';
+        percentageLabel.textContent = '100%';
+        statusText.textContent = 'Download Ready!';
+        subDetails.textContent = 'Saving file to your browser downloads...';
+        
+        // Fetch the file as blob
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        
+        // Extract filename if returned
+        const contentDisposition = response.headers.get('content-disposition');
+        let filename = `session_${sessionId}_report.${format}`;
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename=\"?([^\"]+)\"?/);
+            if (filenameMatch) filename = filenameMatch[1];
+        }
+        
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Release URL and elements
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        // Close modal after success animation pause
+        setTimeout(() => {
+            modal.style.display = 'none';
+        }, 800);
+        
+    } catch (err) {
+        clearInterval(timer);
+        console.error(err);
+        alert("An error occurred during report compilation.");
+        modal.style.display = 'none';
+    }
+}
+
+// Make globally accessible from onclick handlers
+window.triggerReportDownload = triggerReportDownload;

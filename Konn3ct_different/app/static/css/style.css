@@ -911,3 +911,113 @@ body {
     border-color: var(--error) !important;
     box-shadow: 0 0 16px rgba(239, 68, 68, 0.35) !important;
 }
+
+/* Progress Modal Overlay and Content styling */
+.progress-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    transition: opacity 0.3s ease;
+}
+
+.progress-modal-content {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow);
+    border-radius: 20px;
+    width: 480px;
+    padding: 30px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    animation: scaleUp 0.3s ease-out;
+}
+
+@keyframes scaleUp {
+    from { transform: scale(0.9); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+.progress-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 12px;
+}
+
+.progress-modal-header h3 {
+    margin: 0;
+    font-family: var(--font-heading);
+    font-size: 18px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.progress-modal-close {
+    font-size: 24px;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: color 0.2s;
+}
+
+.progress-modal-close:hover {
+    color: var(--accent);
+}
+
+.progress-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    text-align: center;
+}
+
+.progress-modal-body p {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.progress-bar-container {
+    background-color: var(--bg-app);
+    border: 1px solid var(--border-color);
+    height: 14px;
+    border-radius: 7px;
+    overflow: hidden;
+    width: 100%;
+}
+
+.progress-bar-fill {
+    background: linear-gradient(90deg, var(--accent) 0%, #a855f7 100%);
+    height: 100%;
+    width: 0%;
+    border-radius: 7px;
+    transition: width 0.1s ease-out;
+}
+
+.progress-percentage-label {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--accent);
+    margin-top: 5px;
+}
+
+.progress-sub-details {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+    min-height: 16px;
+}
