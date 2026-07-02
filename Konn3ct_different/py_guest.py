@@ -1360,6 +1360,8 @@ async def run_bot(
     await logger.record_event("bot_joined", bot_id, name, email, fingerprint=fingerprint)
     logger.log("🌐", "grey", bot_id, name, f"Token acquired — connecting to room: {current_room}...", fingerprint=fingerprint)
     
+    attempt = 1
+    in_breakout = False
     refreshed = False
     should_refresh_bot = (bot_id >= 3 and bot_id < 3 + refresh_bots)
 
