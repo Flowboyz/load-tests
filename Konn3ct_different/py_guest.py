@@ -1798,7 +1798,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print(f"\n{C['yellow']}🛑  Interrupted — shutting down...{C['reset']}", flush=True)
     finally:
-        if 'args' in locals() and os.path.exists(args.report_log):
+        if 'args' in locals() and os.path.exists(args.report_log) and "_chunk_" not in args.report_log:
             print(f"\n📊 Automatically compiling report for {args.report_log}...", flush=True)
             script_dir = os.path.dirname(os.path.abspath(__file__))
             generate_report_script = os.path.join(script_dir, "generate_report.py")
