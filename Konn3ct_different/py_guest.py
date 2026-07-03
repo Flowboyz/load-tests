@@ -1394,9 +1394,12 @@ async def run_bot(
     refreshed = False
     should_refresh_bot = (bot_id >= 3 and bot_id < 3 + refresh_bots)
     connected_flag = [False]
+    has_ever_connected = False
+    reconnect_attempt = 1
 
     while not stop_event.is_set() and attempt <= max_retries:
         bot_refresh_enabled = should_refresh_bot and not refreshed
+        connected_flag[0] = False
         try:
             result = await ws_session(
                 ws_url=ws_url, bot_id=bot_id, name=name, email=email, emulator=emulator, auto_leave_s=auto_leave_s,
@@ -1486,13 +1489,22 @@ async def run_bot(
             logger.log("🚪", "grey", bot_id, name, "Bot left the meeting room gracefully.", fingerprint=fingerprint)
             break
 
-        attempt += 1
+        # Determine success / reconnection status
         if connected_flag[0]:
+            has_ever_connected = True
+            reconnect_attempt = 1
             attempt = 1
+        else:
+            reconnect_attempt += 1
+            if not has_ever_connected:
+                attempt += 1
+
         await stats.inc("reconnects")
         await logger.record_event("bot_reconnecting", bot_id, name, email, fingerprint=fingerprint)
-        backoff = random.uniform(2.0, 5.0)
-        logger.log("🔄", "yellow", bot_id, name, f"Reconnecting in {backoff:.1f}s (attempt {attempt if not connected_flag[0] else '∞'}/{max_retries})...", fingerprint=fingerprint)
+        
+        # Exponential backoff with jitter to prevent reconnection storms
+        backoff = min(60.0, random.uniform(2.0, 4.0) * (1.5 ** reconnect_attempt))
+        logger.log("🔄", "yellow", bot_id, name, f"Reconnecting in {backoff:.1f}s (attempt {attempt if not has_ever_connected else '∞'}/{max_retries}, reconnect_attempt={reconnect_attempt})...", fingerprint=fingerprint)
         await asyncio.sleep(backoff)
         
         # Retry token acquisition infinitely during reconnection if server is under high load
