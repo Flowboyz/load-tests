@@ -1397,21 +1397,25 @@ async def run_bot(
 
     while not stop_event.is_set() and attempt <= max_retries:
         bot_refresh_enabled = should_refresh_bot and not refreshed
-        result = await ws_session(
-            ws_url=ws_url, bot_id=bot_id, name=name, email=email, emulator=emulator, auto_leave_s=auto_leave_s,
-            chat_enabled=chat_enabled, chat_interval=chat_interval,
-            camera_enabled=camera_enabled, mic_enabled=mic_enabled, hand_enabled=hand_enabled, screen_share_enabled=screen_share_enabled,
-            action_interval=action_interval, confirm_timeout=confirm_timeout,
-            webrtc_enabled=webrtc_enabled, media_quality=media_quality,
-            network_profile=network_profile, network_degradation=network_degradation, degradation_interval=degradation_interval,
-            stop_event=stop_event, scenario_event=scenario_event, cross_confirm=cross_confirm,
-            frontend_url=frontend_url, room_id=current_room, reconnection_count=attempt,
-            role=role, max_subscriptions=max_subscriptions, decode_downlink=decode_downlink, in_breakout=in_breakout, scenarios=scenarios,
-            auto_camera=auto_camera, auto_mic=auto_mic, auto_screen_share=auto_screen_share, cross_confirm_limit=cross_confirm_limit,
-            is_viewer=is_viewer, should_refresh=bot_refresh_enabled,
-            disable_abnormal_behavior=disable_abnormal_behavior,
-            connected_flag=connected_flag
-        )
+        try:
+            result = await ws_session(
+                ws_url=ws_url, bot_id=bot_id, name=name, email=email, emulator=emulator, auto_leave_s=auto_leave_s,
+                chat_enabled=chat_enabled, chat_interval=chat_interval,
+                camera_enabled=camera_enabled, mic_enabled=mic_enabled, hand_enabled=hand_enabled, screen_share_enabled=screen_share_enabled,
+                action_interval=action_interval, confirm_timeout=confirm_timeout,
+                webrtc_enabled=webrtc_enabled, media_quality=media_quality,
+                network_profile=network_profile, network_degradation=network_degradation, degradation_interval=degradation_interval,
+                stop_event=stop_event, scenario_event=scenario_event, cross_confirm=cross_confirm,
+                frontend_url=frontend_url, room_id=current_room, reconnection_count=attempt,
+                role=role, max_subscriptions=max_subscriptions, decode_downlink=decode_downlink, in_breakout=in_breakout, scenarios=scenarios,
+                auto_camera=auto_camera, auto_mic=auto_mic, auto_screen_share=auto_screen_share, cross_confirm_limit=cross_confirm_limit,
+                is_viewer=is_viewer, should_refresh=bot_refresh_enabled,
+                disable_abnormal_behavior=disable_abnormal_behavior,
+                connected_flag=connected_flag
+            )
+        except Exception as exc:
+            logger.log("⚠️", "red", bot_id, name, f"Session connection error: {exc}", fingerprint=fingerprint)
+            result = False
 
         if stop_event.is_set():
             break
@@ -1420,10 +1424,18 @@ async def run_bot(
             in_breakout = True
             current_room = f"{room_id}-breakout-{((bot_id - 1) % 3) + 1}"
             logger.log("🚪", "cyan", bot_id, name, f"Migrating to breakout room: {current_room}", fingerprint=fingerprint)
+            
+            # Retry token acquisition infinitely during migration if server is under high load
+            ws_url = None
             t_start = time.time()
-            ws_url = await get_ws_url(current_room)
-            if not ws_url:
+            while not ws_url and not stop_event.is_set():
+                ws_url = await get_ws_url(current_room)
+                if not ws_url:
+                    logger.log("⚠️", "yellow", bot_id, name, "Failed to acquire breakout room token. Retrying in 5s...", fingerprint=fingerprint)
+                    await asyncio.sleep(5.0)
+            if stop_event.is_set():
                 break
+                
             elapsed = (time.time() - t_start) * 1000
             await logger.log_action(bot_id, name, email, "breakout_join", current_room, "confirmed", elapsed, fingerprint)
             await metrics.record_action("breakout_join", fingerprint["browser_type"], "confirmed", elapsed)
@@ -1433,8 +1445,15 @@ async def run_bot(
             refreshed = True
             await logger.record_event("bot_refreshing", bot_id, name, email, fingerprint=fingerprint, reason="Simulated User Browser Refresh")
             await asyncio.sleep(3.0)
-            ws_url = await get_ws_url(current_room)
-            if not ws_url:
+            
+            # Retry token acquisition infinitely during refresh if server is under high load
+            ws_url = None
+            while not ws_url and not stop_event.is_set():
+                ws_url = await get_ws_url(current_room)
+                if not ws_url:
+                    logger.log("⚠️", "yellow", bot_id, name, "Failed to acquire refresh token. Retrying in 5s...", fingerprint=fingerprint)
+                    await asyncio.sleep(5.0)
+            if stop_event.is_set():
                 break
             await logger.record_event("bot_joined", bot_id, name, email, fingerprint=fingerprint)
             logger.log("🌐", "grey", bot_id, name, f"Reconnected after browser refresh to room: {current_room}...", fingerprint=fingerprint)
@@ -1444,10 +1463,18 @@ async def run_bot(
             in_breakout = False
             current_room = room_id
             logger.log("🚪", "cyan", bot_id, name, f"Returning to main room: {current_room}", fingerprint=fingerprint)
+            
+            # Retry token acquisition infinitely during migration if server is under high load
+            ws_url = None
             t_start = time.time()
-            ws_url = await get_ws_url(current_room)
-            if not ws_url:
+            while not ws_url and not stop_event.is_set():
+                ws_url = await get_ws_url(current_room)
+                if not ws_url:
+                    logger.log("⚠️", "yellow", bot_id, name, "Failed to acquire main room token. Retrying in 5s...", fingerprint=fingerprint)
+                    await asyncio.sleep(5.0)
+            if stop_event.is_set():
                 break
+                
             elapsed = (time.time() - t_start) * 1000
             await logger.log_action(bot_id, name, email, "breakout_join", current_room, "confirmed", elapsed, fingerprint)
             await metrics.record_action("breakout_join", fingerprint["browser_type"], "confirmed", elapsed)
@@ -1464,13 +1491,17 @@ async def run_bot(
             attempt = 1
         await stats.inc("reconnects")
         await logger.record_event("bot_reconnecting", bot_id, name, email, fingerprint=fingerprint)
-        backoff = random.uniform(1.5, 4.0)
+        backoff = random.uniform(2.0, 5.0)
         logger.log("🔄", "yellow", bot_id, name, f"Reconnecting in {backoff:.1f}s (attempt {attempt if not connected_flag[0] else '∞'}/{max_retries})...", fingerprint=fingerprint)
         await asyncio.sleep(backoff)
         
-        ws_url = await get_ws_url(current_room)
-        if not ws_url:
-            break
+        # Retry token acquisition infinitely during reconnection if server is under high load
+        ws_url = None
+        while not ws_url and not stop_event.is_set():
+            ws_url = await get_ws_url(current_room)
+            if not ws_url:
+                logger.log("⚠️", "yellow", bot_id, name, "Failed to acquire token for reconnection. Retrying in 5s...", fingerprint=fingerprint)
+                await asyncio.sleep(5.0)
 
     if attempt > max_retries:
         await stats.inc("failed")
