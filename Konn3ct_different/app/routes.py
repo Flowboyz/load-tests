@@ -350,16 +350,11 @@ def download_report(session_id, fmt):
         
     elif fmt == 'csv':
         if not os.path.exists(csv_path):
-            from app.runner import compile_report_log
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            compile_report_log(project_root, log_path, docx_path)
+            from app.runner import compile_report_log_async
+            from app import socketio
+            compile_report_log_async(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), session_id, socketio)
+            return jsonify({'message': 'Report is generating in the background. Please wait...', 'status': 'compiling'}), 202
             
-        if not os.path.exists(csv_path):
-            fallback = os.path.join(session_dir, "session_action_lifecycle.csv")
-            if os.path.exists(fallback):
-                csv_path = fallback
-            else:
-                return jsonify({'message': 'CSV report file not found!'}), 404
         return Response(
             stream_file_in_chunks(csv_path),
             mimetype='text/csv',
@@ -371,12 +366,11 @@ def download_report(session_id, fmt):
         
     elif fmt == 'docx':
         if not os.path.exists(docx_path):
-            from app.runner import compile_report_log
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            compile_report_log(project_root, log_path, docx_path)
+            from app.runner import compile_report_log_async
+            from app import socketio
+            compile_report_log_async(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), session_id, socketio)
+            return jsonify({'message': 'Report is generating in the background. Please wait...', 'status': 'compiling'}), 202
             
-        if not os.path.exists(docx_path):
-            return jsonify({'message': 'DOCX report file not found!'}), 404
         return Response(
             stream_file_in_chunks(docx_path),
             mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -387,33 +381,12 @@ def download_report(session_id, fmt):
         )
         
     elif fmt == 'pdf':
-        if not os.path.exists(docx_path):
-            from app.runner import compile_report_log
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            compile_report_log(project_root, log_path, docx_path)
-            
         if not os.path.exists(pdf_path):
-            from app.runner import convert_docx_to_pdf
-            pdf = convert_docx_to_pdf(docx_path, session_dir)
-            if pdf and os.path.exists(pdf):
-                pdf_path = pdf
-                session.report_pdf_path = pdf
-                db.session.commit()
-                return Response(
-                    stream_file_in_chunks(pdf),
-                    mimetype='application/pdf',
-                    headers={
-                        "Content-Disposition": f"attachment; filename=session_{session_id}_report.pdf",
-                        "Content-Length": os.path.getsize(pdf)
-                    }
-                )
-            return jsonify({
-                'message': (
-                    'PDF conversion failed. This feature requires LibreOffice to be installed on the server. '
-                    'To enable PDF downloads: on Linux run "sudo apt install libreoffice-nogui", or on Windows '
-                    'install LibreOffice (soffice) and ensure it is added to your system PATH or installed in the default location.'
-                )
-            }), 404
+            from app.runner import compile_report_log_async
+            from app import socketio
+            compile_report_log_async(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), session_id, socketio)
+            return jsonify({'message': 'Report is generating in the background. Please wait...', 'status': 'compiling'}), 202
+            
         return Response(
             stream_file_in_chunks(pdf_path),
             mimetype='application/pdf',

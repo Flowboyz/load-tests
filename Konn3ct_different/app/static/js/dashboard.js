@@ -743,7 +743,14 @@ function initWebSocket(sessionId) {
         } else if (payload.status === 'completed') {
             pct = 100;
             details = "Download ready!";
-            setTimeout(() => { if (modal) modal.style.display = 'none'; }, 2000);
+            setTimeout(() => {
+                if (modal) modal.style.display = 'none';
+                if (window.currentDownloadFormat) {
+                    const fmt = window.currentDownloadFormat;
+                    window.currentDownloadFormat = null;
+                    triggerReportDownload(payload.session_id, fmt);
+                }
+            }, 1500);
         } else if (payload.status === 'failed') {
             pct = 100;
             details = "Compilation failed: " + payload.message;
@@ -1797,8 +1804,16 @@ async function triggerReportDownload(sessionId, format) {
     }, 50);
     
     try {
+        window.currentDownloadFormat = format;
         const response = await fetch(`/api/sessions/${sessionId}/download/${format}`);
         if (isCancelled) return;
+        
+        if (response.status === 202) {
+            clearInterval(timer);
+            statusText.textContent = "Report Compiling...";
+            subDetails.textContent = "The document is compiling on the server in the background. The download will start automatically once finished...";
+            return;
+        }
         
         if (!response.ok) {
             clearInterval(timer);
