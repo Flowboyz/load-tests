@@ -1,6 +1,17 @@
 # py_guest.py — Advanced Multi-Browser/Device WebSocket Load Testing Bot
 
 import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+if hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 import asyncio
 import argparse
 import signal
@@ -1347,6 +1358,7 @@ async def run_bot(
     refresh_bots=0, disable_abnormal_behavior=False
 ):
     name, email = await generate_identity()
+    participant_id = str(uuid.uuid4())
     
     # 1. Sample profiles
     profile = device_manager.sample_profile()
@@ -1376,7 +1388,7 @@ async def run_bot(
         if not token:
             return None
         proto = "ws" if "localhost" in signal_domain or "127.0.0.1" in signal_domain else "wss"
-        return f"{proto}://{signal_domain}/signal?roomId={room}&token={token}&isMobile={str(profile['device_type'] != 'desktop').lower()}"
+        return f"{proto}://{signal_domain}/signal?roomId={room}&token={token}&isMobile={str(profile['device_type'] != 'desktop').lower()}&participantId={participant_id}"
 
     current_room = room_id
     ws_url = await get_ws_url(current_room)
