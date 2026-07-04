@@ -278,8 +278,19 @@ def download_report(session_id, fmt):
     
     session_dir = get_session_dir(session_id)
     log_path = os.path.join(session_dir, "report_log.jsonl")
+    
     docx_path = os.path.join(session_dir, "report.docx")
+    if not os.path.exists(docx_path):
+        alt_docx = os.path.join(session_dir, f"session_{session_id}_report.docx")
+        if os.path.exists(alt_docx):
+            docx_path = alt_docx
+            
     pdf_path = os.path.join(session_dir, "report.pdf")
+    if not os.path.exists(pdf_path):
+        alt_pdf = os.path.join(session_dir, f"session_{session_id}_report.pdf")
+        if os.path.exists(alt_pdf):
+            pdf_path = alt_pdf
+            
     csv_path = os.path.join(session_dir, "session_action_lifecycle.csv")
     
     # Check for chunk log files if main log file doesn't exist
@@ -581,15 +592,15 @@ def upload_session_log_chunk(session_id):
     # Increment counts
     session.uploaded_workers_count += 1
     db.session.commit()
-    
     # Check if all expected chunks have uploaded
-    all_uploaded = session.uploaded_workers_count >= session.total_expected_workers
+    expected = session.total_expected_workers or 1
+    all_uploaded = session.uploaded_workers_count >= expected
     
     from app import socketio
     socketio.emit('cluster_status_changed', {
         'session_id': session_id,
         'uploaded_workers_count': session.uploaded_workers_count,
-        'total_expected_workers': session.total_expected_workers,
+        'total_expected_workers': expected,
         'all_uploaded': all_uploaded
     })
     
@@ -615,6 +626,8 @@ def get_session_cluster_batches(session_id):
     total_bots = config.bots
     batch_size = 500
     expected_workers = session.total_expected_workers
+    if not expected_workers:
+        expected_workers = max(1, (total_bots + batch_size - 1) // batch_size)
     
     batches = []
     for i in range(expected_workers):

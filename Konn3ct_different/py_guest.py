@@ -235,6 +235,11 @@ def generate_local_token(room_id, name, email, bot_id, role, is_mobile, secret):
 # HTTP Prejoin / Join sequences
 async def get_ws_token(session, frontend_url, room_id, name, email, bot_id, is_mobile):
     try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Content-Type": "application/json"
+        }
         async with session.post(
             f"{frontend_url}/api/prejoin",
             json={
@@ -245,6 +250,7 @@ async def get_ws_token(session, frontend_url, room_id, name, email, bot_id, is_m
                 "camera":   False,
                 "mic":      False,
             },
+            headers=headers,
             timeout=aiohttp.ClientTimeout(total=20),
         ) as resp:
             data = await resp.json()
@@ -255,9 +261,15 @@ async def get_ws_token(session, frontend_url, room_id, name, email, bot_id, is_m
         return None
 
     try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Content-Type": "application/json"
+        }
         async with session.post(
             f"{frontend_url}/api/join",
             json={"roomId": room_id, "sessionToken": session_token},
+            headers=headers,
             timeout=aiohttp.ClientTimeout(total=20),
         ) as resp:
             data = await resp.json()

@@ -14,9 +14,20 @@ from app.models import db, TestSession, SessionMetric, Configuration
 RUNNING_SESSIONS = {}
 RUNNING_SESSIONS_LOCK = threading.Lock()
 
-def get_session_dir(session_id):
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    session_dir = os.path.join(project_root, "sessions", f"session_{session_id}")
+def get_session_dir(session_id, *args):
+    """
+    Returns the session folder path. Supports:
+      get_session_dir(session_id)
+      get_session_dir(project_root, session_id)
+    """
+    if isinstance(session_id, str) and args:
+        project_root = session_id
+        actual_session_id = args[0]
+    else:
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        actual_session_id = session_id
+        
+    session_dir = os.path.join(project_root, "sessions", f"session_{actual_session_id}")
     os.makedirs(session_dir, exist_ok=True)
     return session_dir
 
@@ -725,7 +736,8 @@ def compile_report_log_async(project_root, session_id, socketio):
                 
                 # Scan all chunks
                 chunks = []
-                for i in range(1, session.total_expected_workers + 1):
+                expected = session.total_expected_workers or 1
+                for i in range(1, expected + 1):
                     chunk_path = os.path.join(session_dir, f"report_log_chunk_{i}.jsonl")
                     if os.path.exists(chunk_path):
                         chunks.append(chunk_path)
