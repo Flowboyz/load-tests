@@ -3,6 +3,8 @@
 let botsChart = null;
 let latencyChart = null;
 let resourcesChart = null;
+let bandwidthChart = null;
+let targetServerChart = null;
 
 const MAX_CHART_POINTS = 30;
 
@@ -137,10 +139,66 @@ function initCharts() {
         },
         options: chartDefaults
     });
+
+    // 4. Bandwidth Chart (Mbps)
+    const ctxBandwidth = document.getElementById('bandwidthChart').getContext('2d');
+    bandwidthChart = new Chart(ctxBandwidth, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Ingress (Mbps)',
+                    borderColor: '#60A5FA', // light blue
+                    backgroundColor: 'rgba(96, 165, 250, 0.1)',
+                    data: [],
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.2
+                },
+                {
+                    label: 'Egress (Mbps)',
+                    borderColor: '#F97316', // orange
+                    backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                    data: [],
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.2
+                }
+            ]
+        },
+        options: chartDefaults
+    });
+
+    // 5. Target Server Health Chart (CPU & RAM)
+    const ctxTargetServer = document.getElementById('targetServerChart').getContext('2d');
+    targetServerChart = new Chart(ctxTargetServer, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Target CPU (%)',
+                    borderColor: '#F87171', // light red
+                    data: [],
+                    borderWidth: 2,
+                    tension: 0.2
+                },
+                {
+                    label: 'Target RAM (%)',
+                    borderColor: '#FBBF24', // light amber
+                    data: [],
+                    borderWidth: 2,
+                    tension: 0.2
+                }
+            ]
+        },
+        options: chartDefaults
+    });
 }
 
 function updateCharts(timeStr, metrics, shift = true) {
-    if (!botsChart || !latencyChart || !resourcesChart) return;
+    if (!botsChart || !latencyChart || !resourcesChart || !bandwidthChart || !targetServerChart) return;
  
     // Helper to push and shift label/data
     const pushData = (chart, index, val) => {
@@ -178,6 +236,18 @@ function updateCharts(timeStr, metrics, shift = true) {
     pushData(resourcesChart, 0, metrics.cpu_usage);
     pushData(resourcesChart, 1, metrics.ram_usage);
     resourcesChart.update('none');
+
+    // Bandwidth Chart updates
+    pushLabel(bandwidthChart, timeStr);
+    pushData(bandwidthChart, 0, metrics.bandwidth_in || 0.0);
+    pushData(bandwidthChart, 1, metrics.bandwidth_out || 0.0);
+    bandwidthChart.update('none');
+
+    // Target Server Health updates
+    pushLabel(targetServerChart, timeStr);
+    pushData(targetServerChart, 0, metrics.target_cpu || 0.0);
+    pushData(targetServerChart, 1, metrics.target_ram || 0.0);
+    targetServerChart.update('none');
 }
 
 function exportChart(chartType) {
@@ -193,6 +263,12 @@ function exportChart(chartType) {
     } else if (chartType === 'resources') {
         chartInstance = resourcesChart;
         filename = "server_resource_monitoring.png";
+    } else if (chartType === 'bandwidth') {
+        chartInstance = bandwidthChart;
+        filename = "runner_network_bandwidth.png";
+    } else if (chartType === 'targetServer') {
+        chartInstance = targetServerChart;
+        filename = "target_server_resource_utilization.png";
     }
     
     if (!chartInstance) return;
@@ -207,9 +283,9 @@ function exportChart(chartType) {
 }
 
 function clearCharts() {
-    if (!botsChart || !latencyChart || !resourcesChart) return;
+    if (!botsChart || !latencyChart || !resourcesChart || !bandwidthChart || !targetServerChart) return;
     
-    [botsChart, latencyChart, resourcesChart].forEach(chart => {
+    [botsChart, latencyChart, resourcesChart, bandwidthChart, targetServerChart].forEach(chart => {
         chart.data.labels = [];
         chart.data.datasets.forEach(ds => {
             ds.data = [];
@@ -223,7 +299,7 @@ function rethemeCharts(isDarkMode) {
     const gridColor = isDarkMode ? '#374151' : '#E5E7EB';
     const textColor = isDarkMode ? '#9CA3AF' : '#4B5563';
 
-    [botsChart, latencyChart, resourcesChart].forEach(chart => {
+    [botsChart, latencyChart, resourcesChart, bandwidthChart, targetServerChart].forEach(chart => {
         if (!chart) return;
         chart.options.scales.x.grid.color = gridColor;
         chart.options.scales.x.ticks.color = textColor;

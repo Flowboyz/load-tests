@@ -134,6 +134,10 @@ class TestSession(db.Model):
     report_csv_path = db.Column(db.String(255), nullable=True)
     error_message = db.Column(db.Text, nullable=True)
     
+    # Cluster scaling variables
+    total_expected_workers = db.Column(db.Integer, default=1, nullable=False)
+    uploaded_workers_count = db.Column(db.Integer, default=0, nullable=False)
+    
     # Relationship to configuration
     config = db.relationship('Configuration', backref='sessions')
 
@@ -158,7 +162,25 @@ class TestSession(db.Model):
             "error_message": self.error_message,
             "accumulated_duration": self.accumulated_duration,
             "last_resume_time": self.last_resume_time.isoformat() if self.last_resume_time else None,
-            "elapsed_seconds": elapsed
+            "elapsed_seconds": elapsed,
+            "total_expected_workers": self.total_expected_workers,
+            "uploaded_workers_count": self.uploaded_workers_count
+        }
+
+class WorkerNode(db.Model):
+    __tablename__ = 'worker_nodes'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    ip_address = db.Column(db.String(100), unique=True, nullable=False)
+    status = db.Column(db.String(20), default='idle', nullable=False)  # idle, active, offline
+    last_seen = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "ip_address": self.ip_address,
+            "status": self.status,
+            "last_seen": self.last_seen.isoformat() if self.last_seen else None
         }
 
 class SessionMetric(db.Model):

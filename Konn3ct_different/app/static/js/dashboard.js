@@ -21,7 +21,7 @@ let localTimerBaseSeconds = 0;
 let localElapsedSeconds = 0;
 
 // Tab Routing Configuration
-const TABS = ['monitoring', 'configurator', 'templates', 'history'];
+const TABS = ['monitoring', 'configurator', 'templates', 'history', 'mobile-test'];
 
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Theme Configuration
@@ -174,9 +174,15 @@ function switchTab(tabId) {
         'monitoring': 'Monitoring Dashboard',
         'configurator': 'Configure New Test Session',
         'templates': 'Saved Configuration Presets',
-        'history': 'Test Session Execution History'
+        'history': 'Test Session Execution History',
+        'mobile-test': 'Mobile UI Test Automation'
     };
     document.getElementById('pageTitle').textContent = titles[tabId] || 'Dashboard';
+
+    // Trigger loading of mobile flows and emulators
+    if (tabId === 'mobile-test') {
+        loadMobileTestData();
+    }
 }
 
 // Load configurations list
@@ -417,6 +423,9 @@ async function setupActiveSession(sessionId, sessionName, status) {
     } catch (e) {
         console.error("Failed to load active session config: ", e);
     }
+    
+    // Load cluster batch table status
+    loadClusterBatchTable(sessionId);
 
     // 2. Pre-populate metrics cards and charts with existing history
     try {
@@ -663,6 +672,88 @@ function initWebSocket(sessionId) {
             updateBannerStatusText(payload.status);
         }
     });
+
+    // Listen for target server telemetry
+    socket.on('server_telemetry', (payload) => {
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        if (targetServerChart) {
+            const pushData = (chart, index, val) => {
+                chart.data.datasets[index].data.push(val);
+                if (chart.data.datasets[index].data.length > MAX_CHART_POINTS) {
+                    chart.data.datasets[index].data.shift();
+                }
+            };
+            const pushLabel = (chart, label) => {
+                if (chart.data.labels.length === 0 || chart.data.labels[chart.data.labels.length - 1] !== label) {
+                    chart.data.labels.push(label);
+                    if (chart.data.labels.length > MAX_CHART_POINTS) {
+                        chart.data.labels.shift();
+                    }
+                }
+            };
+            pushLabel(targetServerChart, timeStr);
+            pushData(targetServerChart, 0, payload.cpu_usage);
+            pushData(targetServerChart, 1, payload.ram_usage);
+            targetServerChart.update('none');
+        }
+        
+        // Cache locally for updateCharts merges
+        window.latestTargetServerTelemetry = payload;
+    });
+
+    // Listen for cluster uploads
+    socket.on('cluster_status_changed', (payload) => {
+        if (payload.session_id !== sessionId) return;
+        
+        const progEl = document.getElementById('clusterUploadProgress');
+        if (progEl) {
+            progEl.textContent = `Reports: ${payload.uploaded_workers_count} / ${payload.total_expected_workers} Workers Uploaded`;
+            if (payload.all_uploaded) {
+                progEl.className = "badge badge-completed";
+            } else {
+                progEl.className = "badge badge-running";
+            }
+        }
+        
+        // Refresh batch grid if running
+        loadClusterBatchTable(sessionId);
+    });
+
+    // Listen for background compilation stage progress
+    socket.on('report_compile_status', (payload) => {
+        if (payload.session_id !== sessionId) return;
+        
+        const modal = document.getElementById('reportProgressModal');
+        const statusText = document.getElementById('progressStatusText');
+        const progressFill = document.getElementById('progressBarFill');
+        const percentageLabel = document.getElementById('progressPercentageLabel');
+        const subDetails = document.getElementById('progressSubDetails');
+        
+        if (modal) modal.style.display = 'block';
+        if (statusText) statusText.textContent = payload.message;
+        
+        let pct = 0;
+        let details = "";
+        if (payload.status === 'merging') {
+            pct = 40;
+            details = "Stitching distributed JSONL worker logs together...";
+        } else if (payload.status === 'compiling') {
+            pct = 75;
+            details = "Analyzing metrics and generating Word report...";
+        } else if (payload.status === 'completed') {
+            pct = 100;
+            details = "Download ready!";
+            setTimeout(() => { if (modal) modal.style.display = 'none'; }, 2000);
+        } else if (payload.status === 'failed') {
+            pct = 100;
+            details = "Compilation failed: " + payload.message;
+            if (progressFill) progressFill.style.backgroundColor = '#EF4444';
+        }
+        
+        if (progressFill) progressFill.style.width = `${pct}%`;
+        if (percentageLabel) percentageLabel.textContent = `${pct}%`;
+        if (subDetails) subDetails.textContent = details;
+    });
 }
 
 // Log Terminal data storage and filter helpers
@@ -728,6 +819,21 @@ function getLogHtmlAndMessage(evt) {
     } else if (etype === "bot_joined") {
         logMsg = `🌐 Bot-${evt.bot_id} (${evt.name}) joined via browser emulator [${evt.fingerprint.browser_name} | ${evt.fingerprint.device_type} | ${evt.fingerprint.os_type}]`;
         statusClass = "tag";
+    } else if (etype === "bot_left") {
+        let reasonStr = "Graceful exit (Test complete)";
+        let statusStyle = "grey";
+        if (evt.reason === "reconnect_exhausted") {
+            reasonStr = "Reconnection Limit Exhausted";
+            statusStyle = "error";
+        } else if (evt.reason === "stopped") {
+            reasonStr = "Test Stopped by User";
+            statusStyle = "grey";
+        } else if (evt.reason === "network_disconnect") {
+            reasonStr = "Network Disconnect / Reload";
+            statusStyle = "warn";
+        }
+        logMsg = `🚪 Bot-${evt.bot_id} (${evt.name}) left the room. Reason: ${reasonStr}${metaStr}`;
+        statusClass = statusStyle;
     } else if (etype === "action_logged") {
         const value = evt.action_value;
         const latency = evt.latency_ms ? ` (propagation: ${evt.latency_ms.toFixed(1)}ms)` : "";
@@ -1747,3 +1853,262 @@ async function triggerReportDownload(sessionId, format) {
 
 // Make globally accessible from onclick handlers
 window.triggerReportDownload = triggerReportDownload;
+
+// --- Mobile UI Test Integration Functions ---
+
+async function loadMobileTestData() {
+    ensureWebSocketConnected();
+    
+    // 1. Fetch connected emulators
+    try {
+        const res = await fetch('/api/mobile/emulators');
+        if (res.ok) {
+            const devices = await res.json();
+            const select = document.getElementById('mobileDeviceSelect');
+            select.innerHTML = '';
+            
+            if (devices.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = 'No emulators connected';
+                select.appendChild(opt);
+            } else {
+                devices.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d.id;
+                    opt.textContent = `${d.name}`;
+                    select.appendChild(opt);
+                });
+            }
+        }
+    } catch (e) {
+        console.error("Failed to load emulators: ", e);
+    }
+
+    // 2. Fetch YAML test flows
+    try {
+        const res = await fetch('/api/mobile/flows');
+        if (res.ok) {
+            const flows = await res.json();
+            const select = document.getElementById('mobileFlowSelect');
+            select.innerHTML = '';
+            
+            if (flows.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = 'No YAML flows found';
+                select.appendChild(opt);
+            } else {
+                flows.forEach(f => {
+                    const opt = document.createElement('option');
+                    opt.value = f;
+                    opt.textContent = f;
+                    select.appendChild(opt);
+                });
+                
+                // Load content of first flow into editor
+                if (flows.length > 0) {
+                    loadMobileFlowContent(flows[0]);
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Failed to load flows: ", e);
+    }
+}
+
+async function loadMobileFlowContent(flowFile) {
+    try {
+        const res = await fetch(`/api/mobile/flow-content?flow=${flowFile}`);
+        if (res.ok) {
+            const data = await res.json();
+            document.getElementById('mobileFlowEditor').value = data.content;
+        }
+    } catch (e) {
+        console.error("Failed to read flow content: ", e);
+    }
+}
+
+// Bind flow selector change to reload editor
+document.addEventListener('DOMContentLoaded', () => {
+    const flowSelect = document.getElementById('mobileFlowSelect');
+    if (flowSelect) {
+        flowSelect.addEventListener('change', (e) => {
+            if (e.target.value) {
+                loadMobileFlowContent(e.target.value);
+            }
+        });
+    }
+    
+    // Save Flow button click
+    const btnSave = document.getElementById('btnSaveMobileFlow');
+    if (btnSave) {
+        btnSave.addEventListener('click', async () => {
+            const flowFile = document.getElementById('mobileFlowSelect').value;
+            const content = document.getElementById('mobileFlowEditor').value;
+            if (!flowFile) {
+                alert("Please select a flow file first.");
+                return;
+            }
+            try {
+                const res = await fetch('/api/mobile/save-flow', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ flow: flowFile, content: content })
+                });
+                const data = await res.json();
+                alert(data.message);
+            } catch (e) {
+                alert("Failed to save flow.");
+            }
+        });
+    }
+
+    // Run Mobile UI Test button click
+    const btnRun = document.getElementById('btnRunMobileUiTest');
+    if (btnRun) {
+        btnRun.addEventListener('click', async () => {
+            const flowFile = document.getElementById('mobileFlowSelect').value;
+            const deviceId = document.getElementById('mobileDeviceSelect').value;
+            const apkPath = document.getElementById('mobileAppApk').value;
+            
+            if (!flowFile) {
+                alert("Please select a test flow to run.");
+                return;
+            }
+            
+            // Clear console terminal
+            const term = document.getElementById('mobileConsoleTerminal');
+            term.innerHTML = '';
+            appendMobileConsoleLog("ℹ️ Initializing Maestro execution environment...");
+            
+            try {
+                const res = await fetch('/api/mobile/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ flow: flowFile, device_id: deviceId, apk_path: apkPath })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    alert(data.message);
+                } else {
+                    appendMobileConsoleLog("🚀 " + data.message);
+                }
+            } catch (e) {
+                alert("Failed to trigger mobile UI test.");
+            }
+        });
+    }
+
+    // Clear console log button
+    const btnClearConsole = document.getElementById('btnClearMobileConsole');
+    if (btnClearConsole) {
+        btnClearConsole.addEventListener('click', () => {
+            const term = document.getElementById('mobileConsoleTerminal');
+            term.innerHTML = '<div class="console-placeholder">Waiting for Maestro test execution to start...</div>';
+        });
+    }
+});
+
+function appendMobileConsoleLog(line) {
+    const term = document.getElementById('mobileConsoleTerminal');
+    const placeholder = term.querySelector('.console-placeholder');
+    if (placeholder) {
+        term.innerHTML = '';
+    }
+    
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    
+    // Style text depending on content
+    if (line.includes('❌') || line.includes('ERROR')) {
+        entry.style.color = '#F87171';
+    } else if (line.includes('🚀') || line.includes('SUCCESS')) {
+        entry.style.color = '#34D399';
+    } else if (line.includes('ℹ️')) {
+        entry.style.color = '#60A5FA';
+    } else if (line.includes('🎉')) {
+        entry.style.color = '#34D399';
+        entry.style.fontWeight = 'bold';
+    }
+    
+    entry.textContent = line;
+    term.appendChild(entry);
+    term.scrollTop = term.scrollHeight;
+}
+
+function updateMobileTestStatus(status) {
+    const btnRun = document.getElementById('btnRunMobileUiTest');
+    if (btnRun) {
+        if (status === 'running') {
+            btnRun.disabled = true;
+            btnRun.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Running Maestro...';
+            btnRun.style.backgroundColor = '#6B7280';
+        } else {
+            btnRun.disabled = false;
+            btnRun.innerHTML = '<i class="fa-solid fa-play"></i> Run Mobile UI Test';
+            btnRun.style.backgroundColor = '';
+        }
+    }
+}
+
+function ensureWebSocketConnected() {
+    if (!socket || !socket.connected) {
+        socket = io();
+        socket.on('connect', () => {
+            console.log("Global Socket.IO connected.");
+        });
+        
+        socket.on('mobile_ui_test_log', (payload) => {
+            appendMobileConsoleLog(payload.line);
+        });
+        
+        socket.on('mobile_ui_test_status', (payload) => {
+            updateMobileTestStatus(payload.status);
+        });
+    }
+}
+
+async function loadClusterBatchTable(sessionId) {
+    try {
+        const res = await fetch(`/api/sessions/${sessionId}/cluster_batches`);
+        if (!res.ok) return;
+        const batches = await res.json();
+        
+        const tbody = document.getElementById('clusterBatchTableBody');
+        if (!tbody) return;
+        
+        if (batches.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted" style="padding: 16px;">No cluster batches configured for this session.</td></tr>`;
+            return;
+        }
+        
+        tbody.innerHTML = '';
+        batches.forEach(b => {
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid var(--border-color)';
+            
+            let statusBadgeClass = 'badge-pending';
+            if (b.status === 'running') statusBadgeClass = 'badge-running';
+            else if (b.status === 'completed') statusBadgeClass = 'badge-completed';
+            else if (b.status === 'failed') statusBadgeClass = 'badge-failed';
+            
+            tr.innerHTML = `
+                <td style="padding: 8px; font-weight: 600;">${b.batch_id}</td>
+                <td style="padding: 8px; color: var(--text-secondary);">${b.worker_ip}</td>
+                <td style="padding: 8px;">${b.bot_range}</td>
+                <td style="padding: 8px; text-align: center; color: var(--success); font-weight: 600;">${b.joined}</td>
+                <td style="padding: 8px; text-align: center; color: var(--error); font-weight: 600;">${b.failed}</td>
+                <td style="padding: 8px; text-align: center;">
+                    <span class="badge ${b.uploaded === 'Yes' ? 'badge-completed' : 'badge-pending'}">${b.uploaded}</span>
+                </td>
+                <td style="padding: 8px; text-align: center;">
+                    <span class="badge ${statusBadgeClass}">${b.status.toUpperCase()}</span>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        console.error("Failed to load cluster batches: ", e);
+    }
+}

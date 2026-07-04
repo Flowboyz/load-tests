@@ -509,6 +509,7 @@ body {
 .log-entry .info { color: #F3F4F6; }
 .log-entry .warn { color: #F59E0B; }
 .log-entry .error { color: #EF4444; }
+.log-entry .grey { color: #9CA3AF; }
 
 /* Forms and input configurations */
 .config-grid {

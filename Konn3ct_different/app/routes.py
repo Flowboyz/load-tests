@@ -414,3 +414,271 @@ def download_report(session_id, fmt):
         
     else:
         return jsonify({'message': 'Invalid download format! Must be JSON, CSV, DOCX, or PDF.'}), 400
+
+# --- Mobile UI Test Integration Routes ---
+
+@api_bp.route('/mobile/emulators', methods=['GET'])
+@token_required
+def get_mobile_emulators(current_user):
+    from mobile_ui_tests.run_test import list_emulators
+    try:
+        devices = list_emulators()
+        return jsonify(devices), 200
+    except Exception as e:
+        return jsonify({'message': f'Failed to retrieve emulator list: {str(e)}'}), 500
+
+@api_bp.route('/mobile/flows', methods=['GET'])
+@token_required
+def get_mobile_flows(current_user):
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    flows_dir = os.path.join(project_root, "mobile_ui_tests", "flows")
+    
+    if not os.path.exists(flows_dir):
+        return jsonify([]), 200
+        
+    try:
+        files = [f for f in os.listdir(flows_dir) if f.endswith('.yaml') or f.endswith('.yml')]
+        return jsonify(files), 200
+    except Exception as e:
+        return jsonify({'message': f'Failed to list test flows: {str(e)}'}), 500
+
+@api_bp.route('/mobile/flow-content', methods=['GET'])
+@token_required
+def get_mobile_flow_content(current_user):
+    flow_file = request.args.get('flow')
+    if not flow_file:
+        return jsonify({'message': 'Missing flow parameter'}), 400
+        
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    flow_path = os.path.join(project_root, "mobile_ui_tests", "flows", flow_file)
+    
+    if not os.path.exists(flow_path) or not os.path.abspath(flow_path).startswith(os.path.join(project_root, "mobile_ui_tests")):
+        return jsonify({'message': 'Invalid file path'}), 400
+        
+    try:
+        with open(flow_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return jsonify({'content': content}), 200
+    except Exception as e:
+        return jsonify({'message': f'Failed to read flow content: {str(e)}'}), 500
+
+@api_bp.route('/mobile/save-flow', methods=['POST'])
+@token_required
+def save_mobile_flow(current_user):
+    data = request.get_json()
+    flow_file = data.get('flow')
+    content = data.get('content')
+    
+    if not flow_file or content is None:
+        return jsonify({'message': 'Missing flow or content parameter'}), 400
+        
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    flow_path = os.path.join(project_root, "mobile_ui_tests", "flows", flow_file)
+    
+    if not os.path.abspath(flow_path).startswith(os.path.join(project_root, "mobile_ui_tests")):
+        return jsonify({'message': 'Invalid file path'}), 400
+        
+    try:
+        with open(flow_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return jsonify({'message': 'Flow saved successfully!'}), 200
+    except Exception as e:
+        return jsonify({'message': f'Failed to save flow: {str(e)}'}), 500
+
+# Background thread state for active mobile UI test runs
+is_mobile_test_running = False
+
+@api_bp.route('/mobile/run', methods=['POST'])
+@token_required
+def run_mobile_test(current_user):
+    global is_mobile_test_running
+    
+    if is_mobile_test_running:
+        return jsonify({'message': 'A mobile UI test is already running!'}), 400
+        
+    data = request.get_json() or {}
+    flow_file = data.get('flow')
+    device_id = data.get('device_id')
+    
+    if not flow_file:
+        return jsonify({'message': 'Missing target flow file'}), 400
+        
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    flow_path = os.path.join(project_root, "mobile_ui_tests", "flows", flow_file)
+    
+    if not os.path.exists(flow_path):
+        return jsonify({'message': f'Flow file not found: {flow_file}'}), 404
+
+    from app import socketio
+    import threading
+    from mobile_ui_tests.run_test import execute_flow_generator
+    
+    def run_in_background():
+        global is_mobile_test_running
+        is_mobile_test_running = True
+        try:
+            socketio.emit('mobile_ui_test_status', {'status': 'running'})
+            for log_line in execute_flow_generator(flow_path, device_id):
+                socketio.emit('mobile_ui_test_log', {'line': log_line})
+        except Exception as e:
+            socketio.emit('mobile_ui_test_log', {'line': f'❌ Background Execution Error: {str(e)}'})
+        finally:
+            is_mobile_test_running = False
+            socketio.emit('mobile_ui_test_status', {'status': 'idle'})
+            
+    threading.Thread(target=run_in_background, daemon=True).start()
+    return jsonify({'message': 'Mobile UI test started successfully!'}), 200
+
+# --- Cluster Scaling & Telemetry API Routes ---
+
+@api_bp.route('/cluster/register', methods=['POST'])
+def register_worker_node():
+    data = request.get_json() or {}
+    ip = data.get('ip_address')
+    status = data.get('status', 'idle')
+    
+    if not ip:
+        return jsonify({'message': 'Missing ip_address'}), 400
+        
+    from app.models import WorkerNode
+    node = WorkerNode.query.filter_by(ip_address=ip).first()
+    if not node:
+        node = WorkerNode(ip_address=ip)
+        db.session.add(node)
+        
+    node.status = status
+    node.last_seen = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({'message': 'Worker node registered successfully', 'node': node.to_dict()}), 200
+
+@api_bp.route('/sessions/<int:session_id>/upload_chunk', methods=['POST'])
+def upload_session_log_chunk(session_id):
+    session = TestSession.query.get_or_404(session_id)
+    
+    # 1. Save uploaded jsonl chunk file
+    if 'file' not in request.files:
+        return jsonify({'message': 'No file part in the request'}), 400
+        
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'message': 'No selected file'}), 400
+        
+    session_dir = get_session_dir(current_app.root_path, session_id)
+    os.makedirs(session_dir, exist_ok=True)
+    
+    chunk_filename = f"report_log_chunk_{session.uploaded_workers_count + 1}.jsonl"
+    chunk_path = os.path.join(session_dir, chunk_filename)
+    file.save(chunk_path)
+    
+    # 2. Save uploaded summary json if present
+    summary_file = request.files.get('summary')
+    if summary_file:
+        summary_filename = f"summary_chunk_{session.uploaded_workers_count + 1}.json"
+        summary_path = os.path.join(session_dir, summary_filename)
+        summary_file.save(summary_path)
+        
+    # Increment counts
+    session.uploaded_workers_count += 1
+    db.session.commit()
+    
+    # Check if all expected chunks have uploaded
+    all_uploaded = session.uploaded_workers_count >= session.total_expected_workers
+    
+    from app import socketio
+    socketio.emit('cluster_status_changed', {
+        'session_id': session_id,
+        'uploaded_workers_count': session.uploaded_workers_count,
+        'total_expected_workers': session.total_expected_workers,
+        'all_uploaded': all_uploaded
+    })
+    
+    # If all uploaded, trigger background compile/merger asynchronously
+    if all_uploaded and session.status in ['completed', 'stopped']:
+        from app.runner import compile_report_log_async
+        compile_report_log_async(current_app.root_path, session_id, socketio)
+        
+    return jsonify({
+        'message': f'Chunk {session.uploaded_workers_count} uploaded successfully',
+        'all_uploaded': all_uploaded
+    }), 200
+
+@api_bp.route('/sessions/<int:session_id>/cluster_batches', methods=['GET'])
+def get_session_cluster_batches(session_id):
+    import json
+    session = TestSession.query.get_or_404(session_id)
+    config = session.config
+    
+    if not config:
+        return jsonify([]), 200
+        
+    total_bots = config.bots
+    batch_size = 500
+    expected_workers = session.total_expected_workers
+    
+    batches = []
+    for i in range(expected_workers):
+        start_id = config.start_id + (i * batch_size)
+        end_id = min(start_id + batch_size - 1, config.start_id + total_bots - 1)
+        
+        session_dir = get_session_dir(current_app.root_path, session_id)
+        summary_path = os.path.join(session_dir, f"summary_chunk_{i + 1}.json")
+        has_summary = os.path.exists(summary_path)
+        
+        joined_count = 0
+        failed_count = 0
+        status = "pending"
+        
+        if has_summary:
+            try:
+                with open(summary_path, 'r') as f:
+                    summary = json.load(f)
+                joined_count = summary.get('success_joins', batch_size)
+                failed_count = summary.get('failures_count', 0)
+                status = "completed"
+            except Exception:
+                status = "completed"
+        elif session.status == 'running':
+            status = "running"
+            joined_count = (end_id - start_id + 1)
+            failed_count = 0
+            
+        batches.append({
+            "batch_id": f"Batch-{i+1:02d}",
+            "worker_ip": f"192.168.1.{100 + i}",
+            "bot_range": f"{start_id} - {end_id}",
+            "joined": joined_count,
+            "failed": failed_count,
+            "uploaded": "Yes" if has_summary else "No",
+            "status": status
+        })
+        
+    return jsonify(batches), 200
+
+
+# Global target server stats cache
+latest_server_telemetry = {
+    'cpu_usage': 0.0,
+    'ram_usage': 0.0,
+    'timestamp': None
+}
+
+@api_bp.route('/server/telemetry', methods=['POST'])
+def receive_server_telemetry():
+    global latest_server_telemetry
+    data = request.get_json() or {}
+    
+    cpu = float(data.get('cpu_usage', 0.0))
+    ram = float(data.get('ram_usage', 0.0))
+    
+    latest_server_telemetry = {
+        'cpu_usage': cpu,
+        'ram_usage': ram,
+        'timestamp': datetime.utcnow().isoformat()
+    }
+    
+    from app import socketio
+    socketio.emit('server_telemetry', latest_server_telemetry)
+    
+    return jsonify({'message': 'Server telemetry received successfully'}), 200
+

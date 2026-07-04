@@ -104,7 +104,18 @@ def upgrade():
             report_docx_path VARCHAR(255),
             report_pdf_path VARCHAR(255),
             report_csv_path VARCHAR(255),
-            error_message TEXT
+            error_message TEXT,
+            total_expected_workers INTEGER DEFAULT 1,
+            uploaded_workers_count INTEGER DEFAULT 0
+        )
+        """)
+        
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS worker_nodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip_address VARCHAR(100) UNIQUE NOT NULL,
+            status VARCHAR(20) DEFAULT 'idle' NOT NULL,
+            last_seen DATETIME
         )
         """)
         
@@ -175,9 +186,19 @@ def upgrade():
             "report_docx_path": "VARCHAR(255)",
             "report_pdf_path": "VARCHAR(255)",
             "report_csv_path": "VARCHAR(255)",
-            "error_message": "TEXT"
+            "error_message": "TEXT",
+            "total_expected_workers": "INTEGER DEFAULT 1",
+            "uploaded_workers_count": "INTEGER DEFAULT 0"
         }
         add_missing_columns("test_sessions", sessions_cols)
+        
+        # Check worker_nodes
+        worker_cols = {
+            "ip_address": "VARCHAR(100) UNIQUE NOT NULL",
+            "status": "VARCHAR(20) DEFAULT 'idle' NOT NULL",
+            "last_seen": "DATETIME"
+        }
+        add_missing_columns("worker_nodes", worker_cols)
         
         # Check session_metrics
         metrics_cols = {

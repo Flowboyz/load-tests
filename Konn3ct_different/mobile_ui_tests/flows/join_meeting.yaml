@@ -1,0 +1,7 @@
+appId: com.konn3ct.app
+---
+- launchApp
+- tapOn: "Room Code"
+- inputText: "1govtest"
+- tapOn: "Join Meeting"
+- assertVisible: "Mute Microphone"

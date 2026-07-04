@@ -119,6 +119,14 @@ def create_app(db_uri=None):
             adopt_running_sessions(app, socketio)
         except Exception as e:
             print(f"Startup database cleanup/adoption failed: {e}")
+            
+    # Auto-create mobile UI test directory structure on startup
+    try:
+        mobile_dir = os.path.join(project_root, "mobile_ui_tests")
+        flows_dir = os.path.join(mobile_dir, "flows")
+        os.makedirs(flows_dir, exist_ok=True)
+    except Exception as e:
+        print(f"Failed to create mobile UI test directories: {e}")
     
     # Web UI Page Routes (Jinja static wrappers)
     @app.route('/')

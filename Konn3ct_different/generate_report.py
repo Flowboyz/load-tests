@@ -1638,7 +1638,31 @@ class ReportPipeline:
                 "browser": err["browser"]
             })
 
+        # Try to extract session ID and query the main database for cluster metrics
+        total_expected_workers = 1
+        uploaded_workers_count = 1
+        try:
+            folder_name = os.path.basename(self.session_dir)
+            if folder_name.startswith("session_"):
+                session_id = int(folder_name.split("_")[1])
+                project_root = os.path.dirname(os.path.dirname(self.session_dir))
+                db_path = os.path.join(project_root, "konn3ct.db")
+                if os.path.exists(db_path):
+                    import sqlite3
+                    conn = sqlite3.connect(db_path)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT total_expected_workers, uploaded_workers_count FROM test_sessions WHERE id = ?", (session_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        total_expected_workers = row[0]
+                        uploaded_workers_count = row[1]
+                    conn.close()
+        except Exception as e:
+            print(f"Warning: Failed to query main database for cluster metrics: {e}")
+
         self.aggregated_json = {
+            "total_expected_workers": total_expected_workers,
+            "uploaded_workers_count": uploaded_workers_count,
             "config": self.agg_stage.config,
             "started_at": self.agg_stage.started_at,
             "finished_at": self.agg_stage.finished_at,

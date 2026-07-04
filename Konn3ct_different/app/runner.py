@@ -699,6 +699,76 @@ def compile_report_log(project_root, log_path, docx_path):
     except Exception as e:
         print(f"Failed to auto-compile docx report: {e}")
 
+def compile_report_log_async(project_root, session_id, socketio):
+    """
+    Spawns a background thread to compile the report asynchronously and stream
+    status updates.
+    """
+    import threading
+    from app.models import TestSession, db
+    
+    def worker():
+        # Retrieve session from app context
+        from app import create_app
+        app = create_app()
+        with app.app_context():
+            session = TestSession.query.get(session_id)
+            if not session:
+                return
+                
+            try:
+                socketio.emit('report_compile_status', {'session_id': session_id, 'status': 'merging', 'message': 'Merging worker chunks...'})
+                
+                # 1. Self-healing merger: Combine all uploaded chunk files
+                session_dir = get_session_dir(project_root, session_id)
+                merged_log_path = os.path.join(session_dir, "report_log.jsonl")
+                
+                # Scan all chunks
+                chunks = []
+                for i in range(1, session.total_expected_workers + 1):
+                    chunk_path = os.path.join(session_dir, f"report_log_chunk_{i}.jsonl")
+                    if os.path.exists(chunk_path):
+                        chunks.append(chunk_path)
+                
+                # Merge logic
+                with open(merged_log_path, 'w', encoding='utf-8') as outfile:
+                    for chunk_file in chunks:
+                        try:
+                            with open(chunk_file, 'r', encoding='utf-8') as infile:
+                                for line in infile:
+                                    outfile.write(line)
+                        except Exception as e:
+                            print(f"Error merging chunk {chunk_file}: {e}")
+                            
+                socketio.emit('report_compile_status', {'session_id': session_id, 'status': 'compiling', 'message': 'Compiling document report analytics...'})
+                
+                # 2. Compile DOCX report
+                docx_path = os.path.join(session_dir, f"session_{session_id}_report.docx")
+                compile_report_log(project_root, merged_log_path, docx_path)
+                
+                session.report_log_path = merged_log_path
+                session.report_docx_path = docx_path
+                session.status = 'completed'
+                db.session.commit()
+                
+                socketio.emit('report_compile_status', {'session_id': session_id, 'status': 'completed', 'message': 'Report compiled successfully!'})
+                socketio.emit('session_status_changed', {
+                    'session_id': session_id,
+                    'status': 'completed'
+                })
+            except Exception as e:
+                print(f"Async compilation failed for session {session_id}: {e}")
+                session.status = 'failed'
+                session.error_message = f"Compilation Error: {str(e)}"
+                db.session.commit()
+                socketio.emit('report_compile_status', {'session_id': session_id, 'status': 'failed', 'message': f'Compilation Failed: {str(e)}'})
+                socketio.emit('session_status_changed', {
+                    'session_id': session_id,
+                    'status': 'failed'
+                })
+                
+    threading.Thread(target=worker, daemon=True).start()
+
 def find_libreoffice():
     """
     Checks the system PATH and common installation directories for LibreOffice.

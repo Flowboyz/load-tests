@@ -1485,7 +1485,7 @@ async def run_bot(
 
         if result is True:
             # Safe exit
-            await logger.record_event("bot_left", bot_id, name, email, fingerprint=fingerprint)
+            await logger.record_event("bot_left", bot_id, name, email, fingerprint=fingerprint, reason="graceful")
             logger.log("🚪", "grey", bot_id, name, "Bot left the meeting room gracefully.", fingerprint=fingerprint)
             break
 
@@ -1517,8 +1517,11 @@ async def run_bot(
 
     if attempt > max_retries:
         await stats.inc("failed")
+        await logger.record_event("bot_left", bot_id, name, email, fingerprint=fingerprint, reason="reconnect_exhausted")
         await logger.record_event("bot_failed", bot_id, name, email, fingerprint=fingerprint)
         logger.log("❌", "red", bot_id, name, f"Bot session terminated after exhausting {max_retries} reconnect attempts.", fingerprint=fingerprint)
+    elif stop_event.is_set():
+        await logger.record_event("bot_left", bot_id, name, email, fingerprint=fingerprint, reason="stopped")
 
 def is_bot_in_range(bot_id, range_str):
     if not range_str or range_str.strip().lower() == "all":

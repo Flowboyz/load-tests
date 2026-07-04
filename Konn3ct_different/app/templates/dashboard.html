@@ -252,6 +252,7 @@
             <a href="#" class="menu-item" data-tab="configurator"><i class="fa-solid fa-sliders"></i> <span>New Test</span></a>
             <a href="#" class="menu-item" data-tab="templates"><i class="fa-solid fa-folder-open"></i> <span>Saved Presets</span></a>
             <a href="#" class="menu-item" data-tab="history"><i class="fa-solid fa-history"></i> <span>Test History</span></a>
+            <a href="#" class="menu-item" data-tab="mobile-test"><i class="fa-solid fa-mobile-screen-button"></i> <span>Mobile UI Test</span></a>
         </nav>
         <div class="sidebar-footer">
             <div class="user-profile">
@@ -403,6 +404,34 @@
                         </div>
                     </div>
 
+                    <!-- Runner Network & Target Server Telemetry Graphs -->
+                    <div class="graphs-grid" style="margin-top: 24px;">
+                        <div class="graph-card">
+                            <div class="card-header">
+                                <h3>Runner Network Bandwidth</h3>
+                                <div class="card-actions">
+                                    <button class="btn-chart-export" onclick="exportChart('bandwidth')" title="Export Chart to PNG"><i class="fa-solid fa-download"></i></button>
+                                    <i class="fa-solid fa-info-circle" title="Tracks real-time aggregate network input/output speed in Mbps across all worker nodes"></i>
+                                </div>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="bandwidthChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="graph-card">
+                            <div class="card-header">
+                                <h3>Konn3ct Target Server Health</h3>
+                                <div class="card-actions">
+                                    <button class="btn-chart-export" onclick="exportChart('targetServer')" title="Export Chart to PNG"><i class="fa-solid fa-download"></i></button>
+                                    <i class="fa-solid fa-info-circle" title="CPU and Memory utilization of the target Konn3ct host VM under test"></i>
+                                </div>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="targetServerChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Real-Time Lifecycle & WebRTC Widgets Grid -->
                     <div class="graphs-grid" style="margin-top: 24px;">
                         <!-- Action Lifecycle Propagation Card -->
@@ -511,8 +540,38 @@
                         </div>
                     </div>
 
+                    <!-- Cluster Status & Batch Tracker -->
+                    <div class="card" style="margin-top: 24px;" id="clusterStatusCard">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <h3><i class="fa-solid fa-server text-cyan"></i> Distributed Cluster & Batch Monitor</h3>
+                            <span class="badge badge-running" id="clusterUploadProgress" style="font-size: 11px;">Reports: 0 / 0 Workers Uploaded</span>
+                        </div>
+                        <div style="padding: 16px;">
+                            <div class="table-responsive">
+                                <table class="table" style="width: 100%; border-collapse: collapse; font-size: 13px; color: var(--text-primary);">
+                                    <thead>
+                                        <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
+                                            <th style="padding: 8px;">Batch ID</th>
+                                            <th style="padding: 8px;">Worker IP</th>
+                                            <th style="padding: 8px;">Bot Range</th>
+                                            <th style="padding: 8px; text-align: center;">Joined</th>
+                                            <th style="padding: 8px; text-align: center;">Failed</th>
+                                            <th style="padding: 8px; text-align: center;">Logs Uploaded</th>
+                                            <th style="padding: 8px; text-align: center;">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="clusterBatchTableBody">
+                                        <tr>
+                                            <td colspan="7" class="text-center text-muted" style="padding: 16px;">Waiting for distributed execution to initialize...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Live Log Console Panel -->
-                    <div class="console-card">
+                    <div class="console-card" style="margin-top: 24px;">
                         <div class="console-header">
                             <div class="title"><i class="fa-solid fa-terminal"></i> Live Session Console Logs</div>
                             <div class="filters">
@@ -921,6 +980,90 @@
                                 <tr><td colspan="7" class="text-center">Loading test logs history...</td></tr>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 5: Mobile UI Test Automation -->
+            <section class="tab-pane" id="tab-mobile-test">
+                <div class="config-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                    <!-- Left: Configuration & Run -->
+                    <div class="form-column">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-mobile-screen-button text-cyan"></i> Maestro Test Configuration</h3>
+                            </div>
+                            <div style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+                                <div class="form-group">
+                                    <label for="mobileAppApk">Konn3ct App APK Path *</label>
+                                    <input type="text" id="mobileAppApk" value="./mobile_ui_tests/konn3ct.apk" placeholder="e.g. ./mobile_ui_tests/konn3ct.apk" required>
+                                </div>
+                                <div class="form-row" style="display: flex; gap: 16px;">
+                                    <div class="form-group col-6" style="flex: 1; min-width: 120px;">
+                                        <label for="mobileFlowSelect">Maestro Test Flow *</label>
+                                        <select id="mobileFlowSelect">
+                                            <option value="">Loading flows...</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group col-6" style="flex: 1; min-width: 120px;">
+                                        <label for="mobileDeviceSelect">Target Device / Emulator *</label>
+                                        <select id="mobileDeviceSelect">
+                                            <option value="">Loading devices...</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 10px;">
+                                    <button type="button" class="btn btn-primary" id="btnRunMobileUiTest" style="width: 100%; padding: 12px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                        <i class="fa-solid fa-play"></i> Run Mobile UI Test
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Cheat Sheet Panel -->
+                        <div class="card" style="margin-top: 24px;">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-graduation-cap text-yellow"></i> Maestro Command Reference</h3>
+                            </div>
+                            <div style="padding: 20px; font-size: 13px; line-height: 1.5; color: var(--text-primary);">
+                                <p style="margin-bottom: 12px;"><strong>Maestro uses clean YAML files for automation. Here are the core commands:</strong></p>
+                                <ul style="padding-left: 20px; display: flex; flex-direction: column; gap: 8px;">
+                                    <li><code>- launchApp</code>: Launches the app defined by <code>appId</code>.</li>
+                                    <li><code>- tapOn: "Text"</code>: Clicks on an element containing the visible text or ID.</li>
+                                    <li><code>- inputText: "value"</code>: Enters text into the currently focused input.</li>
+                                    <li><code>- assertVisible: "Text"</code>: Verifies that an element is visible on the screen.</li>
+                                    <li><code>- back</code>: Simulates clicking the device hardware back button.</li>
+                                    <li><code>- scroll</code>: Scrolls down on the screen.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Editor & Live Console -->
+                    <div class="form-column">
+                        <!-- Flow Editor Card -->
+                        <div class="card">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <h3><i class="fa-solid fa-code text-cyan"></i> YAML Test Flow Editor</h3>
+                                <button type="button" class="btn btn-sm btn-success" id="btnSaveMobileFlow" style="padding: 4px 10px; font-size: 11px;">Save Flow</button>
+                            </div>
+                            <div style="padding: 16px;">
+                                <textarea id="mobileFlowEditor" style="width: 100%; height: 200px; font-family: monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; outline: none; resize: vertical;" placeholder="Select a flow file to edit..."></textarea>
+                            </div>
+                        </div>
+
+                        <!-- Live Console Card -->
+                        <div class="card" style="margin-top: 24px;">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <h3><i class="fa-solid fa-terminal text-green"></i> Maestro Execution Console</h3>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnClearMobileConsole" style="padding: 4px 10px; font-size: 11px;">Clear</button>
+                            </div>
+                            <div style="padding: 16px;">
+                                <div id="mobileConsoleTerminal" class="console-terminal" style="height: 300px;">
+                                    <div class="console-placeholder">Waiting for Maestro test execution to start...</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
