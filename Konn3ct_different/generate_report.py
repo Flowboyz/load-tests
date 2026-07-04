@@ -1659,7 +1659,6 @@ class ReportPipeline:
                 project_root = os.path.dirname(os.path.dirname(self.session_dir))
                 db_path = os.path.join(project_root, "konn3ct.db")
                 if os.path.exists(db_path):
-                    import sqlite3
                     conn = sqlite3.connect(db_path)
                     cursor = conn.cursor()
                     cursor.execute("SELECT total_expected_workers, uploaded_workers_count FROM test_sessions WHERE id = ?", (session_id,))
