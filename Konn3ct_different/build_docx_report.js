@@ -186,6 +186,96 @@ const friendlyOSName = (o) => {
   return m[o] || o;
 };
 
+const glossaryData = [
+  {
+    num: "1",
+    name: "RTT (ms) (Round Trip Time)",
+    what: "The time it takes for a piece of data to travel from your computer to the server and back again. It's measured in milliseconds (ms).",
+    layman: "This is the delay or lag. Imagine sending a letter in the mail and waiting for a reply. It takes 158 milliseconds (about 1/6th of a second) for the server to reply to you. Under 200 is generally good; if it gets over 300 or 400, you will start noticing an awkward delay when people speak."
+  },
+  {
+    num: "2",
+    name: "Jitter (ms)",
+    what: "The variation in how long it takes for data packets to arrive.",
+    layman: "This is the consistency of your connection. Imagine cars driving on a highway. If they all arrive exactly 2 seconds apart, jitter is 0. If some speed up and some hit traffic, they arrive at random times. Your jitter is very low (12), meaning your internet traffic is flowing smoothly without sudden speed bumps."
+  },
+  {
+    num: "3",
+    name: "Packet Loss",
+    what: "The percentage of data packets that get lost in transit and never reach the destination.",
+    layman: "Imagine you are mailing 100 puzzle pieces to a friend. A 0.0% packet loss means every single piece arrived safely. If this number goes up (like 5% or 10%), pieces are getting lost in the mail, which causes robot-sounding voices and frozen video."
+  },
+  {
+    num: "4",
+    name: "ICE State",
+    what: "The underlying network path between your browser and the media server.",
+    layman: "This just means the cable is securely plugged in. Your computer and our servers have successfully found a path to talk to each other."
+  },
+  {
+    num: "5",
+    name: "Send Bitrate",
+    what: "How much data your computer is currently pushing up to the meeting.",
+    layman: "This is your upload speed being used right now. 33 kbps is very low, which usually means you are only sending audio (your microphone) and your camera is turned off."
+  },
+  {
+    num: "6",
+    name: "Recv (Receive) Bitrate",
+    what: "How much data your computer is pulling down from the meeting.",
+    layman: "This is your download speed being used right now. 0.0 means nobody else in the meeting is talking or sharing their video right now."
+  },
+  {
+    num: "7",
+    name: "Avail Out Bitrate",
+    what: "The browser's estimate of the maximum upload bandwidth it is safely allowed to use right now based on current network conditions.",
+    layman: "This is the size of your internet pipe. Your computer estimates it has room to push about 141 kbps of data if it needs to. It's relatively low, likely because you are on a limited connection or only pushing audio, so the browser hasn't bothered to test for a wider pipe yet."
+  },
+  {
+    num: "8",
+    name: "FPS (Frames Per Second)",
+    what: "How many pictures (frames) your camera is capturing and sending every second.",
+    layman: "Since this is 0, your camera is turned off. If it were on, you'd want to see a number between 15 and 30 here, meaning the video is smooth."
+  },
+  {
+    num: "9",
+    name: "Frames Dropped",
+    what: "How many pictures your computer failed to process or send.",
+    layman: "This measures your device's health. If your computer or phone gets too hot or overwhelmed, it will start dropping frames and the video will stutter. 0 means your device is running perfectly."
+  },
+  {
+    num: "10",
+    name: "Reconnects",
+    what: "The number of times the internet completely dropped and the app had to silently reconnect.",
+    layman: "Your connection has been stable. The app hasn't had to rescue your call from a disconnected internet even once."
+  }
+];
+
+function glossaryEntry(num, name, what, layman) {
+  return [
+    new Paragraph({
+      spacing: { before: 120, after: 40 },
+      children: [
+        new TextRun({ text: `${num}. `, bold: true, size: 20, color: TEAL }),
+        new TextRun({ text: name, bold: true, size: 20, color: NAVY })
+      ]
+    }),
+    new Paragraph({
+      spacing: { after: 40 },
+      children: [
+        new TextRun({ text: "• What it means: ", bold: true, size: 18, color: GREY }),
+        new TextRun({ text: what, size: 18, color: "1F2937" })
+      ]
+    }),
+    new Paragraph({
+      indent: { left: 240 },
+      spacing: { after: 80 },
+      children: [
+        new TextRun({ text: "• Layman terms: ", bold: true, size: 18, color: TEAL }),
+        new TextRun({ text: `"${layman}"`, size: 18, color: "1F2937", italics: true })
+      ]
+    })
+  ];
+}
+
 // ── 1. Executive Summary Table ──────────────────────────────────────────
 console.log("📊 [2/7] Building Executive Summary & Dashboard...");
 const cardWidth = Math.floor(CONTENT_WIDTH / 4);
@@ -917,25 +1007,30 @@ const doc = new Document({
       paragraph("Aggregated WebRTC metrics compiled from periodic browser stats collection:"),
       webrtcTable,
 
-      // 8. Action Lifecycle Summary
-      sectionHeading("8. Action Lifecycle Summary"),
+      // 8. WebRTC Telemetry Glossary & Layman Explanations
+      sectionHeading("8. WebRTC Telemetry Glossary & Layman Explanations"),
+      paragraph("To help understand the WebRTC performance metrics, the glossary below defines each metric technically alongside simple layman explanations:"),
+      ...glossaryData.flatMap(g => glossaryEntry(g.num, g.name, g.what, g.layman)),
+
+      // 9. Action Lifecycle Summary
+      sectionHeading("9. Action Lifecycle Summary"),
       paragraph("The engine aggregates and correlates all action logs to track successful propagation times:"),
       actionLifecycleTable,
 
-      // 9. Chat Deep-Dive
-      sectionHeading("9. Chat Deep-Dive"),
+      // 10. Chat Deep-Dive
+      sectionHeading("10. Chat Deep-Dive"),
       paragraph("The chat messaging pipeline requires end-to-end telemetry validation. A sender's message must be acknowledged, broadcasted, observed, and rendered in the receiver's UI. Below is the chat latency profile:"),
       chatDeepTable,
 
-      // 10. Screen-Share Deep-Dive
-      sectionHeading("10. Screen-Share Deep-Dive"),
+      // 11. Screen-Share Deep-Dive
+      sectionHeading("11. Screen-Share Deep-Dive"),
       paragraph("Desktop screen sharing establishes a WebRTC screen-producer track. Mobile devices (iOS, Android) and unsupported browsers are rejected instantly. Below is the compatibility and latency summary:"),
       paragraph(`• Unsupported Screen Shares Logged: ${data.unsupported_reason_breakdown?.["IOS_SAFARI_SCREEN_SHARE_UNSUPPORTED"] || 0} (Mobile Safari rejection)`),
       paragraph(`• Desktop Screen Share Success Rate: 100.0% (Meets the 95.0% target for Chrome/Firefox)`),
       paragraph(`• Screen Share Avg Start Delay: ${data.action_performance?.screen_share ? safeFixed(Object.values(data.action_performance.screen_share)[0]?.avg_latency, 0) : "N/A"} ms`),
 
-      // 11. Camera/Mic/Hand Raise Deep-Dive
-      sectionHeading("11. Camera/Mic/Hand Raise Deep-Dive"),
+      // 12. Camera/Mic/Hand Raise Deep-Dive
+      sectionHeading("12. Camera/Mic/Hand Raise Deep-Dive"),
       paragraph(`• Total Camera Toggles Sent: ${data.action_performance?.camera ? Object.values(data.action_performance.camera).reduce((sum, b) => sum + (b.success + b.failed), 0) : 0}`),
       paragraph(`• Camera Toggle Success Rate: ${safeFixed(camSuccessRate, 1, "%")}`),
       paragraph(`• Total Mic Toggles Sent: ${data.action_performance?.mic ? Object.values(data.action_performance.mic).reduce((sum, b) => sum + (b.success + b.failed), 0) : 0}`),
@@ -943,47 +1038,47 @@ const doc = new Document({
       paragraph(`• Total Hand Raises Sent: ${data.action_performance?.hand ? Object.values(data.action_performance.hand).reduce((sum, b) => sum + (b.success + b.failed), 0) : 0}`),
       paragraph(`• Hand Raise Success Rate: ${safeFixed(handSuccessRate, 1, "%")}`),
 
-      // 12. Timeout Stage Analysis
-      sectionHeading("12. Timeout Stage Analysis"),
+      // 13. Timeout Stage Analysis
+      sectionHeading("13. Timeout Stage Analysis"),
       paragraph("Timeout counts across the state propagation stages. This is used to locate system bottlenecks:"),
       timeoutStageTable,
 
-      // 13. Unsupported Action Analysis
-      sectionHeading("13. Unsupported Action Analysis"),
+      // 14. Unsupported Action Analysis
+      sectionHeading("14. Unsupported Action Analysis"),
       paragraph("Actions that failed checks because of browser, device, or OS limitations:"),
       unsupportedTable,
 
-      // 14. Error Code Analysis
-      sectionHeading("14. Error Code Analysis"),
+      // 15. Error Code Analysis
+      sectionHeading("15. Error Code Analysis"),
       paragraph("Breakdown of failure codes recorded during the load test session:"),
       errorCodeTable,
 
-      // 15. Per-Browser Recommendations
-      sectionHeading("15. Per-Browser Recommendations"),
+      // 16. Per-Browser Recommendations
+      sectionHeading("16. Per-Browser Recommendations"),
       paragraph("Chrome, Edge, and Brave (Chromium-based engines) demonstrated the lowest action propagation and acknowledgment latencies (<200ms). Firefox was stable but showed slightly higher ICE connection delays (~140ms). Safari Mobile was successfully emulated, and screen sharing was correctly blocked on mobile iOS profiles."),
 
-      // 16. Per-OS Recommendations
-      sectionHeading("16. Per-OS Recommendations"),
+      // 17. Per-OS Recommendations
+      sectionHeading("17. Per-OS Recommendations"),
       paragraph("Windows and macOS emulated platforms exhibited excellent performance under concurrent activity load. Mobile operating systems (iOS and Android) should remain on simulcast profiles with 2 layers to prevent high CPU usage on client decoders."),
 
-      // 17. Per-Device Recommendations
-      sectionHeading("17. Per-Device Recommendations"),
+      // 18. Per-Device Recommendations
+      sectionHeading("18. Per-Device Recommendations"),
       paragraph("Desktop profiles can scale to full media quality (H264/AV1 at 1080p). Mobile device profiles should be throttled to 640x480 resolution (low quality) to optimize battery life and ensure smooth frame rates below WebRTC congestion thresholds."),
 
-      // 18. Session Refreshes & Recovery Assessment
-      sectionHeading("18. Session Refreshes & Recovery Assessment"),
+      // 19. Session Refreshes & Recovery Assessment
+      sectionHeading("19. Session Refreshes & Recovery Assessment"),
       paragraph("During the test, a subset of participants simulated browser refreshes to evaluate connection recovery capabilities."),
       paragraph(`• Number of bots that refreshed their session: ${data.refreshed_bots_telemetry ? data.refreshed_bots_telemetry.length : 0}`),
       paragraph(`• Bots detected joining twice: ${data.double_joined_bots && data.double_joined_bots.length > 0 ? data.double_joined_bots.join(", ") : "None"}`),
       paragraph("• Technical Root Cause: The bots registered under identical identities (session tokens and user IDs). During simulated reload, the previous WebSocket connection was abruptly severed, and a new handshake was initiated immediately. The signaling server did not instantly clean up the stale session state, resulting in dual active mappings ('joined twice') before the old connection timed out."),
 
-      // 19. Sprint 1 Pass/Fail Assessment
-      sectionHeading("19. Sprint 1 Pass/Fail Assessment"),
+      // 20. Sprint 1 Pass/Fail Assessment
+      sectionHeading("20. Sprint 1 Pass/Fail Assessment"),
       paragraph("Comparing test results against the strict Sprint 1 Quality Gates:"),
       gatesTable,
 
-      // 20. QA Verdict
-      sectionHeading("20. QA Verdict"),
+      // 21. QA Verdict
+      sectionHeading("21. QA Verdict"),
       new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { before: 200, after: 200 },
@@ -998,8 +1093,8 @@ const doc = new Document({
         { italics: true }
       ),
 
-      // 21. Developer Recommendations
-      sectionHeading("21. Developer Recommendations"),
+      // 22. Developer Recommendations
+      sectionHeading("22. Developer Recommendations"),
       ...(hasFailedGates ?
         failedGates.flatMap((g, idx) => [
           paragraph(`${idx + 1}. [SLA Gate Failed: ${g.name}] (Measured: ${g.measured} vs Target: ${g.threshold})`, { bold: true }),
@@ -1011,8 +1106,8 @@ const doc = new Document({
         [paragraph("All SLA thresholds successfully satisfied. No developer adjustments are recommended at this time.")]
       ),
 
-      // 22. Appendix: Full Action Log Reference
-      sectionHeading("22. Appendix: Full Action Log Reference"),
+      // 23. Appendix: Full Action Log Reference
+      sectionHeading("23. Appendix: Full Action Log Reference"),
       paragraph("The granular telemetry databases generated for this test run are located at:"),
       paragraph(`• Action Lifecycle Log: ${data.csv_path || "session_action_lifecycle.csv"}`, { bold: true }),
       paragraph(`• Summary Metrics Log: ${data.summary_csv_path || "session_summary_metrics.csv"}`, { bold: true }),
