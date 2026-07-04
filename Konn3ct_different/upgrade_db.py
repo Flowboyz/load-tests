@@ -41,6 +41,7 @@ def upgrade():
             batch INTEGER DEFAULT 3,
             concurrency INTEGER DEFAULT 100,
             leave INTEGER DEFAULT 0,
+            start_id INTEGER DEFAULT 1,
             webrtc_enabled BOOLEAN DEFAULT 0,
             media_quality VARCHAR(20) DEFAULT 'medium',
             max_subscriptions INTEGER DEFAULT 2,
@@ -161,7 +162,8 @@ def upgrade():
             "auto_screen_share": "BOOLEAN DEFAULT 0",
             "disable_ram_scenario_opt": "BOOLEAN DEFAULT 0",
             "refresh_bots": "INTEGER DEFAULT 0",
-            "disable_abnormal_behavior": "BOOLEAN DEFAULT 0"
+            "disable_abnormal_behavior": "BOOLEAN DEFAULT 0",
+            "start_id": "INTEGER DEFAULT 1"
         }
         add_missing_columns("configurations", config_cols)
         

@@ -1034,8 +1034,33 @@ function handleSessionFinished(status) {
     clearCharts();
 }
 
-// Setup Form Submission handlers
 function setupFormActions() {
+    // Disable/Enable All Actions buttons helper
+    const btnDisableAll = document.getElementById('btnDisableAllActions');
+    const btnEnableAll = document.getElementById('btnEnableAllActions');
+    if (btnDisableAll && btnEnableAll) {
+        const actionCheckboxes = [
+            'formNoChat',
+            'formNoCamera',
+            'formNoMic',
+            'formNoHandraise',
+            'formNoScreenShare',
+            'formNoCrossConfirm'
+        ];
+        btnDisableAll.addEventListener('click', () => {
+            actionCheckboxes.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.checked = true;
+            });
+        });
+        btnEnableAll.addEventListener('click', () => {
+            actionCheckboxes.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.checked = false;
+            });
+        });
+    }
+
     // Form Configurator submit
     const form = document.getElementById('testConfigForm');
     form.addEventListener('submit', async (e) => {
@@ -1144,6 +1169,7 @@ function getFormData() {
         stagger: parseFloat(document.getElementById('formStagger').value),
         concurrency: parseInt(document.getElementById('formConcurrency').value),
         leave: parseInt(document.getElementById('formLeave').value),
+        start_id: parseInt(document.getElementById('formStartId').value) || 1,
         webrtc_enabled: document.getElementById('formWebrtcEnabled').checked,
         media_quality: document.getElementById('formMediaQuality').value,
         max_subscriptions: parseInt(document.getElementById('formMaxSubscriptions').value),
@@ -1224,6 +1250,7 @@ async function loadConfigIntoForm(cfgId) {
         document.getElementById('formStagger').value = cfg.stagger;
         document.getElementById('formConcurrency').value = cfg.concurrency;
         document.getElementById('formLeave').value = cfg.leave;
+        document.getElementById('formStartId').value = cfg.start_id || 1;
         document.getElementById('formWebrtcEnabled').checked = cfg.webrtc_enabled;
         document.getElementById('formMediaQuality').value = cfg.media_quality;
         document.getElementById('formMaxSubscriptions').value = cfg.max_subscriptions;

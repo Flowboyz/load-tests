@@ -567,15 +567,19 @@
                                     </div>
                                 </div>
                                 <div class="form-row">
-                                    <div class="form-group col-6">
-                                        <label for="formConcurrency">Max Concurrency</label>
-                                        <input type="number" id="formConcurrency" value="100" min="1">
-                                    </div>
-                                    <div class="form-group col-6">
-                                        <label for="formLeave">Leave Time (mins)</label>
-                                        <input type="number" id="formLeave" value="0" min="0" title="0 means run indefinitely">
-                                    </div>
-                                </div>
+                                     <div class="form-group col-4">
+                                         <label for="formStartId">Start Bot ID</label>
+                                         <input type="number" id="formStartId" value="1" min="1">
+                                     </div>
+                                     <div class="form-group col-4">
+                                         <label for="formConcurrency">Max Concurrency</label>
+                                         <input type="number" id="formConcurrency" value="100" min="1">
+                                     </div>
+                                     <div class="form-group col-4">
+                                         <label for="formLeave">Leave Time (mins)</label>
+                                         <input type="number" id="formLeave" value="0" min="0" title="0 means run indefinitely">
+                                     </div>
+                                 </div>
                             </div>
 
                             <div class="form-section">
@@ -655,6 +659,10 @@
                                         <input type="number" id="formChatInterval" value="60.0" min="1">
                                     </div>
                                 </div>
+                                <div class="form-row" style="margin-bottom: 12px; display: flex; gap: 10px;">
+                                     <button type="button" id="btnDisableAllActions" style="padding: 6px 12px; font-size: 11px; cursor: pointer; background-color: #B42318; color: white; border: none; border-radius: 6px; font-weight: 600;">Disable All Actions</button>
+                                     <button type="button" id="btnEnableAllActions" style="padding: 6px 12px; font-size: 11px; cursor: pointer; background-color: #1A7F37; color: white; border: none; border-radius: 6px; font-weight: 600;">Enable All Actions</button>
+                                 </div>
                                 <div class="form-row checkbox-grid">
                                     <div class="checkbox-item"><input type="checkbox" id="formNoChat"><label for="formNoChat">Disable Chat</label></div>
                                     <div class="checkbox-item"><input type="checkbox" id="formNoCamera"><label for="formNoCamera">Disable Camera</label></div>

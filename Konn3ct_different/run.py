@@ -20,10 +20,18 @@ from app import create_app, socketio
 app = create_app()
 
 if __name__ == '__main__':
+    import sys
+    port = 8000
+    if len(sys.argv) > 1:
+        try:
+            port = int(sys.argv[1])
+        except ValueError:
+            print(f"⚠️ Invalid port '{sys.argv[1]}', using default 8000.")
+            
     print("==================================================")
     print("🚀 Konn3ct Dashboard Server is starting up...")
-    print("🔗 URL: http://206.189.202.80:8000/ or http://localhost:8000/")
-    print("📢 Note: Ensure port 8000 is allowed in your server's firewall.")
+    print(f"🔗 URL: http://localhost:{port}/")
+    print(f"📢 Note: Ensure port {port} is allowed in your server's firewall.")
     print("==================================================")
     # Run development server using Socket.IO wrapper
-    socketio.run(app, host='0.0.0.0', port=8000, debug=True)
+    socketio.run(app, host='0.0.0.0', port=port, debug=True)

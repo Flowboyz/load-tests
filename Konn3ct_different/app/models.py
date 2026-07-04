@@ -43,6 +43,7 @@ class Configuration(db.Model):
     batch = db.Column(db.Integer, default=3)
     concurrency = db.Column(db.Integer, default=100)
     leave = db.Column(db.Integer, default=0)
+    start_id = db.Column(db.Integer, default=1)
     
     # WebRTC/Media configurations
     webrtc_enabled = db.Column(db.Boolean, default=False)

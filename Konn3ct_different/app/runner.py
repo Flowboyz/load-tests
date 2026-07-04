@@ -100,6 +100,7 @@ def run_test_process(app, socketio, session_id):
                 get_python_executable(project_root), py_guest_path,
                 "--room", config.room,
                 "--bots", str(config.bots),
+                "--start-id", str(getattr(config, 'start_id', 1)),
                 "--stagger", str(config.stagger),
                 "--batch", str(config.batch),
                 "--concurrency", str(config.concurrency),
