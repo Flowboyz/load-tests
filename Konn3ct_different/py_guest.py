@@ -1642,7 +1642,7 @@ async def main(args):
     print(f"  Scenarios     : {args.test_scenarios}")
     print(f"{C['white']}{'═'*70}{C['reset']}\n")
 
-    connector = aiohttp.TCPConnector(limit=args.concurrency, ssl=False)
+    connector = aiohttp.TCPConnector(limit=max(args.bots, args.concurrency), ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
         
         async def launch(bot_id):
