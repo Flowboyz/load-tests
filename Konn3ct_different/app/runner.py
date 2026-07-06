@@ -682,6 +682,41 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                 metrics_state["packet_losses"] = metrics_state["packet_losses"][-50:]
                 metrics_state["jitters"] = metrics_state["jitters"][-50:]
                 metrics_state["bitrates"] = metrics_state["bitrates"][-50:]
+
+        # ── Final Flush of Remaining Log Lines ──────────────────────────────────
+        # Process any final lines written by the bots (like bot exits) right before the process exited.
+        for chunk_id, f in open_files.items():
+            try:
+                while True:
+                    line = f.readline()
+                    if not line:
+                        break
+                    line_buffers[chunk_id] += line
+                    if not line_buffers[chunk_id].endswith("\n"):
+                        break
+                    complete_line = line_buffers[chunk_id]
+                    line_buffers[chunk_id] = ""
+                    try:
+                        event = json.loads(complete_line.strip())
+                        etype = event.get("event")
+                        buffered_raw_events.append(event)
+                        bot_id = event.get("bot_id")
+                        if etype == "bot_left" and bot_id:
+                            metrics_state["left_bots"] = metrics_state["left_bots"] + 1
+                            if bot_id in joined_ids:
+                                joined_ids.remove(bot_id)
+                            metrics_state["connected_bots"] = len(joined_ids)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        if buffered_raw_events:
+            socketio.emit('session_raw_events_batch', {
+                'session_id': session_id,
+                'events': buffered_raw_events
+            }, room=f"session_{session_id}")
+            buffered_raw_events = []
     finally:
         for f in open_files.values():
             try:
