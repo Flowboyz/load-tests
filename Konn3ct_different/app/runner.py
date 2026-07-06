@@ -436,6 +436,7 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
     # Batching variables for raw events
     buffered_raw_events = []
     last_raw_emit_time = time.time()
+    last_metrics_emit_time = time.time()
     
     open_files = {} # chunk_id -> file_object
     line_buffers = {} # chunk_id -> string
@@ -602,18 +603,18 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                     except Exception as e:
                         print(f"Error parsing log line: {e}")
                         
-            # If no new lines were read, sleep and emit metrics
-            if not any_new_lines:
-                if buffered_raw_events:
-                    socketio.emit('session_raw_events_batch', {
-                        'session_id': session_id,
-                        'events': buffered_raw_events
-                    }, room=f"session_{session_id}")
-                    buffered_raw_events = []
-                    last_raw_emit_time = time.time()
-                    
-                socketio.sleep(0.5)
-                
+            # Always emit raw events batch if it has accumulated or if it's been more than 0.2s since last emit
+            if buffered_raw_events and (len(buffered_raw_events) >= 50 or (time.time() - last_raw_emit_time > 0.2)):
+                socketio.emit('session_raw_events_batch', {
+                    'session_id': session_id,
+                    'events': buffered_raw_events
+                }, room=f"session_{session_id}")
+                buffered_raw_events = []
+                last_raw_emit_time = time.time()
+
+            # Emit metrics periodically (every 1.0 second) to update UI live counters
+            now = time.time()
+            if now - last_metrics_emit_time >= 1.0:
                 # Fetch host resource metrics
                 try:
                     cpu = psutil.cpu_percent()
@@ -682,6 +683,14 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                 metrics_state["packet_losses"] = metrics_state["packet_losses"][-50:]
                 metrics_state["jitters"] = metrics_state["jitters"][-50:]
                 metrics_state["bitrates"] = metrics_state["bitrates"][-50:]
+                
+                last_metrics_emit_time = now
+
+            # Yield execution to yield CPU control back to greenlet/eventlet hub
+            if any_new_lines:
+                socketio.sleep(0.02)
+            else:
+                socketio.sleep(0.4)
 
         # ── Final Flush of Remaining Log Lines ──────────────────────────────────
         # Process any final lines written by the bots (like bot exits) right before the process exited.
