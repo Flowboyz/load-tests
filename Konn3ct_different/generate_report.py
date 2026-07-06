@@ -907,7 +907,7 @@ class ReportPipeline:
                 # Record per-action browser specific stats
                 add_sender_stats(per_action_browser_stats, (act_type, sender_fp.get("browser_type", "unknown")))
                 
-                if act["final_status"] in ("unsupported", "failed") or act_type not in broadcast_action_types:
+                if act["final_status"] in ("unsupported", "failed", "timed-out") or act_type not in broadcast_action_types:
                     row = build_lifecycle_row(
                         act=act, sender_id=sender_id, sender_fp=sender_fp, sender_meta=sender_meta,
                         receiver_id=None, receiver_fp={}, receiver_meta={},

@@ -29,7 +29,7 @@
 ## 5. Failure & Error Analysis Breakdown
 | Error Standard Code | Occurrences Count | Description |
 | :--- | :---: | :--- |
-| `CHAT_ACK_TIMEOUT` | 12 | Telemetry recorded action failure |
+| `CHAT_ACK_TIMEOUT` | 3 | Telemetry recorded action failure |
 | `SCREEN_SHARE_UNSUPPORTED` | 2 | Telemetry recorded action failure |
 
 ## 6. Bucketed Event Timeline
@@ -50,8 +50,8 @@ The table below summarizes the measured session results for each of the core Web
 
 | WebRTC Telemetry Metric | Session Result | Status / Layman Assessment |
 | :--- | :---: | :--- |
-| **1. RTT (Round Trip Time)** | 30 ms | Good: Under 200ms is healthy; lag is imperceptible. |
-| **2. Jitter** | 3.9 ms | Stable: Low packet arrival variation. Smooth streaming. |
+| **1. RTT (Round Trip Time)** | 26 ms | Good: Under 200ms is healthy; lag is imperceptible. |
+| **2. Jitter** | 3.5 ms | Stable: Low packet arrival variation. Smooth streaming. |
 | **3. Packet Loss** | 0.00% | Excellent: Zero or minimal packet loss. Voices sound clear. |
 | **4. ICE State** | Connected | Successful: Network paths between browsers and SFU are established. |
 | **5. Send Bitrate** | 0 kbps (Muted) | Normal: Pushing active mic stream data up to meeting. |

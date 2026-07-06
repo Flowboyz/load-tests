@@ -644,7 +644,7 @@ const scrSuccessRate = activeDesktopBrowsers.length ?
 const activeWebrtcBrowsers = data.action_performance?.webrtc_connection ?
   Object.keys(data.action_performance.webrtc_connection).filter(b => (data.action_performance.webrtc_connection[b]?.success || 0) + (data.action_performance.webrtc_connection[b]?.failed || 0) > 0) : [];
 const webrtcConnectionSuccessRate = activeWebrtcBrowsers.length ?
-  activeWebrtcBrowsers.reduce((sum, b) => sum + (data.action_performance.webrtc_connection[b]?.success_rate || 0.0), 0) / activeWebrtcBrowsers.length : (data.config?.webrtc_enabled ? 100.0 : 0.0);
+  activeWebrtcBrowsers.reduce((sum, b) => sum + (data.action_performance.webrtc_connection[b]?.success_rate || 0.0), 0) / activeWebrtcBrowsers.length : (data.config?.webrtc_enabled ? 0.0 : 100.0);
 
 const hostSuccessRate = 100.0;
 const signalSurvivalRate = 100.0;
