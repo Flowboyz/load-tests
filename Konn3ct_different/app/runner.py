@@ -433,6 +433,24 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
     joined_ids = set()
     failed_ids = set()
 
+    # Load session configuration details for batch tracking
+    start_id = 1
+    total_bots = 50
+    batch_size = 500
+    expected_workers = 1
+    with app.app_context():
+        from app.models import TestSession
+        session = TestSession.query.get(session_id)
+        if session and session.config:
+            start_id = getattr(session.config, 'start_id', 1)
+            total_bots = session.config.bots
+            expected_workers = session.total_expected_workers
+            if expected_workers <= 1:
+                expected_workers = max(1, (total_bots + batch_size - 1) // batch_size)
+
+    joined_by_batch = [set() for _ in range(expected_workers)]
+    failed_by_batch = [set() for _ in range(expected_workers)]
+
     # Batching variables for raw events
     buffered_raw_events = []
     last_raw_emit_time = time.time()
@@ -504,11 +522,22 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                             if bot_id in joined_ids:
                                 joined_ids.remove(bot_id)
                             metrics_state["connected_bots"] = len(joined_ids)
+                            # Update batch tracking
+                            batch_idx = (bot_id - start_id) // batch_size
+                            if 0 <= batch_idx < expected_workers:
+                                if bot_id in joined_by_batch[batch_idx]:
+                                    joined_by_batch[batch_idx].remove(bot_id)
                         elif etype == "bot_joined" and bot_id:
                             joined_ids.add(bot_id)
                             metrics_state["connecting_bots"] = max(0, metrics_state["connecting_bots"] - 1)
                             metrics_state["reconnecting_bots"] = max(0, metrics_state["reconnecting_bots"] - 1)
                             metrics_state["connected_bots"] = len(joined_ids)
+                            # Update batch tracking
+                            batch_idx = (bot_id - start_id) // batch_size
+                            if 0 <= batch_idx < expected_workers:
+                                joined_by_batch[batch_idx].add(bot_id)
+                                if bot_id in failed_by_batch[batch_idx]:
+                                    failed_by_batch[batch_idx].remove(bot_id)
                         elif etype == "bot_failed" and bot_id:
                             failed_ids.add(bot_id)
                             metrics_state["failed_bots"] = len(failed_ids)
@@ -517,11 +546,22 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                             if bot_id in joined_ids:
                                 joined_ids.remove(bot_id)
                             metrics_state["connected_bots"] = len(joined_ids)
+                            # Update batch tracking
+                            batch_idx = (bot_id - start_id) // batch_size
+                            if 0 <= batch_idx < expected_workers:
+                                failed_by_batch[batch_idx].add(bot_id)
+                                if bot_id in joined_by_batch[batch_idx]:
+                                    joined_by_batch[batch_idx].remove(bot_id)
                         elif etype == "bot_left" and bot_id:
                             metrics_state["left_bots"] = metrics_state["left_bots"] + 1
                             if bot_id in joined_ids:
                                 joined_ids.remove(bot_id)
                             metrics_state["connected_bots"] = len(joined_ids)
+                            # Update batch tracking
+                            batch_idx = (bot_id - start_id) // batch_size
+                            if 0 <= batch_idx < expected_workers:
+                                if bot_id in joined_by_batch[batch_idx]:
+                                    joined_by_batch[batch_idx].remove(bot_id)
                         elif etype == "action_logged":
                             act_type = event.get("action_type")
                             status = event.get("status")
@@ -677,6 +717,18 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                                 }
                             }
                         }, room=f"session_{session_id}")
+                        
+                        # Update RUNNING_SESSIONS with live batch metrics
+                        with RUNNING_SESSIONS_LOCK:
+                            sess = RUNNING_SESSIONS.get(session_id)
+                            if sess:
+                                sess["live_batches"] = {
+                                    i: {
+                                        "joined": len(joined_by_batch[i]),
+                                        "failed": len(failed_by_batch[i])
+                                    }
+                                    for i in range(expected_workers)
+                                }
                         
                 # Clear moving averages to only calculate recent windows
                 metrics_state["latencies"] = metrics_state["latencies"][-50:]

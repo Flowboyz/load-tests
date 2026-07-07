@@ -626,8 +626,15 @@ def get_session_cluster_batches(session_id):
                 status = "completed"
         elif session.status == 'running':
             status = "running"
-            joined_count = (end_id - start_id + 1)
-            failed_count = 0
+            from app.runner import RUNNING_SESSIONS, RUNNING_SESSIONS_LOCK
+            with RUNNING_SESSIONS_LOCK:
+                sess_info = RUNNING_SESSIONS.get(session_id)
+                if sess_info and "live_batches" in sess_info and i in sess_info["live_batches"]:
+                    joined_count = sess_info["live_batches"][i]["joined"]
+                    failed_count = sess_info["live_batches"][i]["failed"]
+                else:
+                    joined_count = 0
+                    failed_count = 0
             
         batches.append({
             "batch_id": f"Batch-{i+1:02d}",
