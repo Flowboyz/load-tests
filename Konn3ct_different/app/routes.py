@@ -599,7 +599,7 @@ def get_session_cluster_batches(session_id):
     total_bots = config.bots
     batch_size = 500
     expected_workers = session.total_expected_workers
-    if not expected_workers:
+    if expected_workers <= 1:
         expected_workers = max(1, (total_bots + batch_size - 1) // batch_size)
     
     batches = []
