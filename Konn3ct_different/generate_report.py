@@ -130,6 +130,7 @@ class TimelineTracker:
         self.bucket_size_sec = bucket_size_sec
         self.buckets: Dict[int, Dict[str, Any]] = {}
         self.start_time: Optional[datetime.datetime] = None
+        self.active_connected_bots = set()
 
     def _get_bucket_idx(self, ts_str: str) -> int:
         try:
@@ -152,8 +153,23 @@ class TimelineTracker:
                 "actions": 0,
             }
         b = self.buckets[idx]
-        if bot_id:
-            b["bots"].add(bot_id)
+        
+        # Connection state tracking:
+        if etype == "bot_joined" and bot_id:
+            self.active_connected_bots.add(bot_id)
+        elif etype in ("bot_reconnecting", "bot_failed", "bot_left", "bot_refreshing") and bot_id:
+            if bot_id in self.active_connected_bots:
+                self.active_connected_bots.remove(bot_id)
+        elif etype == "error_logged" and bot_id:
+            err_msg = str(extra.get("error", "")).lower() if extra else ""
+            if "disconnect" in err_msg or "close" in err_msg or "timeout" in err_msg:
+                if bot_id in self.active_connected_bots:
+                    self.active_connected_bots.remove(bot_id)
+                    
+        # Populate the bucket's bots with the current active set copy
+        if self.active_connected_bots:
+            b["bots"].update(self.active_connected_bots)
+
         if etype == "error_logged":
             b["errors"] += 1
             if extra:
