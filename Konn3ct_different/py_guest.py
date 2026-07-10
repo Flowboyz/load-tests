@@ -870,7 +870,7 @@ async def ws_session(
     stop_event, scenario_event, cross_confirm, frontend_url, room_id, reconnection_count=0,
     role="attendee", max_subscriptions=2, decode_downlink=False, in_breakout=False, scenarios=[],
     auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10, is_viewer=False,
-    should_refresh=False, disable_abnormal_behavior=False, connected_flag=None
+    should_refresh=False, disable_abnormal_behavior=False, host_bot_id=1, connected_flag=None
 ):
     fingerprint = emulator.fingerprint
     simulator = NetworkSimulator(network_profile, network_degradation, degradation_interval)
@@ -1074,8 +1074,8 @@ async def ws_session(
                                 options = msg.get("options", [])
                                 logger.log("🗳️", "magenta", bot_id, name, f"Observed Poll created by host: '{question}'", fingerprint=fingerprint)
                                 
-                                # Attendees (excluding host) vote after random delay
-                                if bot_id != host_bot_id:
+                                # Attendees (excluding host) vote after random delay if vote_poll scenario is enabled
+                                if "vote_poll" in scenarios and bot_id != host_bot_id:
                                     async def cast_vote():
                                         await asyncio.sleep(random.uniform(2.0, 6.0))
                                         try:
@@ -1438,6 +1438,7 @@ async def run_bot(
                 auto_camera=auto_camera, auto_mic=auto_mic, auto_screen_share=auto_screen_share, cross_confirm_limit=cross_confirm_limit,
                 is_viewer=is_viewer, should_refresh=bot_refresh_enabled,
                 disable_abnormal_behavior=disable_abnormal_behavior,
+                host_bot_id=host_bot_id,
                 connected_flag=connected_flag
             )
         except Exception as exc:
