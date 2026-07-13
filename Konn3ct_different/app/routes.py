@@ -403,7 +403,7 @@ def download_report(session_id, fmt):
 
 @api_bp.route('/mobile/emulators', methods=['GET'])
 @token_required
-def get_mobile_emulators(current_user):
+def get_mobile_emulators():
     from mobile_ui_tests.run_test import list_emulators
     try:
         devices = list_emulators()
@@ -413,7 +413,7 @@ def get_mobile_emulators(current_user):
 
 @api_bp.route('/mobile/flows', methods=['GET'])
 @token_required
-def get_mobile_flows(current_user):
+def get_mobile_flows():
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     flows_dir = os.path.join(project_root, "mobile_ui_tests", "flows")
     
@@ -428,7 +428,7 @@ def get_mobile_flows(current_user):
 
 @api_bp.route('/mobile/flow-content', methods=['GET'])
 @token_required
-def get_mobile_flow_content(current_user):
+def get_mobile_flow_content():
     flow_file = request.args.get('flow')
     if not flow_file:
         return jsonify({'message': 'Missing flow parameter'}), 400
@@ -448,7 +448,7 @@ def get_mobile_flow_content(current_user):
 
 @api_bp.route('/mobile/save-flow', methods=['POST'])
 @token_required
-def save_mobile_flow(current_user):
+def save_mobile_flow():
     data = request.get_json()
     flow_file = data.get('flow')
     content = data.get('content')
@@ -474,7 +474,7 @@ is_mobile_test_running = False
 
 @api_bp.route('/mobile/run', methods=['POST'])
 @token_required
-def run_mobile_test(current_user):
+def run_mobile_test():
     global is_mobile_test_running
     
     if is_mobile_test_running:
@@ -500,10 +500,26 @@ def run_mobile_test(current_user):
     def run_in_background():
         global is_mobile_test_running
         is_mobile_test_running = True
+        import time
+        start_time = time.time()
+        log_lines = []
         try:
             socketio.emit('mobile_ui_test_status', {'status': 'running'})
             for log_line in execute_flow_generator(flow_path, device_id):
+                log_lines.append(log_line)
                 socketio.emit('mobile_ui_test_log', {'line': log_line})
+                
+            duration_sec = time.time() - start_time
+            socketio.emit('mobile_ui_test_log', {'line': '📊 Compiling final functional test report...'})
+            
+            try:
+                from mobile_ui_tests.report_compiler import generate_mobile_reports
+                report_files = generate_mobile_reports(flow_path, device_id, log_lines, duration_sec)
+                socketio.emit('mobile_ui_test_log', {'line': f'🎉 Report compiled: {report_files["docx_name"]}'})
+                socketio.emit('mobile_ui_test_log', {'line': f'📂 Saved to: mobile_reports/'})
+            except Exception as re:
+                socketio.emit('mobile_ui_test_log', {'line': f'⚠️ Report Compilation Error: {str(re)}'})
+                
         except Exception as e:
             socketio.emit('mobile_ui_test_log', {'line': f'❌ Background Execution Error: {str(e)}'})
         finally:
@@ -512,6 +528,52 @@ def run_mobile_test(current_user):
             
     threading.Thread(target=run_in_background, daemon=True).start()
     return jsonify({'message': 'Mobile UI test started successfully!'}), 200
+
+# --- Mobile UI Test Reports API Routes ---
+
+@api_bp.route('/mobile/reports', methods=['GET'])
+@token_required
+def list_mobile_reports():
+    import datetime
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    reports_dir = os.path.join(project_root, "mobile_reports")
+    if not os.path.exists(reports_dir):
+        return jsonify({'reports': []}), 200
+        
+    try:
+        files = []
+        for f in os.listdir(reports_dir):
+            if f.endswith('.docx') or f.endswith('.md'):
+                filepath = os.path.join(reports_dir, f)
+                stat = os.stat(filepath)
+                created_time = datetime.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                files.append({
+                    'filename': f,
+                    'size': f"{stat.st_size / 1024:.1f} KB",
+                    'created_at': created_time
+                })
+        # Sort by creation date descending
+        files.sort(key=lambda x: x['created_at'], reverse=True)
+        return jsonify({'reports': files}), 200
+    except Exception as e:
+        return jsonify({'message': f'Failed to list reports: {str(e)}'}), 500
+
+@api_bp.route('/mobile/reports/download/<filename>', methods=['GET'])
+@token_required
+def download_mobile_report(filename):
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    reports_dir = os.path.join(project_root, "mobile_reports")
+    filepath = os.path.join(reports_dir, filename)
+    
+    # Secure file access path validation
+    if not os.path.abspath(filepath).startswith(os.path.abspath(reports_dir)):
+        return jsonify({'message': 'Access denied'}), 403
+        
+    if not os.path.exists(filepath):
+        return jsonify({'message': 'Report file not found'}), 404
+        
+    from flask import send_file
+    return send_file(filepath, as_attachment=True)
 
 # --- Cluster Scaling & Telemetry API Routes ---
 

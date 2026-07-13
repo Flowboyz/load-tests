@@ -1037,6 +1037,28 @@
                                 </ul>
                             </div>
                         </div>
+
+                        <!-- Mobile Reports Panel -->
+                        <div class="card" style="margin-top: 24px;">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <h3><i class="fa-solid fa-file-invoice text-emerald"></i> Compiled Mobile Reports</h3>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnRefreshMobileReports" style="padding: 4px 10px; font-size: 11px;"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                            </div>
+                            <div style="padding: 16px; font-size: 13px; max-height: 250px; overflow-y: auto;">
+                                <table class="table" style="width: 100%; border-collapse: collapse; text-align: left;" id="tblMobileReports">
+                                    <thead>
+                                        <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
+                                            <th style="padding: 8px;">Report Name</th>
+                                            <th style="padding: 8px;">Size</th>
+                                            <th style="padding: 8px; text-align: right;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="mobileReportsList">
+                                        <tr><td colspan="3" class="text-center" style="padding: 12px; color: var(--text-muted);">No reports generated yet. Run a test!</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Right: Editor & Live Console -->

@@ -1873,6 +1873,7 @@ window.triggerReportDownload = triggerReportDownload;
 
 async function loadMobileTestData() {
     ensureWebSocketConnected();
+    loadMobileReports();
     
     // 1. Fetch connected emulators
     try {
@@ -2023,6 +2024,14 @@ document.addEventListener('DOMContentLoaded', () => {
             term.innerHTML = '<div class="console-placeholder">Waiting for Maestro test execution to start...</div>';
         });
     }
+
+    // Refresh mobile reports button
+    const btnRefreshReports = document.getElementById('btnRefreshMobileReports');
+    if (btnRefreshReports) {
+        btnRefreshReports.addEventListener('click', () => {
+            loadMobileReports();
+        });
+    }
 });
 
 function appendMobileConsoleLog(line) {
@@ -2063,7 +2072,62 @@ function updateMobileTestStatus(status) {
             btnRun.disabled = false;
             btnRun.innerHTML = '<i class="fa-solid fa-play"></i> Run Mobile UI Test';
             btnRun.style.backgroundColor = '';
+            // Auto refresh reports list on completion
+            loadMobileReports();
         }
+    }
+}
+
+async function loadMobileReports() {
+    const list = document.getElementById('mobileReportsList');
+    if (!list) return;
+    
+    try {
+        const res = await fetch('/api/mobile/reports');
+        if (!res.ok) return;
+        const data = await res.json();
+        const reports = data.reports || [];
+        
+        if (reports.length === 0) {
+            list.innerHTML = '<tr><td colspan="3" class="text-center" style="padding: 12px; color: var(--text-muted);">No reports generated yet. Run a test!</td></tr>';
+            return;
+        }
+        
+        list.innerHTML = '';
+        reports.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid var(--border-color)';
+            
+            // Format icon based on extension
+            const isDocx = r.filename.endsWith('.docx');
+            const iconClass = isDocx ? 'fa-file-word text-blue' : 'fa-file-markdown text-purple';
+            
+            tr.innerHTML = `
+                <td style="padding: 8px; vertical-align: middle;">
+                    <i class="fa-solid ${iconClass}"></i> 
+                    <span style="font-weight: 500; font-family: monospace;">${r.filename}</span>
+                    <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">Created: ${r.created_at}</div>
+                </td>
+                <td style="padding: 8px; vertical-align: middle; color: var(--text-muted);">${r.size}</td>
+                <td style="padding: 8px; vertical-align: middle; text-align: right;">
+                    <button class="btn btn-sm btn-outline-primary btn-dl-report" data-filename="${r.filename}" style="padding: 2px 8px; font-size: 11px;">
+                        <i class="fa-solid fa-download"></i> Download
+                    </button>
+                </td>
+            `;
+            list.appendChild(tr);
+        });
+        
+        // Attach click listeners to download buttons
+        list.querySelectorAll('.btn-dl-report').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const filename = btn.getAttribute('data-filename');
+                window.location.href = `/api/mobile/reports/download/${filename}`;
+            });
+        });
+        
+    } catch (e) {
+        console.error("Error loading mobile reports:", e);
     }
 }
 
