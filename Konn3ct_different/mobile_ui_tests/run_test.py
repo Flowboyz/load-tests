@@ -41,8 +41,15 @@ def list_emulators():
         except Exception:
             pass
             
+    # Always offer Maestro Cloud as an execution target
+    devices.append({
+        "id": "maestro_cloud",
+        "name": "Maestro Cloud (SaaS Headless Run)",
+        "type": "android"
+    })
+    
     # Add a fallback mock device for testing UI when no emulators are connected
-    if not devices:
+    if len(devices) == 1:
         devices.append({
             "id": "mock_android_emulator",
             "name": "Demo Android Emulator (Mock)",
@@ -51,16 +58,12 @@ def list_emulators():
         
     return devices
 
-def execute_flow_generator(flow_path, device_id=None):
+def execute_flow_generator(flow_path, device_id=None, apk_path=None, api_key=None):
     """
     Generator yielding console log lines as Maestro executes the test.
+    Supports local device testing and cloud-based testing (Maestro Cloud).
     """
-    cmd = ["maestro"]
-    if device_id and device_id != "mock_android_emulator":
-        cmd.extend(["--device", device_id])
-    cmd.extend(["test", flow_path])
-    
-    # Handle mock run
+    # 1. Handle mock run
     if device_id == "mock_android_emulator":
         yield "ℹ️ [MOCK RUN] Starting Maestro Test Suite..."
         yield f"ℹ️ Selected Flow File: {os.path.basename(flow_path)}"
@@ -72,11 +75,48 @@ def execute_flow_generator(flow_path, device_id=None):
         yield "🎉 [MOCK RUN] All Maestro steps completed successfully!"
         return
 
+    # 2. Build command for Maestro Cloud or local test
+    if device_id == "maestro_cloud":
+        if not apk_path:
+            yield "❌ ERROR: Maestro Cloud requires a path to your app APK."
+            return
+            
+        # Resolve APK path relative to project root
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        abs_apk_path = os.path.abspath(os.path.join(project_root, apk_path))
+        if not os.path.exists(abs_apk_path):
+            abs_apk_path = os.path.abspath(apk_path)
+            if not os.path.exists(abs_apk_path):
+                yield f"❌ ERROR: APK file not found at path: {apk_path}"
+                return
+                
+        cmd = ["maestro"]
+        if api_key:
+            cmd.extend(["--apiKey", api_key])
+        cmd.extend(["cloud", abs_apk_path, flow_path])
+        yield "ℹ️ Initializing Maestro Cloud run..."
+        yield f"🚀 Uploading APK: {os.path.basename(abs_apk_path)}"
+        yield f"🚀 Uploading Flow: {os.path.basename(flow_path)}"
+    else:
+        cmd = ["maestro"]
+        if device_id:
+            cmd.extend(["--device", device_id])
+        cmd.extend(["test", flow_path])
+        yield "ℹ️ Initializing Maestro execution environment..."
+        yield f"🚀 Target Device: {device_id or 'Default'}"
+        
     try:
         # Run process, redirecting stderr to stdout to catch all output
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         for line in process.stdout:
-            yield line.rstrip()
+            line_str = line.rstrip()
+            # If the output contains a run link, highlight it
+            if "console.mobile.dev/runs/" in line_str:
+                match = re.search(r'(https://console\.mobile\.dev/runs/\S+)', line_str)
+                if match:
+                    url = match.group(1)
+                    yield f"🔗 LINK: {url}"
+            yield line_str
         process.wait()
         if process.returncode == 0:
             yield "🎉 Maestro execution completed successfully!"

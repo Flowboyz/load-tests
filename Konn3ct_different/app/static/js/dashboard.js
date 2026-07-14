@@ -1896,6 +1896,16 @@ async function loadMobileTestData() {
                     select.appendChild(opt);
                 });
             }
+            
+            // Check visibility of Maestro Cloud key field on load
+            const keyGroup = document.getElementById('maestroCloudKeyGroup');
+            if (select && keyGroup) {
+                if (select.value === 'maestro_cloud') {
+                    keyGroup.style.display = 'block';
+                } else {
+                    keyGroup.style.display = 'none';
+                }
+            }
         }
     } catch (e) {
         console.error("Failed to load emulators: ", e);
@@ -2228,6 +2238,19 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Target device selection change to toggle API Key visibility
+    const deviceSelect = document.getElementById('mobileDeviceSelect');
+    const keyGroup = document.getElementById('maestroCloudKeyGroup');
+    if (deviceSelect && keyGroup) {
+        deviceSelect.addEventListener('change', (e) => {
+            if (e.target.value === 'maestro_cloud') {
+                keyGroup.style.display = 'block';
+            } else {
+                keyGroup.style.display = 'none';
+            }
+        });
+    }
+
     // Run Mobile UI Test button click
     const btnRun = document.getElementById('btnRunMobileUiTest');
     if (btnRun) {
@@ -2235,6 +2258,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const flowFile = document.getElementById('mobileFlowSelect').value;
             const deviceId = document.getElementById('mobileDeviceSelect').value;
             const apkPath = document.getElementById('mobileAppApk').value;
+            const apiKey = document.getElementById('mobileMaestroApiKey').value.trim();
             
             if (!flowFile) {
                 alert("Please select a test flow to run.");
@@ -2250,7 +2274,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const res = await fetch('/api/mobile/run', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ flow: flowFile, device_id: deviceId, apk_path: apkPath })
+                    body: JSON.stringify({ 
+                        flow: flowFile, 
+                        device_id: deviceId, 
+                        apk_path: apkPath,
+                        api_key: apiKey
+                    })
                 });
                 const data = await res.json();
                 if (!res.ok) {
@@ -2287,6 +2316,21 @@ function appendMobileConsoleLog(line) {
     const placeholder = term.querySelector('.console-placeholder');
     if (placeholder) {
         term.innerHTML = '';
+    }
+    
+    // Handle Maestro Cloud execution URLs
+    if (line.startsWith("🔗 LINK: ")) {
+        const url = line.replace("🔗 LINK: ", "").trim();
+        const wrapper = document.createElement('div');
+        wrapper.style.margin = '10px 0';
+        wrapper.innerHTML = `
+            <a href="${url}" target="_blank" class="btn btn-sm btn-info" style="color: #fff; text-decoration: none; padding: 6px 12px; font-weight: bold; border-radius: 4px; display: inline-flex; align-items: center; gap: 6px; background-color: #06B6D4; cursor: pointer;">
+                <i class="fa-solid fa-arrow-up-right-from-square"></i> View Live Test run on Maestro Cloud
+            </a>
+        `;
+        term.appendChild(wrapper);
+        term.scrollTop = term.scrollHeight;
+        return;
     }
     
     const entry = document.createElement('div');

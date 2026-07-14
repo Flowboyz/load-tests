@@ -996,7 +996,7 @@
                             <div style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
                                 <div class="form-group">
                                     <label for="mobileAppApk">Konn3ct App APK Path *</label>
-                                    <input type="text" id="mobileAppApk" value="./mobile_ui_tests/konn3ct.apk" placeholder="e.g. ./mobile_ui_tests/konn3ct.apk" required>
+                                    <input type="text" id="mobileAppApk" value="./konn3ct1.5.apk" placeholder="e.g. ./konn3ct1.5.apk" required>
                                 </div>
                                 <div class="form-row" style="display: flex; gap: 16px;">
                                     <div class="form-group col-6" style="flex: 1; min-width: 120px;">
@@ -1011,6 +1011,10 @@
                                             <option value="">Loading devices...</option>
                                         </select>
                                     </div>
+                                </div>
+                                <div class="form-group" id="maestroCloudKeyGroup" style="display: none; margin-top: 8px;">
+                                    <label for="mobileMaestroApiKey">Maestro Cloud API Key *</label>
+                                    <input type="password" id="mobileMaestroApiKey" placeholder="Enter your mobile.dev API Key..." style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4; outline: none;">
                                 </div>
                                 <div style="margin-top: 10px;">
                                     <button type="button" class="btn btn-primary" id="btnRunMobileUiTest" style="width: 100%; padding: 12px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
