@@ -1065,12 +1065,52 @@
                     <div class="form-column">
                         <!-- Flow Editor Card -->
                         <div class="card">
-                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-                                <h3><i class="fa-solid fa-code text-cyan"></i> YAML Test Flow Editor</h3>
-                                <button type="button" class="btn btn-sm btn-success" id="btnSaveMobileFlow" style="padding: 4px 10px; font-size: 11px;">Save Flow</button>
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color);">
+                                <div style="display: flex; gap: 12px; align-items: center;">
+                                    <h3 style="margin-right: 16px;"><i class="fa-solid fa-mobile-screen-button text-cyan"></i> Test Flow Editor</h3>
+                                    <div class="tab-selectors" style="display: flex; background: #1e293b; border-radius: 6px; padding: 3px; gap: 4px;">
+                                        <button type="button" class="btn btn-sm btn-tab active" id="btnTabVisual" style="padding: 4px 12px; font-size: 11px; border-radius: 4px; border: none; cursor: pointer; background: var(--primary-color); color: #fff;">Visual Builder</button>
+                                        <button type="button" class="btn btn-sm btn-tab" id="btnTabCode" style="padding: 4px 12px; font-size: 11px; border-radius: 4px; border: none; cursor: pointer; background: transparent; color: var(--text-muted);">Raw YAML</button>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-success" id="btnSaveMobileFlow" style="padding: 4px 12px; font-size: 11px;">Save Flow</button>
                             </div>
-                            <div style="padding: 16px;">
-                                <textarea id="mobileFlowEditor" style="width: 100%; height: 200px; font-family: monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; outline: none; resize: vertical;" placeholder="Select a flow file to edit..."></textarea>
+                            
+                            <!-- Visual Builder View Pane -->
+                            <div id="paneVisualBuilder" style="padding: 16px; display: flex; flex-direction: column; gap: 16px;">
+                                <div class="form-group" style="margin-bottom: 8px;">
+                                    <label for="mobileAppId" style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 4px;">Konn3ct App ID (Package Name) *</label>
+                                    <input type="text" id="mobileAppId" value="com.konn3ct.mobile" placeholder="e.g. com.konn3ct.mobile" style="width: 100%; font-family: monospace; font-size: 12px; padding: 8px; background: #1e1e1e; color: #d4d4d4; border: 1px solid var(--border-color); border-radius: 6px; outline: none;">
+                                </div>
+                                
+                                <div id="visualStepList" style="display: flex; flex-direction: column; gap: 10px; max-height: 300px; overflow-y: auto; padding-right: 4px;">
+                                    <!-- Dynamic rows loaded here -->
+                                    <div class="text-center text-muted" style="padding: 20px;">Select a flow file to load steps...</div>
+                                </div>
+                                
+                                <!-- Add New Step Controls -->
+                                <div id="addStepControls" style="display: flex; gap: 10px; background: #0f172a; padding: 12px; border-radius: 8px; border: 1px dashed var(--border-color); align-items: center; margin-top: 8px;">
+                                    <div style="flex: 1; min-width: 120px;">
+                                        <select id="addStepAction" style="width: 100%; font-size: 12px; padding: 6px; border-radius: 6px; background: #1e293b; color: #fff; border: 1px solid var(--border-color);">
+                                            <option value="launchApp">Launch App (launchApp)</option>
+                                            <option value="tapOn">Click Element (tapOn)</option>
+                                            <option value="inputText">Input Text (inputText)</option>
+                                            <option value="assertVisible">Verify Visible (assertVisible)</option>
+                                            <option value="back">Go Back (back)</option>
+                                            <option value="scroll">Scroll Down (scroll)</option>
+                                            <option value="delay">Wait Delay (delay)</option>
+                                        </select>
+                                    </div>
+                                    <div style="flex: 2; min-width: 150px;">
+                                        <input type="text" id="addStepValue" placeholder="Target text, input text, or delay ms..." style="width: 100%; font-size: 12px; padding: 6px; border-radius: 6px; background: #1e1e1e; color: #d4d4d4; border: 1px solid var(--border-color); outline: none;">
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddVisualStep" style="padding: 6px 12px; font-size: 12px; font-weight: bold; cursor: pointer; white-space: nowrap;"><i class="fa-solid fa-plus"></i> Add Step</button>
+                                </div>
+                            </div>
+                            
+                            <!-- Raw Code View Pane -->
+                            <div id="paneCodeEditor" style="padding: 16px; display: none;">
+                                <textarea id="mobileFlowEditor" style="width: 100%; height: 350px; font-family: monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; outline: none; resize: vertical;" placeholder="Select a flow file to edit..."></textarea>
                             </div>
                         </div>
 

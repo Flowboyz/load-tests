@@ -442,7 +442,14 @@ def get_mobile_flow_content():
     try:
         with open(flow_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        return jsonify({'content': content}), 200
+            
+        from app.yaml_parser import parse_maestro_yaml
+        parsed_data = parse_maestro_yaml(content)
+        
+        return jsonify({
+            'content': content,
+            'parsed': parsed_data
+        }), 200
     except Exception as e:
         return jsonify({'message': f'Failed to read flow content: {str(e)}'}), 500
 
@@ -452,15 +459,24 @@ def save_mobile_flow():
     data = request.get_json()
     flow_file = data.get('flow')
     content = data.get('content')
+    steps = data.get('steps')
+    app_id = data.get('appId', 'com.konn3ct.mobile')
     
-    if not flow_file or content is None:
-        return jsonify({'message': 'Missing flow or content parameter'}), 400
+    if not flow_file:
+        return jsonify({'message': 'Missing flow parameter'}), 400
         
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     flow_path = os.path.join(project_root, "mobile_ui_tests", "flows", flow_file)
     
     if not os.path.abspath(flow_path).startswith(os.path.join(project_root, "mobile_ui_tests")):
         return jsonify({'message': 'Invalid file path'}), 400
+        
+    if steps is not None:
+        from app.yaml_parser import serialize_maestro_yaml
+        content = serialize_maestro_yaml(app_id, steps)
+        
+    if content is None:
+        return jsonify({'message': 'Missing content or steps parameter'}), 400
         
     try:
         with open(flow_path, 'w', encoding='utf-8') as f:

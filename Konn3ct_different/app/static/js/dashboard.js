@@ -1933,16 +1933,180 @@ async function loadMobileTestData() {
     }
 }
 
+// Visual Builder Local State
+let currentFlowSteps = [];
+let currentFlowAppId = "com.konn3ct.mobile";
+let activeEditorTab = "visual"; // "visual" or "code"
+
+function parseYamlToSteps(yamlText) {
+    const lines = yamlText.split('\n');
+    let appId = "com.konn3ct.mobile";
+    let steps = [];
+    let inSteps = false;
+    
+    for (let line of lines) {
+        let clean = line.trim();
+        if (clean.startsWith("appId:")) {
+            appId = clean.split("appId:")[1].trim();
+        }
+        if (clean === "---") {
+            inSteps = true;
+            continue;
+        }
+        if (!inSteps) continue;
+        
+        if (clean.startsWith("-")) {
+            let content = clean.substring(1).trim();
+            if (!content) continue;
+            
+            if (content.includes(":")) {
+                let colonIdx = content.indexOf(":");
+                let action = content.substring(0, colonIdx).trim();
+                let val = content.substring(colonIdx + 1).trim();
+                if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+                    val = val.substring(1, val.length - 1);
+                }
+                steps.push({ action: action, value: val });
+            } else {
+                steps.push({ action: content, value: "" });
+            }
+        }
+    }
+    return { appId: appId, steps: steps };
+}
+
+function serializeStepsToYaml(appId, steps) {
+    let lines = [];
+    lines.push(`appId: ${appId}`);
+    lines.push("---");
+    steps.forEach(s => {
+        let act = s.action.trim();
+        let val = s.value ? s.value.toString().trim() : "";
+        if (!act) return;
+        if (val) {
+            let escaped = val.replace(/"/g, '\\"');
+            lines.push(`- ${act}: "${escaped}"`);
+        } else {
+            lines.push(`- ${act}`);
+        }
+    });
+    return lines.join("\n") + "\n";
+}
+
 async function loadMobileFlowContent(flowFile) {
     try {
         const res = await fetch(`/api/mobile/flow-content?flow=${flowFile}`);
         if (res.ok) {
             const data = await res.json();
+            
+            // Sync local state
             document.getElementById('mobileFlowEditor').value = data.content;
+            if (data.parsed) {
+                currentFlowAppId = data.parsed.appId || "com.konn3ct.mobile";
+                currentFlowSteps = data.parsed.steps || [];
+            } else {
+                const clientParsed = parseYamlToSteps(data.content);
+                currentFlowAppId = clientParsed.appId;
+                currentFlowSteps = clientParsed.steps;
+            }
+            
+            document.getElementById('mobileAppId').value = currentFlowAppId;
+            renderVisualSteps();
         }
     } catch (e) {
         console.error("Failed to read flow content: ", e);
     }
+}
+
+function renderVisualSteps() {
+    const list = document.getElementById('visualStepList');
+    if (!list) return;
+    
+    if (currentFlowSteps.length === 0) {
+        list.innerHTML = '<div class="text-center text-muted" style="padding: 20px;">No steps in this flow yet. Add one below!</div>';
+        return;
+    }
+    
+    list.innerHTML = '';
+    currentFlowSteps.forEach((s, idx) => {
+        const card = document.createElement('div');
+        card.style.display = 'flex';
+        card.style.gap = '10px';
+        card.style.alignItems = 'center';
+        card.style.background = '#1e293b';
+        card.style.padding = '8px 12px';
+        card.style.borderRadius = '6px';
+        card.style.border = '1px solid var(--border-color)';
+        
+        // Define action badge colors
+        let badgeColor = '#6B7280';
+        if (s.action === 'launchApp') badgeColor = '#3B82F6'; // Blue
+        else if (s.action === 'tapOn') badgeColor = '#8B5CF6'; // Purple
+        else if (s.action === 'inputText') badgeColor = '#10B981'; // Green
+        else if (s.action === 'assertVisible') badgeColor = '#F59E0B'; // Yellow
+        else if (s.action === 'back') badgeColor = '#EF4444'; // Red
+        else if (s.action === 'scroll') badgeColor = '#06B6D4'; // Cyan
+        else if (s.action === 'delay') badgeColor = '#6366F1'; // Indigo
+        
+        const hasVal = !['launchApp', 'back', 'scroll'].includes(s.action);
+        
+        card.innerHTML = `
+            <div style="font-weight: bold; color: var(--text-muted); font-size: 11px; width: 24px;">#${idx + 1}</div>
+            <div style="padding: 3px 8px; font-size: 11px; border-radius: 4px; font-weight: bold; color: #fff; background: ${badgeColor}; width: 100px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${s.action}</div>
+            <div style="flex: 1; display: flex; align-items: center;">
+                ${hasVal ? `<input type="text" class="step-val-input" data-index="${idx}" value="${s.value}" style="width: 100%; font-size: 12px; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: #0f172a; color: #d4d4d4; outline: none;">` : '<span style="color: var(--text-muted); font-size: 11px; font-style: italic; padding-left: 8px;">No arguments</span>'}
+            </div>
+            <div style="display: flex; gap: 4px;">
+                <button type="button" class="btn btn-sm btn-move-up" data-index="${idx}" style="padding: 2px 6px; font-size: 10px; cursor: pointer;"><i class="fa-solid fa-arrow-up"></i></button>
+                <button type="button" class="btn btn-sm btn-move-down" data-index="${idx}" style="padding: 2px 6px; font-size: 10px; cursor: pointer;"><i class="fa-solid fa-arrow-down"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-danger btn-delete-step" data-index="${idx}" style="padding: 2px 6px; font-size: 10px; cursor: pointer; color: #EF4444;"><i class="fa-solid fa-trash"></i></button>
+            </div>
+        `;
+        list.appendChild(card);
+    });
+    
+    // Bind change listener for inline values
+    list.querySelectorAll('.step-val-input').forEach(input => {
+        input.addEventListener('change', (e) => {
+            const idx = parseInt(e.target.getAttribute('data-index'));
+            currentFlowSteps[idx].value = e.target.value;
+        });
+    });
+    
+    // Bind Move Up
+    list.querySelectorAll('.btn-move-up').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.getAttribute('data-index'));
+            if (idx > 0) {
+                const temp = currentFlowSteps[idx];
+                currentFlowSteps[idx] = currentFlowSteps[idx - 1];
+                currentFlowSteps[idx - 1] = temp;
+                renderVisualSteps();
+            }
+        });
+    });
+    
+    // Bind Move Down
+    list.querySelectorAll('.btn-move-down').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.getAttribute('data-index'));
+            if (idx < currentFlowSteps.length - 1) {
+                const temp = currentFlowSteps[idx];
+                currentFlowSteps[idx] = currentFlowSteps[idx + 1];
+                currentFlowSteps[idx + 1] = temp;
+                renderVisualSteps();
+            }
+        });
+    });
+    
+    // Bind Delete
+    list.querySelectorAll('.btn-delete-step').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.getAttribute('data-index'));
+            currentFlowSteps.splice(idx, 1);
+            renderVisualSteps();
+        });
+    });
 }
 
 // Bind flow selector change to reload editor
@@ -1956,24 +2120,108 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     
+    // Tab selectors
+    const btnTabVisual = document.getElementById('btnTabVisual');
+    const btnTabCode = document.getElementById('btnTabCode');
+    const paneVisual = document.getElementById('paneVisualBuilder');
+    const paneCode = document.getElementById('paneCodeEditor');
+    
+    if (btnTabVisual && btnTabCode) {
+        btnTabVisual.addEventListener('click', () => {
+            activeEditorTab = "visual";
+            btnTabVisual.classList.add('active');
+            btnTabVisual.style.background = 'var(--primary-color)';
+            btnTabVisual.style.color = '#fff';
+            btnTabCode.classList.remove('active');
+            btnTabCode.style.background = 'transparent';
+            btnTabCode.style.color = 'var(--text-muted)';
+            
+            paneVisual.style.display = 'flex';
+            paneCode.style.display = 'none';
+            
+            // Sync Code -> Visual
+            const codeVal = document.getElementById('mobileFlowEditor').value;
+            const clientParsed = parseYamlToSteps(codeVal);
+            currentFlowAppId = clientParsed.appId;
+            currentFlowSteps = clientParsed.steps;
+            document.getElementById('mobileAppId').value = currentFlowAppId;
+            renderVisualSteps();
+        });
+        
+        btnTabCode.addEventListener('click', () => {
+            activeEditorTab = "code";
+            btnTabCode.classList.add('active');
+            btnTabCode.style.background = 'var(--primary-color)';
+            btnTabCode.style.color = '#fff';
+            btnTabVisual.classList.remove('active');
+            btnTabVisual.style.background = 'transparent';
+            btnTabVisual.style.color = 'var(--text-muted)';
+            
+            paneCode.style.display = 'block';
+            paneVisual.style.display = 'none';
+            
+            // Sync Visual -> Code
+            currentFlowAppId = document.getElementById('mobileAppId').value.trim();
+            const serialized = serializeStepsToYaml(currentFlowAppId, currentFlowSteps);
+            document.getElementById('mobileFlowEditor').value = serialized;
+        });
+    }
+    
+    // Add step button click
+    const btnAddStep = document.getElementById('btnAddVisualStep');
+    if (btnAddStep) {
+        btnAddStep.addEventListener('click', () => {
+            const action = document.getElementById('addStepAction').value;
+            const valueInput = document.getElementById('addStepValue');
+            const value = valueInput.value.trim();
+            
+            currentFlowSteps.push({ action: action, value: value });
+            renderVisualSteps();
+            valueInput.value = ''; // Reset input
+        });
+    }
+    
+    // Sync App ID input back to local state
+    const app_id_input = document.getElementById('mobileAppId');
+    if (app_id_input) {
+        app_id_input.addEventListener('change', (e) => {
+            currentFlowAppId = e.target.value.trim();
+        });
+    }
+    
     // Save Flow button click
     const btnSave = document.getElementById('btnSaveMobileFlow');
     if (btnSave) {
         btnSave.addEventListener('click', async () => {
             const flowFile = document.getElementById('mobileFlowSelect').value;
-            const content = document.getElementById('mobileFlowEditor').value;
             if (!flowFile) {
                 alert("Please select a flow file first.");
                 return;
             }
+            
+            let payload = { flow: flowFile };
+            
+            if (activeEditorTab === "visual") {
+                currentFlowAppId = document.getElementById('mobileAppId').value.trim();
+                payload.steps = currentFlowSteps;
+                payload.appId = currentFlowAppId;
+            } else {
+                payload.content = document.getElementById('mobileFlowEditor').value;
+            }
+            
             try {
                 const res = await fetch('/api/mobile/save-flow', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ flow: flowFile, content: content })
+                    body: JSON.stringify(payload)
                 });
                 const data = await res.json();
                 alert(data.message);
+                
+                // If visual was saved, sync text editor in background
+                if (activeEditorTab === "visual") {
+                    document.getElementById('mobileFlowEditor').value = serializeStepsToYaml(currentFlowAppId, currentFlowSteps);
+                }
             } catch (e) {
                 alert("Failed to save flow.");
             }
