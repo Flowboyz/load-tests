@@ -9,4 +9,4 @@ appId: com.konn3ct.mobile
 - tapOn: "Join"
 - inputText: "1govtest"
 - tapOn: "Join Room"
-- assertVisible: "Waiting for others to join..."
+- assertVisible: "Copy Invite Link"
