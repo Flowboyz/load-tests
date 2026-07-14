@@ -7,7 +7,6 @@ appId: com.konn3ct.mobile
 - inputText: "Samedo3333@"
 - tapOn: "Login"
 - tapOn: "Join"
-- tapOn: "Enter Room ID (Slug)"
 - inputText: "1govtest"
 - tapOn: "Go"
 - assertVisible: "Waiting for others to join..."
