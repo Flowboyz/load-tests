@@ -534,13 +534,20 @@ def run_mobile_test():
                 parsed = parse_maestro_yaml(flow_content)
                 steps = parsed.get('steps', [])
                 
-                # Find step after tapOn Join and replace with room_slug
+                # Find the first inputText action that appears after tapOn Join
+                join_index = -1
+                for i, step in enumerate(steps):
+                    if step.get('action') == 'tapOn' and step.get('value') == 'Join':
+                        join_index = i
+                        break
+                
                 updated = False
-                for i in range(len(steps) - 1):
-                    if steps[i].get('action') == 'tapOn' and steps[i].get('value') == 'Join':
-                        if steps[i+1].get('action') == 'inputText':
-                            steps[i+1]['value'] = room_slug
+                if join_index != -1:
+                    for i in range(join_index + 1, len(steps)):
+                        if steps[i].get('action') == 'inputText':
+                            steps[i]['value'] = room_slug
                             updated = True
+                            break
                             
                 if updated:
                     serialized_content = serialize_maestro_yaml(parsed.get('appId', 'com.konn3ct.mobile'), steps)
