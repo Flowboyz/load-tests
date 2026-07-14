@@ -1,4 +1,4 @@
-appId: com.konn3ct.app
+appId: com.konn3ct.mobile
 ---
 - launchApp
 - tapOn: "Room Code"
