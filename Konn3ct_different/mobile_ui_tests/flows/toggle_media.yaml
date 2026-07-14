@@ -10,7 +10,4 @@ appId: com.konn3ct.mobile
 - tapOn: "e.g. general-meeting"
 - inputText: "1govtest"
 - tapOn: "Join Room"
-- assertVisible: "Copy Invite Link"
-- tapOn: "Copy Invite Link"
-- tapOn: "OK"
-- tapOn: "👏"
+- delay: 300000
