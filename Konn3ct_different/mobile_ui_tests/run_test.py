@@ -111,8 +111,8 @@ def execute_flow_generator(flow_path, device_id=None, apk_path=None, api_key=Non
         for line in process.stdout:
             line_str = line.rstrip()
             # If the output contains a run link, highlight it
-            if "console.mobile.dev/runs/" in line_str or "cloud.mobile.dev/runs/" in line_str:
-                match = re.search(r'(https://(console|cloud)\.mobile\.dev/runs/\S+)', line_str)
+            if "console.mobile.dev/runs/" in line_str or "cloud.mobile.dev/runs/" in line_str or "app.maestro.dev/" in line_str:
+                match = re.search(r'(https://(console|cloud)\.mobile\.dev/runs/\S+|https://app\.maestro\.dev/\S+)', line_str)
                 if match:
                     url = match.group(1)
                     yield f"🔗 LINK: {url}"
