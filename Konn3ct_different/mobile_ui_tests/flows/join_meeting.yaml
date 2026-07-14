@@ -10,3 +10,6 @@ appId: com.konn3ct.mobile
 - inputText: "1govtest"
 - tapOn: "Join Room"
 - assertVisible: "Copy Invite Link"
+- tapOn: "Copy Invite Link"
+- tapOn: "OK"
+- tapOn: "👏"
