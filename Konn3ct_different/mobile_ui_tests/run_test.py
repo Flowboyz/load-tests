@@ -90,10 +90,10 @@ def execute_flow_generator(flow_path, device_id=None, apk_path=None, api_key=Non
                 yield f"❌ ERROR: APK file not found at path: {apk_path}"
                 return
                 
-        cmd = ["maestro"]
+        cmd = ["maestro", "cloud"]
         if api_key:
             cmd.extend(["--apiKey", api_key])
-        cmd.extend(["cloud", abs_apk_path, flow_path])
+        cmd.extend([abs_apk_path, flow_path])
         yield "ℹ️ Initializing Maestro Cloud run..."
         yield f"🚀 Uploading APK: {os.path.basename(abs_apk_path)}"
         yield f"🚀 Uploading Flow: {os.path.basename(flow_path)}"
