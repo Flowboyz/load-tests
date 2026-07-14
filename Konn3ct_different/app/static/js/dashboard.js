@@ -2270,6 +2270,8 @@ document.addEventListener('DOMContentLoaded', () => {
             term.innerHTML = '';
             appendMobileConsoleLog("ℹ️ Initializing Maestro execution environment...");
             
+            const roomSlug = document.getElementById('formRoom') ? document.getElementById('formRoom').value.trim() : '';
+            
             try {
                 const res = await fetch('/api/mobile/run', {
                     method: 'POST',
@@ -2278,7 +2280,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         flow: flowFile, 
                         device_id: deviceId, 
                         apk_path: apkPath,
-                        api_key: apiKey
+                        api_key: apiKey,
+                        room_slug: roomSlug
                     })
                 });
                 const data = await res.json();

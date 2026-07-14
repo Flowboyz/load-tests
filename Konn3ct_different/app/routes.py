@@ -501,6 +501,7 @@ def run_mobile_test():
     device_id = data.get('device_id')
     apk_path = data.get('apk_path')
     api_key = data.get('api_key')
+    room_slug = data.get('room_slug')
     
     if not flow_file:
         return jsonify({'message': 'Missing target flow file'}), 400
@@ -521,9 +522,39 @@ def run_mobile_test():
         import time
         start_time = time.time()
         log_lines = []
+        
+        target_flow_path = flow_path
+        temp_flow_created = False
+        
+        if room_slug:
+            try:
+                from app.yaml_parser import parse_maestro_yaml, serialize_maestro_yaml
+                with open(flow_path, 'r', encoding='utf-8') as f:
+                    flow_content = f.read()
+                parsed = parse_maestro_yaml(flow_content)
+                steps = parsed.get('steps', [])
+                
+                # Find step after tapOn Join and replace with room_slug
+                updated = False
+                for i in range(len(steps) - 1):
+                    if steps[i].get('action') == 'tapOn' and steps[i].get('value') == 'Join':
+                        if steps[i+1].get('action') == 'inputText':
+                            steps[i+1]['value'] = room_slug
+                            updated = True
+                            
+                if updated:
+                    serialized_content = serialize_maestro_yaml(parsed.get('appId', 'com.konn3ct.mobile'), steps)
+                    temp_flow_file = f"temp_{int(time.time())}_{flow_file}"
+                    target_flow_path = os.path.join(project_root, "mobile_ui_tests", "flows", temp_flow_file)
+                    with open(target_flow_path, 'w', encoding='utf-8') as f:
+                        f.write(serialized_content)
+                    temp_flow_created = True
+            except Exception as e:
+                socketio.emit('mobile_ui_test_log', {'line': f'⚠️ Warning: Failed to inject room slug ({str(e)}). Running original flow...'})
+                
         try:
             socketio.emit('mobile_ui_test_status', {'status': 'running'})
-            for log_line in execute_flow_generator(flow_path, device_id, apk_path, api_key):
+            for log_line in execute_flow_generator(target_flow_path, device_id, apk_path, api_key):
                 log_lines.append(log_line)
                 socketio.emit('mobile_ui_test_log', {'line': log_line})
                 
@@ -541,6 +572,11 @@ def run_mobile_test():
         except Exception as e:
             socketio.emit('mobile_ui_test_log', {'line': f'❌ Background Execution Error: {str(e)}'})
         finally:
+            if temp_flow_created and os.path.exists(target_flow_path):
+                try:
+                    os.remove(target_flow_path)
+                except:
+                    pass
             is_mobile_test_running = False
             socketio.emit('mobile_ui_test_status', {'status': 'idle'})
             
