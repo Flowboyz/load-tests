@@ -10,4 +10,7 @@ appId: com.konn3ct.mobile
 - tapOn: "e.g. general-meeting"
 - inputText: "1govtest"
 - tapOn: "Join Room"
-- delay: 300000
+- repeat:
+    times: 300
+    commands:
+      - evalScript: "java.lang.Thread.sleep(1000)"
