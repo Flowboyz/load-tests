@@ -500,7 +500,7 @@ def run_mobile_test():
     flow_file = data.get('flow')
     device_id = data.get('device_id')
     apk_path = data.get('apk_path')
-    api_key = data.get('api_key')
+    api_key = data.get('api_key') or os.getenv('MAESTRO_API_KEY')
     room_slug = data.get('room_slug')
     cloud_model = data.get('cloud_model')
     cloud_os = data.get('cloud_os')

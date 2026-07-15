@@ -7,4 +7,4 @@ appId: com.konn3ct.mobile
 - inputText: "Samedo3333@"
 - tapOn: "Login"
 - tapOn: "Profile"
-- assertVisible: "Account Details"
+- assertVisible: "Profile Information"
