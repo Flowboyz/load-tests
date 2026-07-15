@@ -1950,6 +1950,7 @@ async function loadMobileTestData() {
 let currentFlowSteps = [];
 let currentFlowAppId = "com.konn3ct.mobile";
 let activeEditorTab = "visual"; // "visual" or "code"
+let isVisualEditorDirty = false;
 
 function parseYamlToSteps(yamlText) {
     const lines = yamlText.split('\n');
@@ -2014,6 +2015,7 @@ async function loadMobileFlowContent(flowFile) {
             
             // Sync local state
             document.getElementById('mobileFlowEditor').value = data.content;
+            isVisualEditorDirty = false;
             if (data.parsed) {
                 currentFlowAppId = data.parsed.appId || "com.konn3ct.mobile";
                 currentFlowSteps = data.parsed.steps || [];
@@ -2083,6 +2085,7 @@ function renderVisualSteps() {
         input.addEventListener('change', (e) => {
             const idx = parseInt(e.target.getAttribute('data-index'));
             currentFlowSteps[idx].value = e.target.value;
+            isVisualEditorDirty = true;
         });
     });
     
@@ -2094,6 +2097,7 @@ function renderVisualSteps() {
                 const temp = currentFlowSteps[idx];
                 currentFlowSteps[idx] = currentFlowSteps[idx - 1];
                 currentFlowSteps[idx - 1] = temp;
+                isVisualEditorDirty = true;
                 renderVisualSteps();
             }
         });
@@ -2107,6 +2111,7 @@ function renderVisualSteps() {
                 const temp = currentFlowSteps[idx];
                 currentFlowSteps[idx] = currentFlowSteps[idx + 1];
                 currentFlowSteps[idx + 1] = temp;
+                isVisualEditorDirty = true;
                 renderVisualSteps();
             }
         });
@@ -2117,6 +2122,7 @@ function renderVisualSteps() {
         btn.addEventListener('click', () => {
             const idx = parseInt(btn.getAttribute('data-index'));
             currentFlowSteps.splice(idx, 1);
+            isVisualEditorDirty = true;
             renderVisualSteps();
         });
     });
@@ -2173,10 +2179,12 @@ document.addEventListener('DOMContentLoaded', () => {
             paneCode.style.display = 'block';
             paneVisual.style.display = 'none';
             
-            // Sync Visual -> Code
-            currentFlowAppId = document.getElementById('mobileAppId').value.trim();
-            const serialized = serializeStepsToYaml(currentFlowAppId, currentFlowSteps);
-            document.getElementById('mobileFlowEditor').value = serialized;
+            // Sync Visual -> Code only if visual editor has unsaved changes
+            if (isVisualEditorDirty) {
+                currentFlowAppId = document.getElementById('mobileAppId').value.trim();
+                const serialized = serializeStepsToYaml(currentFlowAppId, currentFlowSteps);
+                document.getElementById('mobileFlowEditor').value = serialized;
+            }
         });
     }
     
@@ -2189,6 +2197,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const value = valueInput.value.trim();
             
             currentFlowSteps.push({ action: action, value: value });
+            isVisualEditorDirty = true;
             renderVisualSteps();
             valueInput.value = ''; // Reset input
         });
@@ -2199,6 +2208,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (app_id_input) {
         app_id_input.addEventListener('change', (e) => {
             currentFlowAppId = e.target.value.trim();
+            isVisualEditorDirty = true;
         });
     }
     
@@ -2214,7 +2224,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             let payload = { flow: flowFile };
             
-            if (activeEditorTab === "visual") {
+            if (activeEditorTab === "visual" && isVisualEditorDirty) {
                 currentFlowAppId = document.getElementById('mobileAppId').value.trim();
                 payload.steps = currentFlowSteps;
                 payload.appId = currentFlowAppId;
@@ -2230,6 +2240,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 const data = await res.json();
                 alert(data.message);
+                if (res.ok) {
+                    isVisualEditorDirty = false;
+                }
                 
                 // If visual was saved, sync text editor in background
                 if (activeEditorTab === "visual") {
@@ -2290,7 +2303,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 cloud_os: cloudOs
             };
             
-            if (activeEditorTab === "visual") {
+            if (activeEditorTab === "visual" && isVisualEditorDirty) {
                 runPayload.steps = currentFlowSteps;
                 runPayload.appId = document.getElementById('mobileAppId').value.trim();
             } else {
