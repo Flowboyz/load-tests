@@ -15,6 +15,8 @@ appId: com.konn3ct.mobile
 # Input Room Name
 - tapOn: "e.g. Marketing Weekly Sync"
 - inputText: "Maestro Auto Room"
+# Hide keyboard so the submit button is not covered
+- hideKeyboard
 # Submit the form (index: 1 taps the second "Create Room" element on screen, i.e., the submit button in the modal)
 - tapOn:
     text: "Create Room"
