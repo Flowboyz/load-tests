@@ -24,7 +24,7 @@ appId: com.konn3ct.mobile
 # Send Chat message
 - tapOn: "Type a message..."
 - inputText: "Hello from the mobile automation bot! 🚀"
-- key: "Enter"
+- pressKey: Enter
 # Close Chat
 - tapOn: "✕"
 # Sleep for 5 minutes
