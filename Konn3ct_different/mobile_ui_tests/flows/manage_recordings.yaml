@@ -8,6 +8,7 @@ appId: com.konn3ct.mobile
 - tapOn: "Login"
 - tapOn: "More"
 - tapOn: "Recordings"
+- assertVisible: "Recordings"
 - tapOn: "Search recordings..."
 - inputText: "Maestro Test Recording"
 - tapOn:

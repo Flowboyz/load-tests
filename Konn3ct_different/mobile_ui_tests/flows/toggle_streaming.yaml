@@ -8,6 +8,7 @@ appId: com.konn3ct.mobile
 - tapOn: "Login"
 - tapOn: "More"
 - tapOn: "Streaming"
+- assertVisible: "Live Streams"
 - tapOn: "Configure Stream"
 - tapOn: "Enter YouTube Key"
 - inputText: "test-stream-key-12345"

@@ -7,6 +7,7 @@ appId: com.konn3ct.mobile
 - inputText: "Samedo3333@"
 - tapOn: "Login"
 - tapOn: "Events"
+- assertVisible: "Manage pre-registered events & participants"
 - tapOn: "Create Event"
 - tapOn: "e.g. Annual Tech Summit"
 - inputText: "Maestro Tech Summit"

@@ -8,6 +8,7 @@ appId: com.konn3ct.mobile
 - tapOn: "Login"
 - tapOn: "More"
 - tapOn: "Recordings"
+- assertVisible: "Recordings"
 - tapOn:
     point: "50%,25%"
 - assertVisible: "Playback"

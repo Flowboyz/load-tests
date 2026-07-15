@@ -8,6 +8,6 @@ appId: com.konn3ct.mobile
 - tapOn: "Login"
 - tapOn: "More"
 - tapOn: "Attendance"
-- assertVisible: "Attendance"
+- assertVisible: "Meeting Attendance"
 - tapOn: "View Participants"
 - assertVisible: "Attendance Details"

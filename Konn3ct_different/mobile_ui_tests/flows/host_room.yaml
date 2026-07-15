@@ -7,6 +7,7 @@ appId: com.konn3ct.mobile
 - inputText: "Samedo3333@"
 - tapOn: "Login"
 - tapOn: "Rooms"
+- assertVisible: "Create and manage your meeting rooms."
 - tapOn:
     point: "280,100"
     selector:
