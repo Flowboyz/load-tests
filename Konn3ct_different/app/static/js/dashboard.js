@@ -1899,11 +1899,14 @@ async function loadMobileTestData() {
             
             // Check visibility of Maestro Cloud key field on load
             const keyGroup = document.getElementById('maestroCloudKeyGroup');
+            const cloudOpts = document.getElementById('maestroCloudDeviceOptions');
             if (select && keyGroup) {
                 if (select.value === 'maestro_cloud') {
                     keyGroup.style.display = 'block';
+                    if (cloudOpts) cloudOpts.style.display = 'flex';
                 } else {
                     keyGroup.style.display = 'none';
+                    if (cloudOpts) cloudOpts.style.display = 'none';
                 }
             }
         }
@@ -2238,15 +2241,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Target device selection change to toggle API Key visibility
+    // Target device selection change to toggle API Key and Cloud Options visibility
     const deviceSelect = document.getElementById('mobileDeviceSelect');
     const keyGroup = document.getElementById('maestroCloudKeyGroup');
+    const cloudOpts = document.getElementById('maestroCloudDeviceOptions');
     if (deviceSelect && keyGroup) {
         deviceSelect.addEventListener('change', (e) => {
             if (e.target.value === 'maestro_cloud') {
                 keyGroup.style.display = 'block';
+                if (cloudOpts) cloudOpts.style.display = 'flex';
             } else {
                 keyGroup.style.display = 'none';
+                if (cloudOpts) cloudOpts.style.display = 'none';
             }
         });
     }
@@ -2271,6 +2277,8 @@ document.addEventListener('DOMContentLoaded', () => {
             appendMobileConsoleLog("ℹ️ Initializing Maestro execution environment...");
             
             const roomSlug = document.getElementById('formRoom') ? document.getElementById('formRoom').value.trim() : '';
+            const cloudModel = document.getElementById('mobileCloudModel') ? document.getElementById('mobileCloudModel').value : '';
+            const cloudOs = document.getElementById('mobileCloudOs') ? document.getElementById('mobileCloudOs').value : '';
             
             try {
                 const res = await fetch('/api/mobile/run', {
@@ -2281,7 +2289,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         device_id: deviceId, 
                         apk_path: apkPath,
                         api_key: apiKey,
-                        room_slug: roomSlug
+                        room_slug: roomSlug,
+                        cloud_model: cloudModel,
+                        cloud_os: cloudOs
                     })
                 });
                 const data = await res.json();

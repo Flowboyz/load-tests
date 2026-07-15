@@ -1016,6 +1016,27 @@
                                     <label for="mobileMaestroApiKey">Maestro Cloud API Key *</label>
                                     <input type="password" id="mobileMaestroApiKey" placeholder="Enter your mobile.dev API Key..." style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4; outline: none;">
                                 </div>
+                                <div class="form-row" id="maestroCloudDeviceOptions" style="display: none; gap: 16px; margin-top: 12px;">
+                                    <div class="form-group col-6" style="flex: 1; min-width: 120px;">
+                                        <label for="mobileCloudModel">Cloud Device Model</label>
+                                        <select id="mobileCloudModel" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4; outline: none;">
+                                            <option value="Pixel 6" selected>Pixel 6 (Default)</option>
+                                            <option value="Pixel 7">Pixel 7</option>
+                                            <option value="Pixel 8">Pixel 8</option>
+                                            <option value="Samsung Galaxy S23">Samsung Galaxy S23</option>
+                                            <option value="Samsung Galaxy S22">Samsung Galaxy S22</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group col-6" style="flex: 1; min-width: 120px;">
+                                        <label for="mobileCloudOs">Cloud OS Version</label>
+                                        <select id="mobileCloudOs" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4; outline: none;">
+                                            <option value="33" selected>Android 13 (API 33)</option>
+                                            <option value="34">Android 14 (API 34)</option>
+                                            <option value="31">Android 12 (API 31)</option>
+                                            <option value="30">Android 11 (API 30)</option>
+                                        </select>
+                                    </div>
+                                </div>
                                 <div style="margin-top: 10px;">
                                     <button type="button" class="btn btn-primary" id="btnRunMobileUiTest" style="width: 100%; padding: 12px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
                                         <i class="fa-solid fa-play"></i> Run Mobile UI Test

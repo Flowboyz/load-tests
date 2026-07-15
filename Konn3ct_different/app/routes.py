@@ -502,6 +502,8 @@ def run_mobile_test():
     apk_path = data.get('apk_path')
     api_key = data.get('api_key')
     room_slug = data.get('room_slug')
+    cloud_model = data.get('cloud_model')
+    cloud_os = data.get('cloud_os')
     
     if not flow_file:
         return jsonify({'message': 'Missing target flow file'}), 400
@@ -561,7 +563,7 @@ def run_mobile_test():
                 
         try:
             socketio.emit('mobile_ui_test_status', {'status': 'running'})
-            for log_line in execute_flow_generator(target_flow_path, device_id, apk_path, api_key):
+            for log_line in execute_flow_generator(target_flow_path, device_id, apk_path, api_key, cloud_model, cloud_os):
                 log_lines.append(log_line)
                 socketio.emit('mobile_ui_test_log', {'line': log_line})
                 
