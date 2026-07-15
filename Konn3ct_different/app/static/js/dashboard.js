@@ -2276,7 +2276,7 @@ document.addEventListener('DOMContentLoaded', () => {
             term.innerHTML = '';
             appendMobileConsoleLog("ℹ️ Initializing Maestro execution environment...");
             
-            const roomSlug = document.getElementById('formRoom') ? document.getElementById('formRoom').value.trim() : '';
+            const roomSlug = document.getElementById('mobileRoomSlug') ? document.getElementById('mobileRoomSlug').value.trim() : '';
             const cloudModel = document.getElementById('mobileCloudModel') ? document.getElementById('mobileCloudModel').value : '';
             const cloudOs = document.getElementById('mobileCloudOs') ? document.getElementById('mobileCloudOs').value : '';
             
