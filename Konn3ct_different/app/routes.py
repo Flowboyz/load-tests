@@ -530,29 +530,15 @@ def run_mobile_test():
         
         if room_slug:
             try:
-                from app.yaml_parser import parse_maestro_yaml, serialize_maestro_yaml
                 with open(flow_path, 'r', encoding='utf-8') as f:
                     flow_content = f.read()
-                parsed = parse_maestro_yaml(flow_content)
-                steps = parsed.get('steps', [])
                 
-                # Find the first inputText action that appears after tapOn Join
-                join_index = -1
-                for i, step in enumerate(steps):
-                    if step.get('action') == 'tapOn' and step.get('value') == 'Join':
-                        join_index = i
-                        break
+                # Regex replace room slug specifically following the 'Join' and 'general-meeting' taps
+                import re
+                pattern = r'(tapOn:\s*["\']?Join["\']?\s*\n\s*-\s*tapOn:\s*["\']?e\.g\.\s*general-meeting["\']?\s*\n\s*-\s*inputText:\s*)(["\']?[a-zA-Z0-9_\-]+["\']?)'
+                serialized_content = re.sub(pattern, rf'\g<1>"{room_slug}"', flow_content)
                 
-                updated = False
-                if join_index != -1:
-                    for i in range(join_index + 1, len(steps)):
-                        if steps[i].get('action') == 'inputText':
-                            steps[i]['value'] = room_slug
-                            updated = True
-                            break
-                            
-                if updated:
-                    serialized_content = serialize_maestro_yaml(parsed.get('appId', 'com.konn3ct.mobile'), steps)
+                if serialized_content != flow_content:
                     temp_flow_file = f"temp_{int(time.time())}_{flow_file}"
                     target_flow_path = os.path.join(project_root, "mobile_ui_tests", "flows", temp_flow_file)
                     with open(target_flow_path, 'w', encoding='utf-8') as f:
