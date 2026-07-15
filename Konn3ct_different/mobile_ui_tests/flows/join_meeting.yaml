@@ -10,4 +10,24 @@ appId: com.konn3ct.mobile
 - tapOn: "e.g. general-meeting"
 - inputText: "1govtest"
 - tapOn: "Join Room"
+- assertVisible: "Copy Link"
+# Open More Options (4th button on bottom toolbar)
+- tapOn:
+    x: 680
+    y: 2280
+# Raise Hand
+- tapOn: "Raise Hand"
+# Open More Options again
+- tapOn:
+    x: 680
+    y: 2280
+# Open Chat
+- tapOn: "Chat"
+# Send Chat message
+- tapOn: "Type a message..."
+- inputText: "Hello from the mobile automation bot! 🚀"
+- key: "Enter"
+# Close Chat
+- tapOn: "✕"
+# Sleep for 5 minutes
 - evalScript: "java.lang.Thread.sleep(300000)"
