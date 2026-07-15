@@ -11,8 +11,7 @@ appId: com.konn3ct.mobile
 - assertVisible: "Recordings"
 - tapOn: "Search recordings..."
 - inputText: "Maestro Test Recording"
+# Tap Share button on the recording card
 - tapOn:
-    point: "200,100"
-    selector:
-      text: "Maestro Test Recording"
+    point: "78%,46%"
 - assertVisible: "Link Copied"

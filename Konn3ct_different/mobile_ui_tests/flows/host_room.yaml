@@ -8,10 +8,9 @@ appId: com.konn3ct.mobile
 - tapOn: "Login"
 - tapOn: "Rooms"
 - assertVisible: "Create and manage your meeting rooms."
+# Tap Play button on the first room card (bottom right of the card)
 - tapOn:
-    point: "280,100"
-    selector:
-      text: "Maestro Auto Room"
+    point: "92%,52%"
 - extendedWaitUntil:
     visible: "Copy Link"
     timeout: 30000
