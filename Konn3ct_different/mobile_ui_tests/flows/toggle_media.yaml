@@ -13,14 +13,12 @@ appId: com.konn3ct.mobile
 - assertVisible: "Copy Link"
 # Open More Options (4th button on bottom toolbar)
 - tapOn:
-    x: 680
-    y: 2280
+    point: "63%,95%"
 # Raise Hand
 - tapOn: "Raise Hand"
 # Open More Options again
 - tapOn:
-    x: 680
-    y: 2280
+    point: "63%,95%"
 # Open Chat
 - tapOn: "Chat"
 # Send Chat message
