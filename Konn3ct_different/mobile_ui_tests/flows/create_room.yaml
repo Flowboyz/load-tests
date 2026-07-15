@@ -17,9 +17,7 @@ appId: com.konn3ct.mobile
 - inputText: "Maestro Auto Room"
 # Hide keyboard so the submit button is not covered
 - hideKeyboard
-# Submit the form (index: 1 taps the second "Create Room" element on screen, i.e., the submit button in the modal)
-- tapOn:
-    text: "Create Room"
-    index: 1
+# Submit the form (since the background button is inactive, this will target the modal's submit button)
+- tapOn: "Create Room"
 # Verify Success
 - assertVisible: "Maestro Auto Room"
