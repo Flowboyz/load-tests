@@ -8,8 +8,16 @@ appId: com.konn3ct.mobile
 - tapOn: "Login"
 - tapOn: "Rooms"
 - assertVisible: "Create and manage your meeting rooms."
+# Open the Create Modal
 - tapOn: "Create Room"
+# Wait for Modal to fully load
+- assertVisible: "Create New Room"
+# Input Room Name
 - tapOn: "e.g. Marketing Weekly Sync"
 - inputText: "Maestro Auto Room"
-- tapOn: "Create Room"
+# Submit the form (specifically the Create Room button below Private Room)
+- tapOn:
+    text: "Create Room"
+    below: "Private Room"
+# Verify Success
 - assertVisible: "Maestro Auto Room"
