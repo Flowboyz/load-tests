@@ -11,7 +11,7 @@ appId: com.konn3ct.mobile
 # Open the Create Modal
 - tapOn: "Create Room"
 # Wait for Modal to fully load
-- assertVisible: "Create New Room"
+- assertVisible: "Create a Room"
 # Input Room Name
 - tapOn: "e.g. Marketing Weekly Sync"
 - inputText: "Maestro Auto Room"
