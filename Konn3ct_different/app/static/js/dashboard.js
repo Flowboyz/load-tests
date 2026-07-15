@@ -2280,19 +2280,28 @@ document.addEventListener('DOMContentLoaded', () => {
             const cloudModel = document.getElementById('mobileCloudModel') ? document.getElementById('mobileCloudModel').value : '';
             const cloudOs = document.getElementById('mobileCloudOs') ? document.getElementById('mobileCloudOs').value : '';
             
+            let runPayload = { 
+                flow: flowFile, 
+                device_id: deviceId, 
+                apk_path: apkPath,
+                api_key: apiKey,
+                room_slug: roomSlug,
+                cloud_model: cloudModel,
+                cloud_os: cloudOs
+            };
+            
+            if (activeEditorTab === "visual") {
+                runPayload.steps = currentFlowSteps;
+                runPayload.appId = document.getElementById('mobileAppId').value.trim();
+            } else {
+                runPayload.content = document.getElementById('mobileFlowEditor').value;
+            }
+            
             try {
                 const res = await fetch('/api/mobile/run', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        flow: flowFile, 
-                        device_id: deviceId, 
-                        apk_path: apkPath,
-                        api_key: apiKey,
-                        room_slug: roomSlug,
-                        cloud_model: cloudModel,
-                        cloud_os: cloudOs
-                    })
+                    body: JSON.stringify(runPayload)
                 });
                 const data = await res.json();
                 if (!res.ok) {

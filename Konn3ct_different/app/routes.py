@@ -511,6 +511,24 @@ def run_mobile_test():
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     flow_path = os.path.join(project_root, "mobile_ui_tests", "flows", flow_file)
     
+    if not os.path.abspath(flow_path).startswith(os.path.join(project_root, "mobile_ui_tests")):
+        return jsonify({'message': 'Invalid file path'}), 400
+        
+    content = data.get('content')
+    steps = data.get('steps')
+    app_id = data.get('appId', 'com.konn3ct.mobile')
+    
+    if steps is not None:
+        from app.yaml_parser import serialize_maestro_yaml
+        content = serialize_maestro_yaml(app_id, steps)
+        
+    if content is not None:
+        try:
+            with open(flow_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+        except Exception as e:
+            return jsonify({'message': f'Failed to autosave flow: {str(e)}'}), 500
+
     if not os.path.exists(flow_path):
         return jsonify({'message': f'Flow file not found: {flow_file}'}), 404
 
