@@ -1,0 +1,14 @@
+appId: com.konn3ct.mobile
+---
+- launchApp
+- tapOn: "Demo@email.com"
+- inputText: "flowboyzamy@gmail.com"
+- tapOn: "Enter your password"
+- inputText: "Samedo3333@"
+- tapOn: "Login"
+- tapOn: "Rooms"
+- tapOn:
+    point: "280,0"
+    selector:
+      text: "Maestro Auto Room"
+- tapOn: "Delete"

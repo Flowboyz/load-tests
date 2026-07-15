@@ -1,0 +1,16 @@
+appId: com.konn3ct.mobile
+---
+- launchApp
+- tapOn: "Demo@email.com"
+- inputText: "flowboyzamy@gmail.com"
+- tapOn: "Enter your password"
+- inputText: "Samedo3333@"
+- tapOn: "Login"
+- tapOn: "More"
+- tapOn: "Streaming"
+- tapOn: "Configure Stream"
+- tapOn: "Enter YouTube Key"
+- inputText: "test-stream-key-12345"
+- tapOn: "Start Broadcasting"
+- assertVisible: "Stop Streaming"
+- tapOn: "Stop Streaming"

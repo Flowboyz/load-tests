@@ -1,0 +1,19 @@
+appId: com.konn3ct.mobile
+---
+- launchApp
+- tapOn: "Demo@email.com"
+- inputText: "flowboyzamy@gmail.com"
+- tapOn: "Enter your password"
+- inputText: "Samedo3333@"
+- tapOn: "Login"
+- tapOn: "Schedule"
+- tapOn:
+    point: "90%,7%"
+- tapOn: "e.g. Weekly Product Sync"
+- inputText: "Maestro Automated Sync"
+- tapOn: "What is this session about?"
+- inputText: "Automated test meeting scheduled by Maestro."
+- tapOn: "Select Room"
+- tapOn: "Maestro Auto Room"
+- tapOn: "Schedule Meeting"
+- assertVisible: "Maestro Automated Sync"

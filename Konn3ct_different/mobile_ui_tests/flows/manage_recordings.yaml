@@ -1,0 +1,17 @@
+appId: com.konn3ct.mobile
+---
+- launchApp
+- tapOn: "Demo@email.com"
+- inputText: "flowboyzamy@gmail.com"
+- tapOn: "Enter your password"
+- inputText: "Samedo3333@"
+- tapOn: "Login"
+- tapOn: "More"
+- tapOn: "Recordings"
+- tapOn: "Search recordings..."
+- inputText: "Maestro Test Recording"
+- tapOn:
+    point: "200,100"
+    selector:
+      text: "Maestro Test Recording"
+- assertVisible: "Link Copied"

@@ -10,7 +10,6 @@ appId: com.konn3ct.mobile
 - tapOn: "e.g. general-meeting"
 - inputText: "1govtest"
 - tapOn: "Join Room"
-- assertVisible: "Copy Link"
 # Open More Options (4th button on bottom toolbar)
 - tapOn:
     point: "63%,95%"

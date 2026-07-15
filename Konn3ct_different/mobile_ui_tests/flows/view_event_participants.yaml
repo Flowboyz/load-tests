@@ -1,0 +1,12 @@
+appId: com.konn3ct.mobile
+---
+- launchApp
+- tapOn: "Demo@email.com"
+- inputText: "flowboyzamy@gmail.com"
+- tapOn: "Enter your password"
+- inputText: "Samedo3333@"
+- tapOn: "Login"
+- tapOn: "Events"
+- tapOn: "Maestro Tech Summit"
+- tapOn: "View Participants"
+- assertVisible: "Registered Guests"
