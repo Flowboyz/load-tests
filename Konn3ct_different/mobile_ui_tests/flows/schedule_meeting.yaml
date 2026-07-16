@@ -25,14 +25,10 @@ appId: com.konn3ct.mobile
 - inputText: "Automated test meeting scheduled by Maestro."
 # Hide keyboard to expose room selector and submit buttons
 - hideKeyboard
-# Scroll down until the room selector button is fully visible
+# Scroll down until the Schedule Session button is fully visible
 - scrollUntilVisible:
-    element: "Select an existing room..."
+    element: "Schedule Session"
     direction: DOWN
-# Tap Room Selector
-- tapOn: "Select an existing room..."
-# Select Room
-- tapOn: "Maestro Auto Room"
 # Submit the form (Schedule Session)
 - tapOn: "Schedule Session"
 # Verify Success
