@@ -10,6 +10,5 @@ appId: com.konn3ct.mobile
 - tapOn: "Recordings"
 - assertVisible: "Recordings"
 # Tap Trash icon on the first recording card
-- tapOn:
-    point: "92%,46%"
+- tapOn: { point: "92%,46%" }
 - tapOn: "Delete"

@@ -12,6 +12,5 @@ appId: com.konn3ct.mobile
 - tapOn: "Search recordings..."
 - inputText: "Maestro Test Recording"
 # Tap Share button on the recording card
-- tapOn:
-    point: "78%,46%"
+- tapOn: { point: "78%,46%" }
 - assertVisible: "Link Copied"

@@ -9,6 +9,5 @@ appId: com.konn3ct.mobile
 - tapOn: "Rooms"
 - assertVisible: "Create and manage your meeting rooms."
 # Tap Trash icon on the first room card (top right of the card)
-- tapOn:
-    point: "92%,46%"
+- tapOn: { point: "92%,46%" }
 - tapOn: "Delete"
