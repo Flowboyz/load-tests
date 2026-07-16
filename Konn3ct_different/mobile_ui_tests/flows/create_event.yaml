@@ -11,13 +11,24 @@ appId: com.konn3ct.mobile
 - tapOn: "Events"
 - assertVisible: "Manage pre-registered events & participants"
 - tapOn: "Create Event"
+# Input Title
 - tapOn: "e.g. Annual Tech Summit"
 - inputText: "Maestro Tech Summit"
+# Input Host Name
 - tapOn: "Your Name or Company"
 - inputText: "Maestro QA Team"
+# Dismiss keyboard to reveal the Room selector
+- hideKeyboard
+# Open the Room Selector
+- tapOn: "Choose a room"
+# Select the room
+- tapOn: "Maestro Auto Room"
+# Input Description
 - tapOn: "Describe what your event is about..."
 - inputText: "An awesome automated tech event."
 # Hide keyboard so it does not cover the submit button
 - hideKeyboard
+# Submit the form
 - tapOn: "Create Event"
+# Verify Success
 - assertVisible: "Maestro Tech Summit"
