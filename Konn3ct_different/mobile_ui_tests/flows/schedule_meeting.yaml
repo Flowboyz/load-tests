@@ -6,7 +6,8 @@ appId: com.konn3ct.mobile
 - tapOn: "Enter your password"
 - inputText: "Samedo3333@"
 - tapOn: "Login"
-- tapOn: "Schedule"
+# Tap the schedule button on the dashboard
+- tapOn: "Schedule for later"
 - assertVisible: "Manage your upcoming meetings"
 - tapOn:
     point: "90%,7%"
