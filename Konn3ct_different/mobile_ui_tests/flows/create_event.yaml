@@ -30,5 +30,7 @@ appId: com.konn3ct.mobile
 - hideKeyboard
 # Submit the form
 - tapOn: "Create Event"
+# Dismiss the Success Modal
+- tapOn: "OK"
 # Verify Success
 - assertVisible: "Maestro Tech Summit"
