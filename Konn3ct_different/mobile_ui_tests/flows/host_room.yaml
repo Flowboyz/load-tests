@@ -6,12 +6,13 @@ appId: com.konn3ct.mobile
 - tapOn: "Enter your password"
 - inputText: "Samedo3333@"
 - tapOn: "Login"
-- tapOn: "Rooms"
-- assertVisible: "Create and manage your meeting rooms."
-# Tap Play button on the first room card (bottom right of the card)
-- tapOn:
-    point: "92%,52%"
+# Wait for Dashboard to load
+- assertVisible: "Instant Meeting"
+# Tap the native Host button
+- tapOn: "Host"
+# Wait for the meeting room to load successfully
 - extendedWaitUntil:
     visible: "Copy Link"
     timeout: 30000
+# Stay in the room for 1 minute
 - evalScript: "java.lang.Thread.sleep(60000)"
