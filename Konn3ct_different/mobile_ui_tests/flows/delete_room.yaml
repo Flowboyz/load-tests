@@ -8,6 +8,11 @@ appId: com.konn3ct.mobile
 - tapOn: "Login"
 - tapOn: "Rooms"
 - assertVisible: "Create and manage your meeting rooms."
-# Tap Trash icon on the first room card (top right of the card)
-- tapOn: { point: "92%,46%" }
+# Scroll down until the Maestro Auto Room is fully visible on the screen
+- scrollUntilVisible:
+    element: "Maestro Auto Room"
+    direction: DOWN
+# Tap the trash button directly to the right of "Maestro Auto Room"
+- tapOn: { rightOf: "Maestro Auto Room" }
+# Confirm deletion in the alert popup
 - tapOn: "Delete"
