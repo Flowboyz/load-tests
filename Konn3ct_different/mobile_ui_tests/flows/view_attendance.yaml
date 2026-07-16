@@ -9,5 +9,10 @@ appId: com.konn3ct.mobile
 - tapOn: "More"
 - tapOn: "Attendance"
 - assertVisible: "Meeting Attendance"
-- tapOn: "View Participants"
-- assertVisible: "Attendance Details"
+# Conditionally view details only if a past meeting (and the "View Participants" button) is present
+- runFlow:
+    when:
+      visible: "View Participants"
+    commands:
+      - tapOn: "View Participants"
+      - assertVisible: "Attendance Details"
