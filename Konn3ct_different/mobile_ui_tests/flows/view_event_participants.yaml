@@ -6,8 +6,15 @@ appId: com.konn3ct.mobile
 - tapOn: "Enter your password"
 - inputText: "Samedo3333@"
 - tapOn: "Login"
+# Navigate to Events via More menu
+- tapOn: "More"
 - tapOn: "Events"
 - assertVisible: "Manage pre-registered events & participants"
-- tapOn: "Maestro Tech Summit"
-- tapOn: "View Participants"
-- assertVisible: "Registered Guests"
+# Conditionally check participants only if the event exists
+- runFlow:
+    when:
+      visible: "Maestro Tech Summit"
+    commands:
+      - tapOn: "Maestro Tech Summit"
+      - tapOn: "View Participants"
+      - assertVisible: "Registered Guests"

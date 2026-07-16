@@ -6,6 +6,8 @@ appId: com.konn3ct.mobile
 - tapOn: "Enter your password"
 - inputText: "Samedo3333@"
 - tapOn: "Login"
+# Navigate to Events via More menu
+- tapOn: "More"
 - tapOn: "Events"
 - assertVisible: "Manage pre-registered events & participants"
 - tapOn: "Create Event"
@@ -15,5 +17,7 @@ appId: com.konn3ct.mobile
 - inputText: "Maestro QA Team"
 - tapOn: "Describe what your event is about..."
 - inputText: "An awesome automated tech event."
+# Hide keyboard so it does not cover the submit button
+- hideKeyboard
 - tapOn: "Create Event"
 - assertVisible: "Maestro Tech Summit"
