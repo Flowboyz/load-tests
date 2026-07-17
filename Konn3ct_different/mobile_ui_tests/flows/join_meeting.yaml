@@ -11,6 +11,10 @@ appId: com.konn3ct.mobile
 - inputText: "1govtest"
 # Delay for 2 seconds to let the input settle
 - evalScript: "java.lang.Thread.sleep(2000)"
+# Enable microphone
+- tapOn: "Mic On"
+# Assert that the Join Room button is visible before tapping
+- assertVisible: "Join Room"
 - tapOn: "Join Room"
 # Delay for 2 seconds to let the connection start initializing
 - evalScript: "java.lang.Thread.sleep(2000)"
