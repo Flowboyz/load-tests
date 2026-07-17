@@ -9,7 +9,11 @@ appId: com.konn3ct.mobile
 - tapOn: "Join"
 - tapOn: "e.g. general-meeting"
 - inputText: "1govtest"
+# Delay for 2 seconds to let the input settle
+- delay: 2000
 - tapOn: "Join Room"
+# Delay for 2 seconds to let the connection start initializing
+- delay: 2000
 # Wait for the meeting room to connect and show the "Live" pill
 - extendedWaitUntil:
     visible: "Live"
