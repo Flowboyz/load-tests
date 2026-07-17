@@ -10,14 +10,16 @@ appId: com.konn3ct.mobile
 - tapOn: "e.g. general-meeting"
 - inputText: "1govtest"
 - tapOn: "Join Room"
+# Wait for the meeting room to connect and show the "Live" pill
+- extendedWaitUntil:
+    visible: "Live"
+    timeout: 30000
 # Open More Options (4th button on bottom toolbar)
-- tapOn:
-    point: "63%,95%"
+- tapOn: { point: "63%,95%" }
 # Raise Hand
 - tapOn: "Raise Hand"
 # Open More Options again
-- tapOn:
-    point: "63%,95%"
+- tapOn: { point: "63%,95%" }
 # Open Chat
 - tapOn: "Chat"
 # Send Chat message
