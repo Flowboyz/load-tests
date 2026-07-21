@@ -795,7 +795,7 @@ def compile_report_log(project_root, log_path, docx_path):
             [get_python_executable(project_root), generate_report_script, log_path, "--output", docx_path],
             check=True,
             capture_output=True,
-            text=True
+            encoding="utf-8"
         )
         print(f"Successfully auto-compiled docx report: {docx_path}")
         print(f"Subprocess stdout: {res.stdout}")

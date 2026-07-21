@@ -546,15 +546,23 @@ def run_mobile_test():
         target_flow_path = flow_path
         temp_flow_created = False
         
-        if room_slug:
+        if room_slug or app_id:
             try:
                 with open(flow_path, 'r', encoding='utf-8') as f:
                     flow_content = f.read()
                 
-                # Regex replace room slug specifically following the 'Join' and 'general-meeting' taps
-                import re
-                pattern = r'(tapOn:\s*["\']?Join["\']?\s*\n\s*-\s*tapOn:\s*["\']?e\.g\.\s*general-meeting["\']?\s*\n\s*-\s*inputText:\s*)(["\']?[a-zA-Z0-9_\-]+["\']?)'
-                serialized_content = re.sub(pattern, rf'\g<1>"{room_slug}"', flow_content)
+                serialized_content = flow_content
+                
+                if room_slug:
+                    # Regex replace room slug specifically following the 'Join' and 'general-meeting' taps
+                    import re
+                    pattern = r'(tapOn:\s*["\']?Join["\']?\s*\n\s*-\s*tapOn:\s*["\']?e\.g\.\s*general-meeting["\']?\s*\n\s*-\s*inputText:\s*)(["\']?[a-zA-Z0-9_\-]+["\']?)'
+                    serialized_content = re.sub(pattern, rf'\g<1>"{room_slug}"', serialized_content)
+                
+                if app_id:
+                    # Regex replace the appId key at the top of the YAML file
+                    import re
+                    serialized_content = re.sub(r'^appId:\s*.*', f'appId: {app_id}', serialized_content, flags=re.MULTILINE)
                 
                 if serialized_content != flow_content:
                     temp_flow_file = f"temp_{int(time.time())}_{flow_file}"
@@ -563,7 +571,7 @@ def run_mobile_test():
                         f.write(serialized_content)
                     temp_flow_created = True
             except Exception as e:
-                socketio.emit('mobile_ui_test_log', {'line': f'⚠️ Warning: Failed to inject room slug ({str(e)}). Running original flow...'})
+                socketio.emit('mobile_ui_test_log', {'line': f'⚠️ Warning: Failed to preprocess flow ({str(e)}). Running original flow...'})
                 
         try:
             socketio.emit('mobile_ui_test_status', {'status': 'running'})

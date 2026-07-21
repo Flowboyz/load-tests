@@ -37,3 +37,7 @@ Desktop.ini
 *.njsproj
 *.sln
 *.sw?
+
+# Android binary files
+*.apk
+

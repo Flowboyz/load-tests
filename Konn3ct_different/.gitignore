@@ -35,3 +35,7 @@ sessions/
 # IDE directories
 .vscode/
 .idea/
+
+# Android binary files
+*.apk
+

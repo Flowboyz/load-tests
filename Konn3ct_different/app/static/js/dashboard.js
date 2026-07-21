@@ -21,7 +21,8 @@ let localTimerBaseSeconds = 0;
 let localElapsedSeconds = 0;
 
 // Tab Routing Configuration
-const TABS = ['monitoring', 'configurator', 'templates', 'history', 'mobile-test'];
+const TABS = ['monitoring', 'configurator', 'templates', 'history', 'mobile-test', '1gov-app'];
+let currentActiveTab = 'monitoring';
 
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Theme Configuration
@@ -169,19 +170,24 @@ function switchTab(tabId) {
         }
     });
 
+    currentActiveTab = tabId;
+
     // Update header page title
     const titles = {
         'monitoring': 'Monitoring Dashboard',
         'configurator': 'Configure New Test Session',
         'templates': 'Saved Configuration Presets',
         'history': 'Test Session Execution History',
-        'mobile-test': 'Mobile UI Test Automation'
+        'mobile-test': 'Mobile UI Test Automation',
+        '1gov-app': '1gov App UI Test Automation'
     };
     document.getElementById('pageTitle').textContent = titles[tabId] || 'Dashboard';
 
     // Trigger loading of mobile flows and emulators
     if (tabId === 'mobile-test') {
-        loadMobileTestData();
+        loadMobileTestData('mobile');
+    } else if (tabId === '1gov-app') {
+        loadMobileTestData('gov');
     }
 }
 
@@ -1871,16 +1877,16 @@ window.triggerReportDownload = triggerReportDownload;
 
 // --- Mobile UI Test Integration Functions ---
 
-async function loadMobileTestData() {
+async function loadMobileTestData(prefix = 'mobile') {
     ensureWebSocketConnected();
-    loadMobileReports();
+    loadMobileReports(prefix);
     
     // 1. Fetch connected emulators
     try {
         const res = await fetch('/api/mobile/emulators');
         if (res.ok) {
             const devices = await res.json();
-            const select = document.getElementById('mobileDeviceSelect');
+            const select = document.getElementById(prefix === 'mobile' ? 'mobileDeviceSelect' : 'govDeviceSelect');
             select.innerHTML = '';
             
             if (devices.length === 0) {
@@ -1898,8 +1904,8 @@ async function loadMobileTestData() {
             }
             
             // Check visibility of Maestro Cloud key field on load
-            const keyGroup = document.getElementById('maestroCloudKeyGroup');
-            const cloudOpts = document.getElementById('maestroCloudDeviceOptions');
+            const keyGroup = document.getElementById(prefix === 'mobile' ? 'maestroCloudKeyGroup' : 'govMaestroCloudKeyGroup');
+            const cloudOpts = document.getElementById(prefix === 'mobile' ? 'maestroCloudDeviceOptions' : 'govMaestroCloudDeviceOptions');
             if (select && keyGroup) {
                 if (select.value === 'maestro_cloud') {
                     keyGroup.style.display = 'block';
@@ -1919,7 +1925,7 @@ async function loadMobileTestData() {
         const res = await fetch('/api/mobile/flows');
         if (res.ok) {
             const flows = await res.json();
-            const select = document.getElementById('mobileFlowSelect');
+            const select = document.getElementById(`${prefix}FlowSelect`);
             select.innerHTML = '';
             
             if (flows.length === 0) {
@@ -1937,7 +1943,7 @@ async function loadMobileTestData() {
                 
                 // Load content of first flow into editor
                 if (flows.length > 0) {
-                    loadMobileFlowContent(flows[0]);
+                    loadMobileFlowContent(flows[0], prefix);
                 }
             }
         }
@@ -2007,17 +2013,17 @@ function serializeStepsToYaml(appId, steps) {
     return lines.join("\n") + "\n";
 }
 
-async function loadMobileFlowContent(flowFile) {
+async function loadMobileFlowContent(flowFile, prefix = 'mobile') {
     try {
         const res = await fetch(`/api/mobile/flow-content?flow=${flowFile}`);
         if (res.ok) {
             const data = await res.json();
             
             // Sync local state
-            document.getElementById('mobileFlowEditor').value = data.content;
+            document.getElementById(`${prefix}FlowEditor`).value = data.content;
             isVisualEditorDirty = false;
             if (data.parsed) {
-                currentFlowAppId = data.parsed.appId || "com.konn3ct.mobile";
+                currentFlowAppId = data.parsed.appId || (prefix === 'mobile' ? "com.konn3ct.mobile" : "com.onegov.govmeeting");
                 currentFlowSteps = data.parsed.steps || [];
             } else {
                 const clientParsed = parseYamlToSteps(data.content);
@@ -2025,16 +2031,16 @@ async function loadMobileFlowContent(flowFile) {
                 currentFlowSteps = clientParsed.steps;
             }
             
-            document.getElementById('mobileAppId').value = currentFlowAppId;
-            renderVisualSteps();
+            document.getElementById(prefix === 'mobile' ? 'mobileAppId' : 'govAppId').value = currentFlowAppId;
+            renderVisualSteps(prefix);
         }
     } catch (e) {
         console.error("Failed to read flow content: ", e);
     }
 }
 
-function renderVisualSteps() {
-    const list = document.getElementById('visualStepList');
+function renderVisualSteps(prefix = 'mobile') {
+    const list = document.getElementById(prefix === 'mobile' ? 'visualStepList' : 'visualGovStepList');
     if (!list) return;
     
     if (currentFlowSteps.length === 0) {
@@ -2098,7 +2104,7 @@ function renderVisualSteps() {
                 currentFlowSteps[idx] = currentFlowSteps[idx - 1];
                 currentFlowSteps[idx - 1] = temp;
                 isVisualEditorDirty = true;
-                renderVisualSteps();
+                renderVisualSteps(prefix);
             }
         });
     });
@@ -2112,242 +2118,245 @@ function renderVisualSteps() {
                 currentFlowSteps[idx] = currentFlowSteps[idx + 1];
                 currentFlowSteps[idx + 1] = temp;
                 isVisualEditorDirty = true;
-                renderVisualSteps();
+                renderVisualSteps(prefix);
             }
         });
     });
     
     // Bind Delete
-    list.querySelectorAll('.btn-delete-step').forEach(btn => {
+                list.querySelectorAll('.btn-delete-step').forEach(btn => {
         btn.addEventListener('click', () => {
             const idx = parseInt(btn.getAttribute('data-index'));
             currentFlowSteps.splice(idx, 1);
             isVisualEditorDirty = true;
-            renderVisualSteps();
+            renderVisualSteps(prefix);
         });
     });
 }
 
 // Bind flow selector change to reload editor
 document.addEventListener('DOMContentLoaded', () => {
-    const flowSelect = document.getElementById('mobileFlowSelect');
-    if (flowSelect) {
-        flowSelect.addEventListener('change', (e) => {
-            if (e.target.value) {
-                loadMobileFlowContent(e.target.value);
-            }
-        });
-    }
-    
-    // Tab selectors
-    const btnTabVisual = document.getElementById('btnTabVisual');
-    const btnTabCode = document.getElementById('btnTabCode');
-    const paneVisual = document.getElementById('paneVisualBuilder');
-    const paneCode = document.getElementById('paneCodeEditor');
-    
-    if (btnTabVisual && btnTabCode) {
-        btnTabVisual.addEventListener('click', () => {
-            activeEditorTab = "visual";
-            btnTabVisual.classList.add('active');
-            btnTabVisual.style.background = 'var(--primary-color)';
-            btnTabVisual.style.color = '#fff';
-            btnTabCode.classList.remove('active');
-            btnTabCode.style.background = 'transparent';
-            btnTabCode.style.color = 'var(--text-muted)';
-            
-            paneVisual.style.display = 'flex';
-            paneCode.style.display = 'none';
-            
-            // Sync Code -> Visual
-            const codeVal = document.getElementById('mobileFlowEditor').value;
-            const clientParsed = parseYamlToSteps(codeVal);
-            currentFlowAppId = clientParsed.appId;
-            currentFlowSteps = clientParsed.steps;
-            document.getElementById('mobileAppId').value = currentFlowAppId;
-            renderVisualSteps();
-        });
+    ['mobile', 'gov'].forEach(prefix => {
+        const flowSelect = document.getElementById(`${prefix}FlowSelect`);
+        if (flowSelect) {
+            flowSelect.addEventListener('change', (e) => {
+                if (e.target.value) {
+                    loadMobileFlowContent(e.target.value, prefix);
+                }
+            });
+        }
         
-        btnTabCode.addEventListener('click', () => {
-            activeEditorTab = "code";
-            btnTabCode.classList.add('active');
-            btnTabCode.style.background = 'var(--primary-color)';
-            btnTabCode.style.color = '#fff';
-            btnTabVisual.classList.remove('active');
-            btnTabVisual.style.background = 'transparent';
-            btnTabVisual.style.color = 'var(--text-muted)';
+        // Tab selectors
+        const btnTabVisual = document.getElementById(prefix === 'mobile' ? 'btnTabVisual' : 'btnTabGovVisual');
+        const btnTabCode = document.getElementById(prefix === 'mobile' ? 'btnTabCode' : 'btnTabGovCode');
+        const paneVisual = document.getElementById(prefix === 'mobile' ? 'paneVisualBuilder' : 'paneGovVisualBuilder');
+        const paneCode = document.getElementById(prefix === 'mobile' ? 'paneCodeEditor' : 'paneGovCodeEditor');
+        
+        if (btnTabVisual && btnTabCode) {
+            btnTabVisual.addEventListener('click', () => {
+                activeEditorTab = "visual";
+                btnTabVisual.classList.add('active');
+                btnTabVisual.style.background = 'var(--primary-color)';
+                btnTabVisual.style.color = '#fff';
+                btnTabCode.classList.remove('active');
+                btnTabCode.style.background = 'transparent';
+                btnTabCode.style.color = 'var(--text-muted)';
+                
+                paneVisual.style.display = 'flex';
+                paneCode.style.display = 'none';
+                
+                // Sync Code -> Visual
+                const codeVal = document.getElementById(`${prefix}FlowEditor`).value;
+                const clientParsed = parseYamlToSteps(codeVal);
+                currentFlowAppId = clientParsed.appId;
+                currentFlowSteps = clientParsed.steps;
+                document.getElementById(prefix === 'mobile' ? 'mobileAppId' : 'govAppId').value = currentFlowAppId;
+                renderVisualSteps(prefix);
+            });
             
-            paneCode.style.display = 'block';
-            paneVisual.style.display = 'none';
-            
-            // Sync Visual -> Code only if visual editor has unsaved changes
-            if (isVisualEditorDirty) {
-                currentFlowAppId = document.getElementById('mobileAppId').value.trim();
-                const serialized = serializeStepsToYaml(currentFlowAppId, currentFlowSteps);
-                document.getElementById('mobileFlowEditor').value = serialized;
-            }
-        });
-    }
-    
-    // Add step button click
-    const btnAddStep = document.getElementById('btnAddVisualStep');
-    if (btnAddStep) {
-        btnAddStep.addEventListener('click', () => {
-            const action = document.getElementById('addStepAction').value;
-            const valueInput = document.getElementById('addStepValue');
-            const value = valueInput.value.trim();
-            
-            currentFlowSteps.push({ action: action, value: value });
-            isVisualEditorDirty = true;
-            renderVisualSteps();
-            valueInput.value = ''; // Reset input
-        });
-    }
-    
-    // Sync App ID input back to local state
-    const app_id_input = document.getElementById('mobileAppId');
-    if (app_id_input) {
-        app_id_input.addEventListener('change', (e) => {
-            currentFlowAppId = e.target.value.trim();
-            isVisualEditorDirty = true;
-        });
-    }
-    
-    // Save Flow button click
-    const btnSave = document.getElementById('btnSaveMobileFlow');
-    if (btnSave) {
-        btnSave.addEventListener('click', async () => {
-            const flowFile = document.getElementById('mobileFlowSelect').value;
-            if (!flowFile) {
-                alert("Please select a flow file first.");
-                return;
-            }
-            
-            let payload = { flow: flowFile };
-            
-            if (activeEditorTab === "visual" && isVisualEditorDirty) {
-                currentFlowAppId = document.getElementById('mobileAppId').value.trim();
-                payload.steps = currentFlowSteps;
-                payload.appId = currentFlowAppId;
-            } else {
-                payload.content = document.getElementById('mobileFlowEditor').value;
-            }
-            
-            try {
-                const res = await fetch('/api/mobile/save-flow', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const data = await res.json();
-                alert(data.message);
-                if (res.ok) {
-                    isVisualEditorDirty = false;
+            btnTabCode.addEventListener('click', () => {
+                activeEditorTab = "code";
+                btnTabCode.classList.add('active');
+                btnTabCode.style.background = 'var(--primary-color)';
+                btnTabCode.style.color = '#fff';
+                btnTabVisual.classList.remove('active');
+                btnTabVisual.style.background = 'transparent';
+                btnTabVisual.style.color = 'var(--text-muted)';
+                
+                paneCode.style.display = 'block';
+                paneVisual.style.display = 'none';
+                
+                // Sync Visual -> Code only if visual editor has unsaved changes
+                if (isVisualEditorDirty) {
+                    currentFlowAppId = document.getElementById(prefix === 'mobile' ? 'mobileAppId' : 'govAppId').value.trim();
+                    const serialized = serializeStepsToYaml(currentFlowAppId, currentFlowSteps);
+                    document.getElementById(`${prefix}FlowEditor`).value = serialized;
+                }
+            });
+        }
+        
+        // Add step button click
+        const btnAddStep = document.getElementById(prefix === 'mobile' ? 'btnAddVisualStep' : 'btnAddGovVisualStep');
+        if (btnAddStep) {
+            btnAddStep.addEventListener('click', () => {
+                const action = document.getElementById(prefix === 'mobile' ? 'addStepAction' : 'addGovStepAction').value;
+                const valueInput = document.getElementById(prefix === 'mobile' ? 'addStepValue' : 'addGovStepValue');
+                const value = valueInput.value.trim();
+                
+                currentFlowSteps.push({ action: action, value: value });
+                isVisualEditorDirty = true;
+                renderVisualSteps(prefix);
+                valueInput.value = ''; // Reset input
+            });
+        }
+        
+        // Sync App ID input back to local state
+        const app_id_input = document.getElementById(prefix === 'mobile' ? 'mobileAppId' : 'govAppId');
+        if (app_id_input) {
+            app_id_input.addEventListener('change', (e) => {
+                currentFlowAppId = e.target.value.trim();
+                isVisualEditorDirty = true;
+            });
+        }
+        
+        // Save Flow button click
+        const btnSave = document.getElementById(prefix === 'mobile' ? 'btnSaveMobileFlow' : 'btnSaveGovFlow');
+        if (btnSave) {
+            btnSave.addEventListener('click', async () => {
+                const flowFile = document.getElementById(`${prefix}FlowSelect`).value;
+                if (!flowFile) {
+                    alert("Please select a flow file first.");
+                    return;
                 }
                 
-                // If visual was saved, sync text editor in background
-                if (activeEditorTab === "visual") {
-                    document.getElementById('mobileFlowEditor').value = serializeStepsToYaml(currentFlowAppId, currentFlowSteps);
-                }
-            } catch (e) {
-                alert("Failed to save flow.");
-            }
-        });
-    }
-
-    // Target device selection change to toggle API Key and Cloud Options visibility
-    const deviceSelect = document.getElementById('mobileDeviceSelect');
-    const keyGroup = document.getElementById('maestroCloudKeyGroup');
-    const cloudOpts = document.getElementById('maestroCloudDeviceOptions');
-    if (deviceSelect && keyGroup) {
-        deviceSelect.addEventListener('change', (e) => {
-            if (e.target.value === 'maestro_cloud') {
-                keyGroup.style.display = 'block';
-                if (cloudOpts) cloudOpts.style.display = 'flex';
-            } else {
-                keyGroup.style.display = 'none';
-                if (cloudOpts) cloudOpts.style.display = 'none';
-            }
-        });
-    }
-
-    // Run Mobile UI Test button click
-    const btnRun = document.getElementById('btnRunMobileUiTest');
-    if (btnRun) {
-        btnRun.addEventListener('click', async () => {
-            const flowFile = document.getElementById('mobileFlowSelect').value;
-            const deviceId = document.getElementById('mobileDeviceSelect').value;
-            const apkPath = document.getElementById('mobileAppApk').value;
-            const apiKey = document.getElementById('mobileMaestroApiKey').value.trim();
-            
-            if (!flowFile) {
-                alert("Please select a test flow to run.");
-                return;
-            }
-            
-            // Clear console terminal
-            const term = document.getElementById('mobileConsoleTerminal');
-            term.innerHTML = '';
-            appendMobileConsoleLog("ℹ️ Initializing Maestro execution environment...");
-            
-            const roomSlug = document.getElementById('mobileRoomSlug') ? document.getElementById('mobileRoomSlug').value.trim() : '';
-            const cloudModel = document.getElementById('mobileCloudModel') ? document.getElementById('mobileCloudModel').value : '';
-            const cloudOs = document.getElementById('mobileCloudOs') ? document.getElementById('mobileCloudOs').value : '';
-            
-            let runPayload = { 
-                flow: flowFile, 
-                device_id: deviceId, 
-                apk_path: apkPath,
-                api_key: apiKey,
-                room_slug: roomSlug,
-                cloud_model: cloudModel,
-                cloud_os: cloudOs
-            };
-            
-            if (activeEditorTab === "visual" && isVisualEditorDirty) {
-                runPayload.steps = currentFlowSteps;
-                runPayload.appId = document.getElementById('mobileAppId').value.trim();
-            } else {
-                runPayload.content = document.getElementById('mobileFlowEditor').value;
-            }
-            
-            try {
-                const res = await fetch('/api/mobile/run', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(runPayload)
-                });
-                const data = await res.json();
-                if (!res.ok) {
-                    alert(data.message);
+                let payload = { flow: flowFile };
+                
+                if (activeEditorTab === "visual" && isVisualEditorDirty) {
+                    currentFlowAppId = document.getElementById(prefix === 'mobile' ? 'mobileAppId' : 'govAppId').value.trim();
+                    payload.steps = currentFlowSteps;
+                    payload.appId = currentFlowAppId;
                 } else {
-                    appendMobileConsoleLog("🚀 " + data.message);
+                    payload.content = document.getElementById(`${prefix}FlowEditor`).value;
                 }
-            } catch (e) {
-                alert("Failed to trigger mobile UI test.");
-            }
-        });
-    }
-
-    // Clear console log button
-    const btnClearConsole = document.getElementById('btnClearMobileConsole');
-    if (btnClearConsole) {
-        btnClearConsole.addEventListener('click', () => {
-            const term = document.getElementById('mobileConsoleTerminal');
-            term.innerHTML = '<div class="console-placeholder">Waiting for Maestro test execution to start...</div>';
-        });
-    }
-
-    // Refresh mobile reports button
-    const btnRefreshReports = document.getElementById('btnRefreshMobileReports');
-    if (btnRefreshReports) {
-        btnRefreshReports.addEventListener('click', () => {
-            loadMobileReports();
-        });
-    }
+                
+                try {
+                    const res = await fetch('/api/mobile/save-flow', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await res.json();
+                    alert(data.message);
+                    if (res.ok) {
+                        isVisualEditorDirty = false;
+                    }
+                    
+                    // If visual was saved, sync text editor in background
+                    if (activeEditorTab === "visual") {
+                        document.getElementById(`${prefix}FlowEditor`).value = serializeStepsToYaml(currentFlowAppId, currentFlowSteps);
+                    }
+                } catch (e) {
+                    alert("Failed to save flow.");
+                }
+            });
+        }
+        
+        // Target device selection change to toggle API Key and Cloud Options visibility
+        const deviceSelect = document.getElementById(`${prefix}DeviceSelect`);
+        const keyGroup = document.getElementById(prefix === 'mobile' ? 'maestroCloudKeyGroup' : 'govMaestroCloudKeyGroup');
+        const cloudOpts = document.getElementById(prefix === 'mobile' ? 'maestroCloudDeviceOptions' : 'govMaestroCloudDeviceOptions');
+        if (deviceSelect && keyGroup) {
+            deviceSelect.addEventListener('change', (e) => {
+                if (e.target.value === 'maestro_cloud') {
+                    keyGroup.style.display = 'block';
+                    if (cloudOpts) cloudOpts.style.display = 'flex';
+                } else {
+                    keyGroup.style.display = 'none';
+                    if (cloudOpts) cloudOpts.style.display = 'none';
+                }
+            });
+        }
+        
+        // Run button click
+        const btnRun = document.getElementById(prefix === 'mobile' ? 'btnRunMobileUiTest' : 'btnRunGovUiTest');
+        if (btnRun) {
+            btnRun.addEventListener('click', async () => {
+                const flowFile = document.getElementById(`${prefix}FlowSelect`).value;
+                const deviceId = document.getElementById(`${prefix}DeviceSelect`).value;
+                const apkPath = document.getElementById(prefix === 'mobile' ? 'mobileAppApk' : 'govAppApk').value;
+                const apiKey = document.getElementById(prefix === 'mobile' ? 'mobileMaestroApiKey' : 'govMaestroApiKey').value.trim();
+                
+                if (!flowFile) {
+                    alert("Please select a test flow to run.");
+                    return;
+                }
+                
+                // Clear console terminal
+                const term = document.getElementById(prefix === 'mobile' ? 'mobileConsoleTerminal' : 'govConsoleTerminal');
+                term.innerHTML = '';
+                appendConsoleLog("ℹ️ Initializing Maestro execution environment...", prefix);
+                
+                const roomSlug = document.getElementById(prefix === 'mobile' ? 'mobileRoomSlug' : 'govRoomSlug') ? document.getElementById(prefix === 'mobile' ? 'mobileRoomSlug' : 'govRoomSlug').value.trim() : '';
+                const cloudModel = document.getElementById(prefix === 'mobile' ? 'mobileCloudModel' : 'govCloudModel') ? document.getElementById(prefix === 'mobile' ? 'mobileCloudModel' : 'govCloudModel').value : '';
+                const cloudOs = document.getElementById(prefix === 'mobile' ? 'mobileCloudOs' : 'govCloudOs') ? document.getElementById(prefix === 'mobile' ? 'mobileCloudOs' : 'govCloudOs').value : '';
+                
+                let runPayload = { 
+                    flow: flowFile, 
+                    device_id: deviceId, 
+                    apk_path: apkPath,
+                    api_key: apiKey,
+                    room_slug: roomSlug,
+                    cloud_model: cloudModel,
+                    cloud_os: cloudOs,
+                    appId: prefix === 'mobile' ? 'com.konn3ct.mobile' : 'com.onegov.govmeeting'
+                };
+                
+                if (activeEditorTab === "visual" && isVisualEditorDirty) {
+                    runPayload.steps = currentFlowSteps;
+                } else {
+                    runPayload.content = document.getElementById(`${prefix}FlowEditor`).value;
+                }
+                
+                try {
+                    const res = await fetch('/api/mobile/run', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(runPayload)
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                        alert(data.message);
+                    } else {
+                        appendConsoleLog("🚀 " + data.message, prefix);
+                    }
+                } catch (e) {
+                    alert("Failed to trigger mobile UI test.");
+                }
+            });
+        }
+        
+        // Clear console button
+        const btnClearConsole = document.getElementById(prefix === 'mobile' ? 'btnClearMobileConsole' : 'btnClearGovConsole');
+        if (btnClearConsole) {
+            btnClearConsole.addEventListener('click', () => {
+                const term = document.getElementById(prefix === 'mobile' ? 'mobileConsoleTerminal' : 'govConsoleTerminal');
+                term.innerHTML = '<div class="console-placeholder">Waiting for Maestro test execution to start...</div>';
+            });
+        }
+        
+        // Refresh reports button
+        const btnRefreshReports = document.getElementById(prefix === 'mobile' ? 'btnRefreshMobileReports' : 'btnRefreshGovReports');
+        if (btnRefreshReports) {
+            btnRefreshReports.addEventListener('click', () => {
+                loadMobileReports(prefix);
+            });
+        }
+    });
 });
 
-function appendMobileConsoleLog(line) {
-    const term = document.getElementById('mobileConsoleTerminal');
+function appendConsoleLog(line, prefix = 'mobile') {
+    const term = document.getElementById(prefix === 'mobile' ? 'mobileConsoleTerminal' : 'govConsoleTerminal');
+    if (!term) return;
     const placeholder = term.querySelector('.console-placeholder');
     if (placeholder) {
         term.innerHTML = '';
@@ -2388,8 +2397,14 @@ function appendMobileConsoleLog(line) {
     term.scrollTop = term.scrollHeight;
 }
 
+function appendMobileConsoleLog(line) {
+    const prefix = currentActiveTab === '1gov-app' ? 'gov' : 'mobile';
+    appendConsoleLog(line, prefix);
+}
+
 function updateMobileTestStatus(status) {
-    const btnRun = document.getElementById('btnRunMobileUiTest');
+    const prefix = currentActiveTab === '1gov-app' ? 'gov' : 'mobile';
+    const btnRun = document.getElementById(prefix === 'mobile' ? 'btnRunMobileUiTest' : 'btnRunGovUiTest');
     if (btnRun) {
         if (status === 'running') {
             btnRun.disabled = true;
@@ -2397,16 +2412,16 @@ function updateMobileTestStatus(status) {
             btnRun.style.backgroundColor = '#6B7280';
         } else {
             btnRun.disabled = false;
-            btnRun.innerHTML = '<i class="fa-solid fa-play"></i> Run Mobile UI Test';
-            btnRun.style.backgroundColor = '';
+            btnRun.innerHTML = prefix === 'mobile' ? '<i class="fa-solid fa-play"></i> Run Mobile UI Test' : '<i class="fa-solid fa-play"></i> Run 1gov UI Test';
+            btnRun.style.backgroundColor = prefix === 'mobile' ? '' : '#0a5c36';
             // Auto refresh reports list on completion
-            loadMobileReports();
+            loadMobileReports(prefix);
         }
     }
 }
 
-async function loadMobileReports() {
-    const list = document.getElementById('mobileReportsList');
+async function loadMobileReports(prefix = 'mobile') {
+    const list = document.getElementById(prefix === 'mobile' ? 'mobileReportsList' : 'govReportsList');
     if (!list) return;
     
     try {

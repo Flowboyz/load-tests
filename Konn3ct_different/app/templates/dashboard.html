@@ -253,6 +253,7 @@
             <a href="#" class="menu-item" data-tab="templates"><i class="fa-solid fa-folder-open"></i> <span>Saved Presets</span></a>
             <a href="#" class="menu-item" data-tab="history"><i class="fa-solid fa-history"></i> <span>Test History</span></a>
             <a href="#" class="menu-item" data-tab="mobile-test"><i class="fa-solid fa-mobile-screen-button"></i> <span>Mobile UI Test</span></a>
+            <a href="#" class="menu-item" data-tab="1gov-app"><i class="fa-solid fa-building-flag"></i> <span>1gov App</span></a>
         </nav>
         <div class="sidebar-footer">
             <div class="user-profile">
@@ -1152,6 +1153,182 @@
                             </div>
                             <div style="padding: 16px;">
                                 <div id="mobileConsoleTerminal" class="console-terminal" style="height: 300px;">
+                                    <div class="console-placeholder">Waiting for Maestro test execution to start...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 6: 1gov App UI Test Automation -->
+            <section class="tab-pane" id="tab-1gov-app">
+                <div class="config-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                    <!-- Left: Configuration & Run -->
+                    <div class="form-column">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-building-flag text-green"></i> 1gov App UI Test Config</h3>
+                            </div>
+                            <div style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+                                <div class="form-group">
+                                    <label for="govAppApk">1gov App APK Path *</label>
+                                    <input type="text" id="govAppApk" value="./1gov.apk" placeholder="e.g. ./1gov.apk" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="govRoomSlug">Room Slug (ID) *</label>
+                                    <input type="text" id="govRoomSlug" value="1govtest" placeholder="e.g. 1govtest" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4; outline: none;" required>
+                                </div>
+                                <div class="form-row" style="display: flex; gap: 16px;">
+                                    <div class="form-group col-6" style="flex: 1; min-width: 120px;">
+                                        <label for="govFlowSelect">Maestro Test Flow *</label>
+                                        <select id="govFlowSelect">
+                                            <option value="">Loading flows...</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group col-6" style="flex: 1; min-width: 120px;">
+                                        <label for="govDeviceSelect">Target Device / Emulator *</label>
+                                        <select id="govDeviceSelect">
+                                            <option value="">Loading devices...</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-group" id="govMaestroCloudKeyGroup" style="display: none; margin-top: 8px;">
+                                    <label for="govMaestroApiKey">Maestro Cloud API Key *</label>
+                                    <input type="password" id="govMaestroApiKey" placeholder="Enter your mobile.dev API Key..." style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4; outline: none;">
+                                </div>
+                                <div class="form-row" id="govMaestroCloudDeviceOptions" style="display: none; gap: 16px; margin-top: 12px;">
+                                    <div class="form-group col-6" style="flex: 1; min-width: 120px;">
+                                        <label for="govCloudModel">Cloud Device Model</label>
+                                        <select id="govCloudModel" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4; outline: none;">
+                                             <option value="pixel_6" selected>Pixel 6 (Default)</option>
+                                             <option value="pixel_6_stock">Pixel 6 Stock</option>
+                                             <option value="pixel_2">Pixel 2</option>
+                                             <option value="pixel_9">Pixel 9</option>
+                                             <option value="pixel_9_pro_xl">Pixel 9 Pro XL</option>
+                                             <option value="pixel_tablet">Pixel Tablet</option>
+                                         </select>
+                                    </div>
+                                    <div class="form-group col-6" style="flex: 1; min-width: 120px;">
+                                        <label for="govCloudOs">Cloud OS Version</label>
+                                        <select id="govCloudOs" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4; outline: none;">
+                                            <option value="33" selected>Android 13 (API 33)</option>
+                                            <option value="34">Android 14 (API 34)</option>
+                                            <option value="31">Android 12 (API 31)</option>
+                                            <option value="30">Android 11 (API 30)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 10px;">
+                                    <button type="button" class="btn btn-primary" id="btnRunGovUiTest" style="width: 100%; padding: 12px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; background-color: #0a5c36; border-color: #0a5c36;">
+                                        <i class="fa-solid fa-play"></i> Run 1gov UI Test
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Cheat Sheet Panel -->
+                        <div class="card" style="margin-top: 24px;">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-graduation-cap text-yellow"></i> Maestro Command Reference</h3>
+                            </div>
+                            <div style="padding: 20px; font-size: 13px; line-height: 1.5; color: var(--text-primary);">
+                                <p style="margin-bottom: 12px;"><strong>Maestro uses clean YAML files for automation. Here are the core commands:</strong></p>
+                                <ul style="padding-left: 20px; display: flex; flex-direction: column; gap: 8px;">
+                                    <li><code>- launchApp</code>: Launches the app defined by <code>appId</code>.</li>
+                                    <li><code>- tapOn: "Text"</code>: Clicks on an element containing the visible text or ID.</li>
+                                    <li><code>- inputText: "value"</code>: Enters text into the currently focused input.</li>
+                                    <li><code>- assertVisible: "Text"</code>: Verifies that an element is visible on the screen.</li>
+                                    <li><code>- back</code>: Simulates clicking the device hardware back button.</li>
+                                    <li><code>- scroll</code>: Scrolls down on the screen.</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Mobile Reports Panel -->
+                        <div class="card" style="margin-top: 24px;">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <h3><i class="fa-solid fa-file-invoice text-emerald"></i> Compiled 1gov Reports</h3>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnRefreshGovReports" style="padding: 4px 10px; font-size: 11px;"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                            </div>
+                            <div style="padding: 16px; font-size: 13px; max-height: 250px; overflow-y: auto;">
+                                <table class="table" style="width: 100%; border-collapse: collapse; text-align: left;" id="tblGovReports">
+                                    <thead>
+                                        <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
+                                            <th style="padding: 8px;">Report Name</th>
+                                            <th style="padding: 8px;">Size</th>
+                                            <th style="padding: 8px; text-align: right;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="govReportsList">
+                                        <tr><td colspan="3" class="text-center" style="padding: 12px; color: var(--text-muted);">No reports generated yet. Run a test!</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Editor & Live Console -->
+                    <div class="form-column">
+                        <!-- Flow Editor Card -->
+                        <div class="card">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color);">
+                                <div style="display: flex; gap: 12px; align-items: center;">
+                                    <h3 style="margin-right: 16px;"><i class="fa-solid fa-mobile-screen-button text-cyan"></i> Test Flow Editor</h3>
+                                    <div class="tab-selectors" style="display: flex; background: #1e293b; border-radius: 6px; padding: 3px; gap: 4px;">
+                                        <button type="button" class="btn btn-sm btn-tab active" id="btnTabGovVisual" style="padding: 4px 12px; font-size: 11px; border-radius: 4px; border: none; cursor: pointer; background: var(--primary-color); color: #fff;">Visual Builder</button>
+                                        <button type="button" class="btn btn-sm btn-tab" id="btnTabGovCode" style="padding: 4px 12px; font-size: 11px; border-radius: 4px; border: none; cursor: pointer; background: transparent; color: var(--text-muted);">Raw YAML</button>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-success" id="btnSaveGovFlow" style="padding: 4px 12px; font-size: 11px;">Save Flow</button>
+                            </div>
+                            
+                            <!-- Visual Builder View Pane -->
+                            <div id="paneGovVisualBuilder" style="padding: 16px; display: flex; flex-direction: column; gap: 16px;">
+                                <div class="form-group" style="margin-bottom: 8px;">
+                                    <label for="govAppId" style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 4px;">1gov App ID (Package Name) *</label>
+                                    <input type="text" id="govAppId" value="com.onegov.govmeeting" placeholder="e.g. com.onegov.govmeeting" style="width: 100%; font-family: monospace; font-size: 12px; padding: 8px; background: #1e1e1e; color: #d4d4d4; border: 1px solid var(--border-color); border-radius: 6px; outline: none;" readonly>
+                                </div>
+                                
+                                <div id="visualGovStepList" style="display: flex; flex-direction: column; gap: 10px; max-height: 300px; overflow-y: auto; padding-right: 4px;">
+                                    <!-- Dynamic rows loaded here -->
+                                    <div class="text-center text-muted" style="padding: 20px;">Select a flow file to load steps...</div>
+                                </div>
+                                
+                                <!-- Add New Step Controls -->
+                                <div id="addGovStepControls" style="display: flex; gap: 10px; background: #0f172a; padding: 12px; border-radius: 8px; border: 1px dashed var(--border-color); align-items: center; margin-top: 8px;">
+                                    <div style="flex: 1; min-width: 120px;">
+                                        <select id="addGovStepAction" style="width: 100%; font-size: 12px; padding: 6px; border-radius: 6px; background: #1e293b; color: #fff; border: 1px solid var(--border-color);">
+                                            <option value="launchApp">Launch App (launchApp)</option>
+                                            <option value="tapOn">Click Element (tapOn)</option>
+                                            <option value="inputText">Input Text (inputText)</option>
+                                            <option value="assertVisible">Verify Visible (assertVisible)</option>
+                                            <option value="back">Go Back (back)</option>
+                                            <option value="scroll">Scroll Down (scroll)</option>
+                                            <option value="delay">Wait Delay (delay)</option>
+                                        </select>
+                                    </div>
+                                    <div style="flex: 2; min-width: 150px;">
+                                        <input type="text" id="addGovStepValue" placeholder="Target text, input text, or delay ms..." style="width: 100%; font-size: 12px; padding: 6px; border-radius: 6px; background: #1e1e1e; color: #d4d4d4; border: 1px solid var(--border-color); outline: none;">
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddGovVisualStep" style="padding: 6px 12px; font-size: 12px; font-weight: bold; cursor: pointer; white-space: nowrap;"><i class="fa-solid fa-plus"></i> Add Step</button>
+                                </div>
+                            </div>
+                            
+                            <!-- Raw Code View Pane -->
+                            <div id="paneGovCodeEditor" style="padding: 16px; display: none;">
+                                <textarea id="govFlowEditor" style="width: 100%; height: 350px; font-family: monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; outline: none; resize: vertical;" placeholder="Select a flow file to edit..."></textarea>
+                            </div>
+                        </div>
+
+                        <!-- Live Console Card -->
+                        <div class="card" style="margin-top: 24px;">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <h3><i class="fa-solid fa-terminal text-green"></i> 1gov Execution Console</h3>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnClearGovConsole" style="padding: 4px 10px; font-size: 11px;">Clear</button>
+                            </div>
+                            <div style="padding: 16px;">
+                                <div id="govConsoleTerminal" class="console-terminal" style="height: 300px;">
                                     <div class="console-placeholder">Waiting for Maestro test execution to start...</div>
                                 </div>
                             </div>
