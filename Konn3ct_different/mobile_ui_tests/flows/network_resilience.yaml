@@ -1,0 +1,42 @@
+appId: com.konn3ct.mobile
+---
+# 1. Launch & Login
+- launchApp
+- tapOn: "Demo@email.com"
+- inputText: "flowboyzamy@gmail.com"
+- tapOn: "Enter your password"
+- inputText: "Samedo3333@"
+- tapOn: "Login"
+
+# 2. Join Meeting
+- tapOn: "Join"
+- tapOn: "e.g. general-meeting"
+- inputText: "1govtest"
+- evalScript: "java.lang.Thread.sleep(2000)"
+- tapOn: "Mic On"
+- assertVisible: "Join Room"
+- tapOn: "Join Room"
+
+# 3. Wait for connection to be active
+- extendedWaitUntil:
+    visible: "Live"
+    timeout: 30000
+
+# 4. Simulate Network Interruption
+# Disables Wi-Fi on Android Emulator
+- runShellCommand: svc wifi disable
+- evalScript: "java.lang.Thread.sleep(8000)"
+
+# Verify reconnecting screen or state is active
+# - assertVisible: "Reconnecting"
+
+# 5. Restore Network Connection
+- runShellCommand: svc wifi enable
+- evalScript: "java.lang.Thread.sleep(15000)"
+
+# Verify successful recovery back to the active meeting
+- assertVisible: "Live"
+
+# 6. Exit Room
+- tapOn: { point: "88%,95%" } # Exit button location
+- tapOn: "Leave Meeting"
