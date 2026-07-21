@@ -7,6 +7,10 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import nsdecls, qn
 
+def strip_ansi_codes(text):
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
+
 def generate_mobile_reports(flow_path, device_id, log_lines, duration_sec):
     """
     Generates Markdown and Word reports based on Maestro test execution output.
@@ -16,14 +20,21 @@ def generate_mobile_reports(flow_path, device_id, log_lines, duration_sec):
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     timestamp_readable = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
+    # Clean all log lines of ANSI escape codes first to prevent XML/docx crashes
+    cleaned_log_lines = [strip_ansi_codes(line) for line in log_lines]
+    
     # 2. Extract steps and statuses from log lines
     steps = []
     verdict = "PASS"
     error_details = None
     
-    for line in log_lines:
+    for line in cleaned_log_lines:
+        clean_line = line.strip()
+        if not clean_line:
+            continue
+            
         # Match steps like "🚀 Step 1: launchApp -> [SUCCESS]" or similar
-        step_match = re.search(r'Step (\d+):\s*(.*?)\s*->\s*\[(.*?)\]', line)
+        step_match = re.search(r'Step (\d+):\s*(.*?)\s*->\s*\[(.*?)\]', clean_line)
         if step_match:
             idx = int(step_match.group(1))
             action = step_match.group(2)
@@ -35,13 +46,44 @@ def generate_mobile_reports(flow_path, device_id, log_lines, duration_sec):
             })
             if status != "SUCCESS":
                 verdict = "FAIL"
+            continue
+            
+        # Match real Maestro output: e.g. "  ✓  launchApp (3.2s)" or "  ✗  tapOn Login (5.0s)"
+        real_step_match = re.search(r'^([✓✗])\s*(.*?)(?:\s+\((\d+(?:\.\d+)?s)\))?$', clean_line)
+        if real_step_match:
+            symbol = real_step_match.group(1)
+            action = real_step_match.group(2).strip()
+            duration = real_step_match.group(3) or "N/A"
+            status = "SUCCESS" if symbol == "✓" else "FAILED"
+            
+            steps.append({
+                "index": len(steps) + 1,
+                "action": f"{action} ({duration})" if duration != "N/A" else action,
+                "status": status
+            })
+            if status != "SUCCESS":
+                verdict = "FAIL"
+            continue
         
         # Match failures in Maestro output
-        if "❌" in line or "failed" in line.lower() or "error" in line.lower():
-            if not step_match: # If not already captured in a step
-                if not error_details:
-                    error_details = line.strip()
-                verdict = "FAIL"
+        if "❌" in clean_line or "failed" in clean_line.lower() or "error" in clean_line.lower():
+            if not error_details:
+                error_details = clean_line
+            verdict = "FAIL"
+
+    # Post-process: Check for success completion marker or failed marker to override verdict
+    for line in cleaned_log_lines:
+        clean_line = line.strip()
+        if "Maestro execution completed successfully" in clean_line:
+            verdict = "PASS"
+            break
+        elif "Maestro failed" in clean_line or "Maestro crashed" in clean_line:
+            verdict = "FAIL"
+            break
+            
+    # Force verdict to FAIL if any step failed
+    if any(s["status"] == "FAILED" for s in steps):
+        verdict = "FAIL"
                 
     # If no steps were parsed (e.g. CLI not found or crash before steps)
     if not steps:
@@ -53,7 +95,7 @@ def generate_mobile_reports(flow_path, device_id, log_lines, duration_sec):
         })
         if not error_details:
             error_details = "Maestro crashed or CLI was not found."
-
+ 
     # 3. Create reports directory
     reports_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "mobile_reports")
     os.makedirs(reports_dir, exist_ok=True)
@@ -65,11 +107,11 @@ def generate_mobile_reports(flow_path, device_id, log_lines, duration_sec):
     docx_filepath = os.path.join(reports_dir, docx_filename)
     
     # --- Generate Markdown Report ---
-    write_markdown_report(md_filepath, flow_name, device_id, verdict, steps, error_details, duration_sec, timestamp_readable, log_lines)
+    write_markdown_report(md_filepath, flow_name, device_id, verdict, steps, error_details, duration_sec, timestamp_readable, cleaned_log_lines)
     
     # --- Generate DOCX Report ---
     try:
-        write_docx_report(docx_filepath, flow_name, device_id, verdict, steps, error_details, duration_sec, timestamp_readable, log_lines)
+        write_docx_report(docx_filepath, flow_name, device_id, verdict, steps, error_details, duration_sec, timestamp_readable, cleaned_log_lines)
     except Exception as e:
         print(f"Error compiling DOCX report: {e}")
         

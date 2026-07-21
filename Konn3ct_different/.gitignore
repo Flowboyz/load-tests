@@ -39,3 +39,7 @@ sessions/
 # Android binary files
 *.apk
 
+# Mobile UI reports
+mobile_reports/
+
+
