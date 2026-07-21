@@ -2,20 +2,27 @@ appId: com.konn3ct.mobile
 ---
 # 1. Launch & Login
 - launchApp
-- tapOn: "Demo@email.com"
+- tapOn:
+    id: "email-input"
 - inputText: "flowboyzamy@gmail.com"
-- tapOn: "Enter your password"
+- tapOn:
+    id: "password-input"
 - inputText: "Samedo3333@"
-- tapOn: "Login"
+- tapOn:
+    id: "login-button"
 
 # 2. Join Meeting
-- tapOn: "Join"
-- tapOn: "e.g. general-meeting"
+- tapOn:
+    id: "join-meeting-btn"
+- tapOn:
+    id: "join-room-id-input"
 - inputText: "1govtest"
 - evalScript: "java.lang.Thread.sleep(2000)"
 - tapOn: "Mic On"
-- assertVisible: "Join Room"
-- tapOn: "Join Room"
+- assertVisible:
+    id: "join-room-submit-btn"
+- tapOn:
+    id: "join-room-submit-btn"
 
 # 3. Wait for connection to be active
 - extendedWaitUntil:

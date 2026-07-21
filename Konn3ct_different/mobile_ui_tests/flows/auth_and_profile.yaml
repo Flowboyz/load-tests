@@ -5,11 +5,14 @@ appId: com.konn3ct.mobile
     clearState: true
 
 # 2. Test Invalid Credentials
-- tapOn: "Demo@email.com"
+- tapOn:
+    id: "email-input"
 - inputText: "fakeuser@konn3ct.com"
-- tapOn: "Enter your password"
+- tapOn:
+    id: "password-input"
 - inputText: "WrongPass123!"
-- tapOn: "Login"
+- tapOn:
+    id: "login-button"
 - evalScript: "java.lang.Thread.sleep(1500)"
 
 # Note: Assert an error toast or message is shown
@@ -20,15 +23,19 @@ appId: com.konn3ct.mobile
     clearState: true
 
 # 4. Valid Login
-- tapOn: "Demo@email.com"
+- tapOn:
+    id: "email-input"
 - inputText: "flowboyzamy@gmail.com"
-- tapOn: "Enter your password"
+- tapOn:
+    id: "password-input"
 - inputText: "Samedo3333@"
-- tapOn: "Login"
+- tapOn:
+    id: "login-button"
 - evalScript: "java.lang.Thread.sleep(3000)"
 
 # Verify home screen has loaded
-- assertVisible: "Join"
+- assertVisible:
+    id: "join-meeting-btn"
 
 # 5. Navigate to Profile
 - tapOn: "Profile"
@@ -40,4 +47,5 @@ appId: com.konn3ct.mobile
 - evalScript: "java.lang.Thread.sleep(2000)"
 
 # Verify redirect back to Login screen
-- assertVisible: "Login"
+- assertVisible:
+    id: "email-input"

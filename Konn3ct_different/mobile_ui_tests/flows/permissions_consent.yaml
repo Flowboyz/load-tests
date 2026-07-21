@@ -9,15 +9,20 @@ appId: com.konn3ct.mobile
       notifications: deny
 
 # 2. Login
-- tapOn: "Demo@email.com"
+- tapOn:
+    id: "email-input"
 - inputText: "flowboyzamy@gmail.com"
-- tapOn: "Enter your password"
+- tapOn:
+    id: "password-input"
 - inputText: "Samedo3333@"
-- tapOn: "Login"
+- tapOn:
+    id: "login-button"
 
 # 3. Try to join meeting (which requires mic/camera access)
-- tapOn: "Join"
-- tapOn: "e.g. general-meeting"
+- tapOn:
+    id: "join-meeting-btn"
+- tapOn:
+    id: "join-room-id-input"
 - inputText: "1govtest"
 - evalScript: "java.lang.Thread.sleep(2000)"
 
@@ -35,4 +40,5 @@ appId: com.konn3ct.mobile
 # 6. Retry turning on Mic
 - tapOn: "Mic On"
 - evalScript: "java.lang.Thread.sleep(1000)"
-- assertVisible: "Join Room"
+- assertVisible:
+    id: "join-room-submit-btn"
