@@ -747,13 +747,21 @@ class ReportPipeline:
                  sla_success_rate: Optional[float] = None,
                  sla_latency: Optional[float] = None,
                  sla_packet_loss: Optional[float] = None,
-                 sla_jitter: Optional[float] = None):
+                 sla_jitter: Optional[float] = None,
+                 sla_join_latency: Optional[float] = None,
+                 sla_min_fps: Optional[float] = None,
+                 sla_max_disconnects: Optional[float] = None,
+                 sla_min_bitrate: Optional[float] = None):
         self.log_file = log_file
         self.output_docx = output_docx
         self.sla_success_rate = sla_success_rate
         self.sla_latency = sla_latency
         self.sla_packet_loss = sla_packet_loss
         self.sla_jitter = sla_jitter
+        self.sla_join_latency = sla_join_latency
+        self.sla_min_fps = sla_min_fps
+        self.sla_max_disconnects = sla_max_disconnects
+        self.sla_min_bitrate = sla_min_bitrate
         self.session_dir = os.path.dirname(os.path.abspath(log_file)) or "."
         pid = os.getpid()
         self.temp_db_path = os.path.join(self.session_dir, f"_report_temp_{os.path.basename(log_file)}_{pid}.db")
@@ -1338,8 +1346,12 @@ class ReportPipeline:
     def run_webrtc_analysis(self):
         avg_ice = 0.0
         avg_dtls = 0.0
+        avg_fps = 0.0
+        avg_bitrate = 0.0
         ice_count = 0
         dtls_count = 0
+        fps_count = 0
+        bitrate_count = 0
         
         for tracker in self.agg_stage.webrtc_trackers.values():
             if "ice_connection_time" in tracker.sums:
@@ -1348,10 +1360,18 @@ class ReportPipeline:
             if "dtls_handshake_time" in tracker.sums:
                 avg_dtls += tracker.sums["dtls_handshake_time"]["sum"] / tracker.sums["dtls_handshake_time"]["count"]
                 dtls_count += 1
+            if "fps" in tracker.sums:
+                avg_fps += tracker.sums["fps"]["sum"] / tracker.sums["fps"]["count"]
+                fps_count += 1
+            if "bitrate" in tracker.sums:
+                avg_bitrate += tracker.sums["bitrate"]["sum"] / tracker.sums["bitrate"]["count"]
+                bitrate_count += 1
                 
         self.webrtc_analytics = {
             "avg_ice_setup": avg_ice / ice_count if ice_count else 0.0,
             "avg_dtls_setup": avg_dtls / dtls_count if dtls_count else 0.0,
+            "avg_fps": avg_fps / fps_count if fps_count else 30.0,
+            "avg_bitrate": avg_bitrate / bitrate_count if bitrate_count else 800.0,
             "webrtc_enabled": self.agg_stage.config.get("webrtc_enabled", True)
         }
 
@@ -1363,6 +1383,10 @@ class ReportPipeline:
         sla_latency = self.sla_latency if self.sla_latency is not None else float(self.agg_stage.config.get("sla_latency", 500.0))
         sla_loss = (self.sla_packet_loss / 100.0) if self.sla_packet_loss is not None else (float(self.agg_stage.config.get("sla_packet_loss", 2.0)) / 100.0)
         sla_jitter = self.sla_jitter if self.sla_jitter is not None else float(self.agg_stage.config.get("sla_jitter", 30.0))
+        sla_join = self.sla_join_latency if self.sla_join_latency is not None else float(self.agg_stage.config.get("sla_join_latency", 5.0))
+        sla_fps = self.sla_min_fps if self.sla_min_fps is not None else float(self.agg_stage.config.get("sla_min_fps", 15.0))
+        sla_disconnects = (self.sla_max_disconnects / 100.0) if self.sla_max_disconnects is not None else (float(self.agg_stage.config.get("sla_max_disconnects", 1.0)) / 100.0)
+        sla_bitrate = self.sla_min_bitrate if self.sla_min_bitrate is not None else float(self.agg_stage.config.get("sla_min_bitrate", 250.0))
         
         # 1. Action Success Rate Quality Gate
         total_actions = (
@@ -1450,6 +1474,47 @@ class ReportPipeline:
                 "category": "Network Jitter",
                 "issue": f"Network jitter averaged {jitter:.1f} ms (SLA target is <{sla_jitter:.1f} ms).",
                 "remediation": "Implement adaptive jitter playout delay buffer management on client player endpoints."
+            })
+            
+        # 5. Bot Join Latency Quality Gate
+        avg_join_latency = (self.webrtc_analytics.get("avg_ice_setup", 0.0) + self.webrtc_analytics.get("avg_dtls_setup", 0.0)) / 1000.0
+        if avg_join_latency > sla_join:
+            recs.append({
+                "priority": "High",
+                "category": "Bot Join Latency",
+                "issue": f"Average bot connection time reached {avg_join_latency:.2f} seconds (SLA target is <{sla_join:.1f} seconds).",
+                "remediation": "Check SFU server performance, optimize WebRTC candidate gathering, and ensure TURN servers are scaling correctly."
+            })
+            
+        # 6. Minimum Video FPS Quality Gate
+        avg_fps = self.webrtc_analytics.get("avg_fps", 30.0)
+        if avg_fps < sla_fps:
+            recs.append({
+                "priority": "High",
+                "category": "Video Stream Frame Rate",
+                "issue": f"Video frame rate averaged {avg_fps:.1f} FPS (SLA target is >={sla_fps:.1f} FPS).",
+                "remediation": "Instruct SFU to fallback to lower video resolution layers or check server CPU load limits."
+            })
+            
+        # 7. Disconnection / Reconnection Rate Quality Gate
+        bots_count = max(self.agg_stage.config.get("bots", 1), 1)
+        reconnects_rate = (self.agg_stage.total_reconnects / bots_count) * 100.0
+        if reconnects_rate > (sla_disconnects * 100.0):
+            recs.append({
+                "priority": "High",
+                "category": "Session Connection Stability",
+                "issue": f"Bot reconnection rate reached {reconnects_rate:.2f}% (SLA target is <{sla_disconnects*100.0:.2f}%).",
+                "remediation": "Investigate network drops, socket leaks, and media server stability under high participant loads."
+            })
+            
+        # 8. Minimum Stream Bitrate Quality Gate
+        avg_bitrate = self.webrtc_analytics.get("avg_bitrate", 800.0)
+        if avg_bitrate < sla_bitrate:
+            recs.append({
+                "priority": "Medium",
+                "category": "WebRTC Media Stream Bitrate",
+                "issue": f"Average media bitrate dropped to {avg_bitrate:.1f} kbps (SLA target is >={sla_bitrate:.1f} kbps).",
+                "remediation": "Check client bandwidth limits and tune SFU media encoder bitrate settings."
             })
             
         dtls = self.webrtc_analytics["avg_dtls_setup"]
@@ -1903,6 +1968,10 @@ def main():
     parser.add_argument("--sla-latency", type=float, help="Override max avg latency SLA")
     parser.add_argument("--sla-packet-loss", type=float, help="Override max packet loss SLA")
     parser.add_argument("--sla-jitter", type=float, help="Override max jitter SLA")
+    parser.add_argument("--sla-join-latency", type=float, help="Override target bot join latency SLA (seconds)")
+    parser.add_argument("--sla-min-fps", type=float, help="Override min video FPS SLA")
+    parser.add_argument("--sla-max-disconnects", type=float, help="Override max disconnect rate SLA (%)")
+    parser.add_argument("--sla-min-bitrate", type=float, help="Override min stream bitrate SLA (kbps)")
     args = parser.parse_args()
 
     if not os.path.exists(args.log_file):
@@ -1922,7 +1991,11 @@ def main():
         sla_success_rate=args.sla_success_rate,
         sla_latency=args.sla_latency,
         sla_packet_loss=args.sla_packet_loss,
-        sla_jitter=args.sla_jitter
+        sla_jitter=args.sla_jitter,
+        sla_join_latency=args.sla_join_latency,
+        sla_min_fps=args.sla_min_fps,
+        sla_max_disconnects=args.sla_max_disconnects,
+        sla_min_bitrate=args.sla_min_bitrate
     )
     pipeline.run()
 

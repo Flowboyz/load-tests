@@ -415,6 +415,10 @@ async function setupActiveSession(sessionId, sessionName, status) {
                 window.activeSessionSlaLatency = sess.config.sla_latency !== undefined ? sess.config.sla_latency : 500.0;
                 window.activeSessionSlaLoss = sess.config.sla_packet_loss !== undefined ? sess.config.sla_packet_loss : 2.0;
                 window.activeSessionSlaJitter = sess.config.sla_jitter !== undefined ? sess.config.sla_jitter : 30.0;
+                window.activeSessionSlaJoin = sess.config.sla_join_latency !== undefined ? sess.config.sla_join_latency : 5.0;
+                window.activeSessionSlaMinFps = sess.config.sla_min_fps !== undefined ? sess.config.sla_min_fps : 15.0;
+                window.activeSessionSlaMaxDisconnects = sess.config.sla_max_disconnects !== undefined ? sess.config.sla_max_disconnects : 1.0;
+                window.activeSessionSlaMinBitrate = sess.config.sla_min_bitrate !== undefined ? sess.config.sla_min_bitrate : 250.0;
                 
                 // Populate dashboard SLA labels
                 const targetSuccessEl = document.getElementById('slaTargetSuccess');
@@ -430,11 +434,19 @@ async function setupActiveSession(sessionId, sessionName, status) {
                 const liveSlaLatencyInput = document.getElementById('liveSlaLatency');
                 const liveSlaPacketLossInput = document.getElementById('liveSlaPacketLoss');
                 const liveSlaJitterInput = document.getElementById('liveSlaJitter');
+                const liveSlaJoinInput = document.getElementById('liveSlaJoinLatency');
+                const liveSlaFpsInput = document.getElementById('liveSlaMinFps');
+                const liveSlaDisconnectsInput = document.getElementById('liveSlaMaxDisconnects');
+                const liveSlaBitrateInput = document.getElementById('liveSlaMinBitrate');
                 
                 if (liveSlaSuccess) liveSlaSuccess.value = window.activeSessionSlaSuccess;
                 if (liveSlaLatencyInput) liveSlaLatencyInput.value = window.activeSessionSlaLatency;
                 if (liveSlaPacketLossInput) liveSlaPacketLossInput.value = window.activeSessionSlaLoss;
                 if (liveSlaJitterInput) liveSlaJitterInput.value = window.activeSessionSlaJitter;
+                if (liveSlaJoinInput) liveSlaJoinInput.value = window.activeSessionSlaJoin;
+                if (liveSlaFpsInput) liveSlaFpsInput.value = window.activeSessionSlaMinFps;
+                if (liveSlaDisconnectsInput) liveSlaDisconnectsInput.value = window.activeSessionSlaMaxDisconnects;
+                if (liveSlaBitrateInput) liveSlaBitrateInput.value = window.activeSessionSlaMinBitrate;
             }
         }
     } catch (e) {
@@ -1283,8 +1295,13 @@ function setupFormActions() {
             const latencyVal = parseFloat(document.getElementById('liveSlaLatency').value);
             const lossVal = parseFloat(document.getElementById('liveSlaPacketLoss').value);
             const jitterVal = parseFloat(document.getElementById('liveSlaJitter').value);
+            const joinVal = parseFloat(document.getElementById('liveSlaJoinLatency').value);
+            const fpsVal = parseFloat(document.getElementById('liveSlaMinFps').value);
+            const disconnectsVal = parseFloat(document.getElementById('liveSlaMaxDisconnects').value);
+            const bitrateVal = parseFloat(document.getElementById('liveSlaMinBitrate').value);
             
-            if (isNaN(successVal) || isNaN(latencyVal) || isNaN(lossVal) || isNaN(jitterVal)) {
+            if (isNaN(successVal) || isNaN(latencyVal) || isNaN(lossVal) || isNaN(jitterVal) ||
+                isNaN(joinVal) || isNaN(fpsVal) || isNaN(disconnectsVal) || isNaN(bitrateVal)) {
                 alert("Please enter valid numeric values for all SLA fields.");
                 return;
             }
@@ -1297,7 +1314,11 @@ function setupFormActions() {
                         sla_success_rate: successVal,
                         sla_latency: latencyVal,
                         sla_packet_loss: lossVal,
-                        sla_jitter: jitterVal
+                        sla_jitter: jitterVal,
+                        sla_join_latency: joinVal,
+                        sla_min_fps: fpsVal,
+                        sla_max_disconnects: disconnectsVal,
+                        sla_min_bitrate: bitrateVal
                     })
                 });
                 
@@ -1309,6 +1330,10 @@ function setupFormActions() {
                     window.activeSessionSlaLatency = data.sla_latency;
                     window.activeSessionSlaLoss = data.sla_packet_loss;
                     window.activeSessionSlaJitter = data.sla_jitter;
+                    window.activeSessionSlaJoin = data.sla_join_latency;
+                    window.activeSessionSlaMinFps = data.sla_min_fps;
+                    window.activeSessionSlaMaxDisconnects = data.sla_max_disconnects;
+                    window.activeSessionSlaMinBitrate = data.sla_min_bitrate;
                     
                     // Update dashboard UI labels
                     const targetSuccessEl = document.getElementById('slaTargetSuccess');
@@ -1387,6 +1412,10 @@ function getFormData() {
         sla_latency: parseFloat(document.getElementById('formSlaLatency').value) || 500.0,
         sla_packet_loss: parseFloat(document.getElementById('formSlaPacketLoss').value) || 2.0,
         sla_jitter: parseFloat(document.getElementById('formSlaJitter').value) || 30.0,
+        sla_join_latency: parseFloat(document.getElementById('formSlaJoinLatency').value) || 5.0,
+        sla_min_fps: parseFloat(document.getElementById('formSlaMinFps').value) || 15.0,
+        sla_max_disconnects: parseFloat(document.getElementById('formSlaMaxDisconnects').value) || 1.0,
+        sla_min_bitrate: parseFloat(document.getElementById('formSlaMinBitrate').value) || 250.0,
         cross_confirm_limit: parseInt(document.getElementById('formCrossConfirmLimit').value) || 10,
         camera_publishers: document.getElementById('formCameraPublishers').value,
         screen_share_publishers: document.getElementById('formScreenSharePublishers').value,
@@ -1468,6 +1497,10 @@ async function loadConfigIntoForm(cfgId) {
         document.getElementById('formSlaLatency').value = cfg.sla_latency !== undefined ? cfg.sla_latency : 500.0;
         document.getElementById('formSlaPacketLoss').value = cfg.sla_packet_loss !== undefined ? cfg.sla_packet_loss : 2.0;
         document.getElementById('formSlaJitter').value = cfg.sla_jitter !== undefined ? cfg.sla_jitter : 30.0;
+        document.getElementById('formSlaJoinLatency').value = cfg.sla_join_latency !== undefined ? cfg.sla_join_latency : 5.0;
+        document.getElementById('formSlaMinFps').value = cfg.sla_min_fps !== undefined ? cfg.sla_min_fps : 15.0;
+        document.getElementById('formSlaMaxDisconnects').value = cfg.sla_max_disconnects !== undefined ? cfg.sla_max_disconnects : 1.0;
+        document.getElementById('formSlaMinBitrate').value = cfg.sla_min_bitrate !== undefined ? cfg.sla_min_bitrate : 250.0;
         
         document.getElementById('formCrossConfirmLimit').value = cfg.cross_confirm_limit !== undefined ? cfg.cross_confirm_limit : 10;
         document.getElementById('formCameraPublishers').value = cfg.camera_publishers !== undefined ? cfg.camera_publishers : '1,2,3,4,5';
@@ -1627,6 +1660,10 @@ async function viewHistoricalLogs(sessId) {
                     window.activeSessionSlaLatency = sess.config.sla_latency !== undefined ? sess.config.sla_latency : 500.0;
                     window.activeSessionSlaLoss = sess.config.sla_packet_loss !== undefined ? sess.config.sla_packet_loss : 2.0;
                     window.activeSessionSlaJitter = sess.config.sla_jitter !== undefined ? sess.config.sla_jitter : 30.0;
+                    window.activeSessionSlaJoin = sess.config.sla_join_latency !== undefined ? sess.config.sla_join_latency : 5.0;
+                    window.activeSessionSlaMinFps = sess.config.sla_min_fps !== undefined ? sess.config.sla_min_fps : 15.0;
+                    window.activeSessionSlaMaxDisconnects = sess.config.sla_max_disconnects !== undefined ? sess.config.sla_max_disconnects : 1.0;
+                    window.activeSessionSlaMinBitrate = sess.config.sla_min_bitrate !== undefined ? sess.config.sla_min_bitrate : 250.0;
                     
                     const targetSuccessEl = document.getElementById('slaTargetSuccess');
                     const targetLatencyEl = document.getElementById('slaTargetLatency');
@@ -1641,11 +1678,19 @@ async function viewHistoricalLogs(sessId) {
                     const liveSlaLatencyInput = document.getElementById('liveSlaLatency');
                     const liveSlaPacketLossInput = document.getElementById('liveSlaPacketLoss');
                     const liveSlaJitterInput = document.getElementById('liveSlaJitter');
+                    const liveSlaJoinInput = document.getElementById('liveSlaJoinLatency');
+                    const liveSlaFpsInput = document.getElementById('liveSlaMinFps');
+                    const liveSlaDisconnectsInput = document.getElementById('liveSlaMaxDisconnects');
+                    const liveSlaBitrateInput = document.getElementById('liveSlaMinBitrate');
                     
                     if (liveSlaSuccess) liveSlaSuccess.value = window.activeSessionSlaSuccess;
                     if (liveSlaLatencyInput) liveSlaLatencyInput.value = window.activeSessionSlaLatency;
                     if (liveSlaPacketLossInput) liveSlaPacketLossInput.value = window.activeSessionSlaLoss;
                     if (liveSlaJitterInput) liveSlaJitterInput.value = window.activeSessionSlaJitter;
+                    if (liveSlaJoinInput) liveSlaJoinInput.value = window.activeSessionSlaJoin;
+                    if (liveSlaFpsInput) liveSlaFpsInput.value = window.activeSessionSlaMinFps;
+                    if (liveSlaDisconnectsInput) liveSlaDisconnectsInput.value = window.activeSessionSlaMaxDisconnects;
+                    if (liveSlaBitrateInput) liveSlaBitrateInput.value = window.activeSessionSlaMinBitrate;
                 }
             }
         } catch (ec) {

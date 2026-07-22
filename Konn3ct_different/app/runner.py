@@ -787,7 +787,9 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
 
 def compile_report_log(project_root, log_path, docx_path,
                        sla_success_rate=None, sla_latency=None,
-                       sla_packet_loss=None, sla_jitter=None):
+                       sla_packet_loss=None, sla_jitter=None,
+                       sla_join_latency=None, sla_min_fps=None,
+                       sla_max_disconnects=None, sla_min_bitrate=None):
     """
     Force executes generate_report.py to compile report.
     """
@@ -801,6 +803,14 @@ def compile_report_log(project_root, log_path, docx_path,
         cmd.extend(["--sla-packet-loss", str(sla_packet_loss)])
     if sla_jitter is not None:
         cmd.extend(["--sla-jitter", str(sla_jitter)])
+    if sla_join_latency is not None:
+        cmd.extend(["--sla-join-latency", str(sla_join_latency)])
+    if sla_min_fps is not None:
+        cmd.extend(["--sla-min-fps", str(sla_min_fps)])
+    if sla_max_disconnects is not None:
+        cmd.extend(["--sla-max-disconnects", str(sla_max_disconnects)])
+    if sla_min_bitrate is not None:
+        cmd.extend(["--sla-min-bitrate", str(sla_min_bitrate)])
     try:
         res = subprocess.run(
             cmd,
@@ -870,6 +880,10 @@ def compile_report_log_async(project_root, session_id, socketio):
                     sla_overrides['sla_latency'] = getattr(session.config, 'sla_latency', None)
                     sla_overrides['sla_packet_loss'] = getattr(session.config, 'sla_packet_loss', None)
                     sla_overrides['sla_jitter'] = getattr(session.config, 'sla_jitter', None)
+                    sla_overrides['sla_join_latency'] = getattr(session.config, 'sla_join_latency', None)
+                    sla_overrides['sla_min_fps'] = getattr(session.config, 'sla_min_fps', None)
+                    sla_overrides['sla_max_disconnects'] = getattr(session.config, 'sla_max_disconnects', None)
+                    sla_overrides['sla_min_bitrate'] = getattr(session.config, 'sla_min_bitrate', None)
                     
                 compile_report_log(project_root, merged_log_path, docx_path, **sla_overrides)
                 

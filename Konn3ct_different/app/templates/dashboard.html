@@ -393,6 +393,22 @@
                                         <label for="liveSlaJitter" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Jitter (ms):</label>
                                         <input type="number" id="liveSlaJitter" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="30" min="1">
                                     </div>
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        <label for="liveSlaJoinLatency" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Join Latency (s):</label>
+                                        <input type="number" id="liveSlaJoinLatency" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="5.0" min="0.1" step="0.1">
+                                    </div>
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        <label for="liveSlaMinFps" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Min Video FPS:</label>
+                                        <input type="number" id="liveSlaMinFps" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="15.0" min="1" step="0.5">
+                                    </div>
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        <label for="liveSlaMaxDisconnects" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Max Disconnects (%):</label>
+                                        <input type="number" id="liveSlaMaxDisconnects" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="1.0" min="0" max="100" step="0.1">
+                                    </div>
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        <label for="liveSlaMinBitrate" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Min Bitrate (kbps):</label>
+                                        <input type="number" id="liveSlaMinBitrate" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="250.0" min="1" step="10">
+                                    </div>
                                     <button class="btn btn-sm btn-primary" id="btnUpdateLiveSla" style="padding: 6px 12px; font-size: 12px;"><i class="fa-solid fa-save"></i> Save SLAs</button>
                                 </div>
                             </div>
@@ -829,15 +845,35 @@
                                     </div>
                                 </div>
                                 <div class="form-row">
-                                    <div class="form-group col-6">
-                                        <label for="formSlaPacketLoss">Max Packet Loss (%)</label>
-                                        <input type="number" id="formSlaPacketLoss" value="2.0" min="0" max="100" step="0.1">
-                                    </div>
-                                    <div class="form-group col-6">
-                                        <label for="formSlaJitter">Max Jitter (ms)</label>
-                                        <input type="number" id="formSlaJitter" value="30.0" min="1">
-                                    </div>
-                                </div>
+                                     <div class="form-group col-6">
+                                         <label for="formSlaPacketLoss">Max Packet Loss (%)</label>
+                                         <input type="number" id="formSlaPacketLoss" value="2.0" min="0" max="100" step="0.1">
+                                     </div>
+                                     <div class="form-group col-6">
+                                         <label for="formSlaJitter">Max Jitter (ms)</label>
+                                         <input type="number" id="formSlaJitter" value="30.0" min="1">
+                                     </div>
+                                 </div>
+                                 <div class="form-row">
+                                     <div class="form-group col-6">
+                                         <label for="formSlaJoinLatency">Max Bot Join Latency (s)</label>
+                                         <input type="number" id="formSlaJoinLatency" value="5.0" min="0.1" step="0.1">
+                                     </div>
+                                     <div class="form-group col-6">
+                                         <label for="formSlaMinFps">Min Stream Video FPS</label>
+                                         <input type="number" id="formSlaMinFps" value="15.0" min="1" step="0.5">
+                                     </div>
+                                 </div>
+                                 <div class="form-row">
+                                     <div class="form-group col-6">
+                                         <label for="formSlaMaxDisconnects">Max Disconnect Rate (%)</label>
+                                         <input type="number" id="formSlaMaxDisconnects" value="1.0" min="0" max="100" step="0.1">
+                                     </div>
+                                     <div class="form-group col-6">
+                                         <label for="formSlaMinBitrate">Min Stream Bitrate (kbps)</label>
+                                         <input type="number" id="formSlaMinBitrate" value="250.0" min="1" step="10">
+                                     </div>
+                                 </div>
                             </div>
                         </div>
 

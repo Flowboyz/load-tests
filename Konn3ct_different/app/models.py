@@ -90,6 +90,10 @@ class Configuration(db.Model):
     sla_latency = db.Column(db.Float, default=500.0, nullable=False)
     sla_packet_loss = db.Column(db.Float, default=2.0, nullable=False)
     sla_jitter = db.Column(db.Float, default=30.0, nullable=False)
+    sla_join_latency = db.Column(db.Float, default=5.0, nullable=False)
+    sla_min_fps = db.Column(db.Float, default=15.0, nullable=False)
+    sla_max_disconnects = db.Column(db.Float, default=1.0, nullable=False)
+    sla_min_bitrate = db.Column(db.Float, default=250.0, nullable=False)
     
     # RAM & Scenario Optimization
     cross_confirm_limit = db.Column(db.Integer, default=10, nullable=False)

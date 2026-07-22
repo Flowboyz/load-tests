@@ -241,6 +241,14 @@ def update_session_sla(session_id):
         session.config.sla_packet_loss = float(data['sla_packet_loss'])
     if 'sla_jitter' in data:
         session.config.sla_jitter = float(data['sla_jitter'])
+    if 'sla_join_latency' in data:
+        session.config.sla_join_latency = float(data['sla_join_latency'])
+    if 'sla_min_fps' in data:
+        session.config.sla_min_fps = float(data['sla_min_fps'])
+    if 'sla_max_disconnects' in data:
+        session.config.sla_max_disconnects = float(data['sla_max_disconnects'])
+    if 'sla_min_bitrate' in data:
+        session.config.sla_min_bitrate = float(data['sla_min_bitrate'])
         
     db.session.commit()
     
@@ -252,7 +260,11 @@ def update_session_sla(session_id):
             'sla_success_rate': session.config.sla_success_rate,
             'sla_latency': session.config.sla_latency,
             'sla_packet_loss': session.config.sla_packet_loss,
-            'sla_jitter': session.config.sla_jitter
+            'sla_jitter': session.config.sla_jitter,
+            'sla_join_latency': session.config.sla_join_latency,
+            'sla_min_fps': session.config.sla_min_fps,
+            'sla_max_disconnects': session.config.sla_max_disconnects,
+            'sla_min_bitrate': session.config.sla_min_bitrate
         })
         
     return jsonify({
@@ -260,7 +272,11 @@ def update_session_sla(session_id):
         'sla_success_rate': session.config.sla_success_rate,
         'sla_latency': session.config.sla_latency,
         'sla_packet_loss': session.config.sla_packet_loss,
-        'sla_jitter': session.config.sla_jitter
+        'sla_jitter': session.config.sla_jitter,
+        'sla_join_latency': session.config.sla_join_latency,
+        'sla_min_fps': session.config.sla_min_fps,
+        'sla_max_disconnects': session.config.sla_max_disconnects,
+        'sla_min_bitrate': session.config.sla_min_bitrate
     })
 
 
