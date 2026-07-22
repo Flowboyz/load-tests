@@ -105,6 +105,9 @@ def execute_flow_generator(flow_path, device_id=None, apk_path=None, api_key=Non
             yield f"🚀 Cloud Device Model: {cloud_model}"
         if cloud_os:
             yield f"🚀 Cloud Android OS Version: API {cloud_os}"
+        yield "⚠️ NOTE: Uploading a large APK (e.g. 136MB) to Maestro Cloud will take several minutes."
+        yield "⚠️ The console log will appear 'stuck' at 'Evaluating flow(s)...' while the upload is in progress."
+        yield "⚠️ Please do not close or refresh this page. You can use the 'Stop' button if you need to abort."
     else:
         cmd = ["maestro"]
         if device_id:
