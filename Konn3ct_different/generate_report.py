@@ -743,9 +743,17 @@ def build_lifecycle_row(act, sender_id, sender_fp, sender_meta, receiver_id, rec
 # =====================================================================
 
 class ReportPipeline:
-    def __init__(self, log_file: str, output_docx: str):
+    def __init__(self, log_file: str, output_docx: str,
+                 sla_success_rate: Optional[float] = None,
+                 sla_latency: Optional[float] = None,
+                 sla_packet_loss: Optional[float] = None,
+                 sla_jitter: Optional[float] = None):
         self.log_file = log_file
         self.output_docx = output_docx
+        self.sla_success_rate = sla_success_rate
+        self.sla_latency = sla_latency
+        self.sla_packet_loss = sla_packet_loss
+        self.sla_jitter = sla_jitter
         self.session_dir = os.path.dirname(os.path.abspath(log_file)) or "."
         pid = os.getpid()
         self.temp_db_path = os.path.join(self.session_dir, f"_report_temp_{os.path.basename(log_file)}_{pid}.db")
@@ -1350,11 +1358,11 @@ class ReportPipeline:
     def run_recommendations_engine(self):
         recs = []
         
-        # Load SLA configurations from logged config event (with defaults)
-        sla_success = float(self.agg_stage.config.get("sla_success_rate", 95.0))
-        sla_latency = float(self.agg_stage.config.get("sla_latency", 500.0))
-        sla_loss = float(self.agg_stage.config.get("sla_packet_loss", 2.0)) / 100.0
-        sla_jitter = float(self.agg_stage.config.get("sla_jitter", 30.0))
+        # Load SLA configurations from logged config event (with overrides)
+        sla_success = self.sla_success_rate if self.sla_success_rate is not None else float(self.agg_stage.config.get("sla_success_rate", 95.0))
+        sla_latency = self.sla_latency if self.sla_latency is not None else float(self.agg_stage.config.get("sla_latency", 500.0))
+        sla_loss = (self.sla_packet_loss / 100.0) if self.sla_packet_loss is not None else (float(self.agg_stage.config.get("sla_packet_loss", 2.0)) / 100.0)
+        sla_jitter = self.sla_jitter if self.sla_jitter is not None else float(self.agg_stage.config.get("sla_jitter", 30.0))
         
         # 1. Action Success Rate Quality Gate
         total_actions = (
@@ -1891,6 +1899,10 @@ def main():
     parser = argparse.ArgumentParser(description="Aggregates Konn3ct different log events and builds the Word report")
     parser.add_argument("log_file", help="Path to the JSONL log file")
     parser.add_argument("--output", default="load_test_report.docx", help="Output .docx file path")
+    parser.add_argument("--sla-success-rate", type=float, help="Override target action success rate SLA")
+    parser.add_argument("--sla-latency", type=float, help="Override max avg latency SLA")
+    parser.add_argument("--sla-packet-loss", type=float, help="Override max packet loss SLA")
+    parser.add_argument("--sla-jitter", type=float, help="Override max jitter SLA")
     args = parser.parse_args()
 
     if not os.path.exists(args.log_file):
@@ -1904,7 +1916,14 @@ def main():
             sys.exit(1)
 
     print(f"Processing event logs from {args.log_file}...")
-    pipeline = ReportPipeline(args.log_file, args.output)
+    pipeline = ReportPipeline(
+        args.log_file, 
+        args.output,
+        sla_success_rate=args.sla_success_rate,
+        sla_latency=args.sla_latency,
+        sla_packet_loss=args.sla_packet_loss,
+        sla_jitter=args.sla_jitter
+    )
     pipeline.run()
 
 

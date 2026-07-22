@@ -223,6 +223,47 @@ def stop_test(session_id):
         return jsonify({'message': 'Test session stopped (force database override).'})
 
 
+@api_bp.route('/sessions/<int:session_id>/sla', methods=['PUT'])
+@token_required
+@roles_accepted('Admin', 'Operator')
+def update_session_sla(session_id):
+    session = TestSession.query.get_or_404(session_id)
+    if not session.config:
+        return jsonify({'message': 'Session has no associated configuration!'}), 400
+        
+    data = request.get_json() or {}
+    
+    if 'sla_success_rate' in data:
+        session.config.sla_success_rate = float(data['sla_success_rate'])
+    if 'sla_latency' in data:
+        session.config.sla_latency = float(data['sla_latency'])
+    if 'sla_packet_loss' in data:
+        session.config.sla_packet_loss = float(data['sla_packet_loss'])
+    if 'sla_jitter' in data:
+        session.config.sla_jitter = float(data['sla_jitter'])
+        
+    db.session.commit()
+    
+    from flask import current_app
+    socketio = current_app.extensions.get('socketio')
+    if socketio:
+        socketio.emit('session_sla_updated', {
+            'session_id': session_id,
+            'sla_success_rate': session.config.sla_success_rate,
+            'sla_latency': session.config.sla_latency,
+            'sla_packet_loss': session.config.sla_packet_loss,
+            'sla_jitter': session.config.sla_jitter
+        })
+        
+    return jsonify({
+        'message': 'SLA thresholds updated successfully.',
+        'sla_success_rate': session.config.sla_success_rate,
+        'sla_latency': session.config.sla_latency,
+        'sla_packet_loss': session.config.sla_packet_loss,
+        'sla_jitter': session.config.sla_jitter
+    })
+
+
 # --- Logs & Performance Historical Data Routes ---
 
 @api_bp.route('/sessions/<int:session_id>/logs', methods=['GET'])
@@ -487,6 +528,8 @@ def save_mobile_flow():
 
 # Background thread state for active mobile UI test runs
 is_mobile_test_running = False
+active_mobile_process = None
+
 
 @api_bp.route('/mobile/run', methods=['POST'])
 @token_required
@@ -575,7 +618,12 @@ def run_mobile_test():
                 
         try:
             socketio.emit('mobile_ui_test_status', {'status': 'running'})
-            for log_line in execute_flow_generator(target_flow_path, device_id, apk_path, api_key, cloud_model, cloud_os):
+            
+            def register_process(proc):
+                global active_mobile_process
+                active_mobile_process = proc
+                
+            for log_line in execute_flow_generator(target_flow_path, device_id, apk_path, api_key, cloud_model, cloud_os, on_process_spawned=register_process):
                 log_lines.append(log_line)
                 socketio.emit('mobile_ui_test_log', {'line': log_line})
                 
@@ -598,11 +646,44 @@ def run_mobile_test():
                     os.remove(target_flow_path)
                 except:
                     pass
+            global active_mobile_process
+            active_mobile_process = None
             is_mobile_test_running = False
             socketio.emit('mobile_ui_test_status', {'status': 'idle'})
             
     threading.Thread(target=run_in_background, daemon=True).start()
     return jsonify({'message': 'Mobile UI test started successfully!'}), 200
+
+@api_bp.route('/mobile/stop', methods=['POST'])
+@token_required
+@roles_accepted('Admin', 'Operator')
+def stop_mobile_test():
+    global active_mobile_process, is_mobile_test_running
+    
+    if not is_mobile_test_running and not active_mobile_process:
+        return jsonify({'message': 'No mobile UI test is running!'}), 400
+        
+    try:
+        if active_mobile_process:
+            import sys
+            import subprocess as subp
+            if sys.platform == "win32":
+                subp.run(["taskkill", "/F", "/T", "/PID", str(active_mobile_process.pid)], capture_output=True)
+            else:
+                active_mobile_process.terminate()
+            
+            from app import socketio
+            socketio.emit('mobile_ui_test_log', {'line': '⏹️ Test manually stopped by operator.'})
+            
+        active_mobile_process = None
+        is_mobile_test_running = False
+        
+        from app import socketio
+        socketio.emit('mobile_ui_test_status', {'status': 'idle'})
+        
+        return jsonify({'message': 'Mobile UI test stopped successfully.'})
+    except Exception as e:
+        return jsonify({'message': f'Failed to stop mobile UI test: {str(e)}'}), 500
 
 # --- Mobile UI Test Reports API Routes ---
 

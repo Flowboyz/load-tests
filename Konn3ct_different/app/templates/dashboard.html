@@ -365,6 +365,40 @@
                         </div>
                     </div>
  
+                    <!-- Live SLA Editor Row -->
+                    <div class="metrics-row" style="margin-top: 16px;">
+                        <div class="metric-card" style="flex: 1; min-width: 300px; border-left: 4px solid var(--accent); padding: 16px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 12px;">
+                                <div style="display: flex; gap: 12px; align-items: center;">
+                                    <div class="icon-wrap bg-accent-soft"><i class="fa-solid fa-sliders text-accent"></i></div>
+                                    <div class="metric-details">
+                                        <div class="label" style="font-size: 14px; font-weight: 600; color: var(--text-primary);">Live SLA Thresholds Manager</div>
+                                        <div class="sub-label" style="font-size: 12px; color: var(--text-secondary);">Dynamically adjust SLA gates for the active session and report</div>
+                                    </div>
+                                </div>
+                                <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        <label for="liveSlaSuccessRate" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Success Rate (%):</label>
+                                        <input type="number" id="liveSlaSuccessRate" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="95.0" min="0" max="100" step="0.5">
+                                    </div>
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        <label for="liveSlaLatency" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Latency (ms):</label>
+                                        <input type="number" id="liveSlaLatency" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="500" min="1">
+                                    </div>
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        <label for="liveSlaPacketLoss" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Packet Loss (%):</label>
+                                        <input type="number" id="liveSlaPacketLoss" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="2.0" min="0" max="100" step="0.1">
+                                    </div>
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        <label for="liveSlaJitter" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Jitter (ms):</label>
+                                        <input type="number" id="liveSlaJitter" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="30" min="1">
+                                    </div>
+                                    <button class="btn btn-sm btn-primary" id="btnUpdateLiveSla" style="padding: 6px 12px; font-size: 12px;"><i class="fa-solid fa-save"></i> Save SLAs</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+ 
                     <!-- Graphs Grid -->
                     <div class="graphs-grid">
                         <div class="graph-card">
@@ -1043,9 +1077,12 @@
                                         </select>
                                     </div>
                                 </div>
-                                <div style="margin-top: 10px;">
-                                    <button type="button" class="btn btn-primary" id="btnRunMobileUiTest" style="width: 100%; padding: 12px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                <div style="margin-top: 10px; display: flex; gap: 8px;">
+                                    <button type="button" class="btn btn-primary" id="btnRunMobileUiTest" style="flex: 3; padding: 12px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
                                         <i class="fa-solid fa-play"></i> Run Mobile UI Test
+                                    </button>
+                                    <button type="button" class="btn btn-danger" id="btnStopMobileUiTest" style="flex: 1; padding: 12px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;" disabled>
+                                        <i class="fa-solid fa-stop"></i> Stop
                                     </button>
                                 </div>
                             </div>
@@ -1219,9 +1256,12 @@
                                         </select>
                                     </div>
                                 </div>
-                                <div style="margin-top: 10px;">
-                                    <button type="button" class="btn btn-primary" id="btnRunGovUiTest" style="width: 100%; padding: 12px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; background-color: #0a5c36; border-color: #0a5c36;">
+                                <div style="margin-top: 10px; display: flex; gap: 8px;">
+                                    <button type="button" class="btn btn-primary" id="btnRunGovUiTest" style="flex: 3; padding: 12px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; background-color: #0a5c36; border-color: #0a5c36;">
                                         <i class="fa-solid fa-play"></i> Run 1gov UI Test
+                                    </button>
+                                    <button type="button" class="btn btn-danger" id="btnStopGovUiTest" style="flex: 1; padding: 12px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;" disabled>
+                                        <i class="fa-solid fa-stop"></i> Stop
                                     </button>
                                 </div>
                             </div>

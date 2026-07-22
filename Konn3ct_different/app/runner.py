@@ -785,14 +785,25 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
             except Exception:
                 pass
 
-def compile_report_log(project_root, log_path, docx_path):
+def compile_report_log(project_root, log_path, docx_path,
+                       sla_success_rate=None, sla_latency=None,
+                       sla_packet_loss=None, sla_jitter=None):
     """
     Force executes generate_report.py to compile report.
     """
     generate_report_script = os.path.join(project_root, "generate_report.py")
+    cmd = [get_python_executable(project_root), generate_report_script, log_path, "--output", docx_path]
+    if sla_success_rate is not None:
+        cmd.extend(["--sla-success-rate", str(sla_success_rate)])
+    if sla_latency is not None:
+        cmd.extend(["--sla-latency", str(sla_latency)])
+    if sla_packet_loss is not None:
+        cmd.extend(["--sla-packet-loss", str(sla_packet_loss)])
+    if sla_jitter is not None:
+        cmd.extend(["--sla-jitter", str(sla_jitter)])
     try:
         res = subprocess.run(
-            [get_python_executable(project_root), generate_report_script, log_path, "--output", docx_path],
+            cmd,
             check=True,
             capture_output=True,
             encoding="utf-8"
@@ -852,7 +863,15 @@ def compile_report_log_async(project_root, session_id, socketio):
                 
                 # 2. Compile DOCX report
                 docx_path = os.path.join(session_dir, f"session_{session_id}_report.docx")
-                compile_report_log(project_root, merged_log_path, docx_path)
+                
+                sla_overrides = {}
+                if session.config:
+                    sla_overrides['sla_success_rate'] = getattr(session.config, 'sla_success_rate', None)
+                    sla_overrides['sla_latency'] = getattr(session.config, 'sla_latency', None)
+                    sla_overrides['sla_packet_loss'] = getattr(session.config, 'sla_packet_loss', None)
+                    sla_overrides['sla_jitter'] = getattr(session.config, 'sla_jitter', None)
+                    
+                compile_report_log(project_root, merged_log_path, docx_path, **sla_overrides)
                 
                 session.report_log_path = merged_log_path
                 session.report_docx_path = docx_path

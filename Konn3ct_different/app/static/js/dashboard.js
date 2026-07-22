@@ -424,6 +424,17 @@ async function setupActiveSession(sessionId, sessionName, status) {
                 if (targetSuccessEl) targetSuccessEl.textContent = window.activeSessionSlaSuccess.toFixed(1);
                 if (targetLatencyEl) targetLatencyEl.textContent = window.activeSessionSlaLatency.toFixed(0);
                 if (targetLossEl) targetLossEl.textContent = window.activeSessionSlaLoss.toFixed(1);
+                
+                // Populate Live SLA Manager inputs
+                const liveSlaSuccess = document.getElementById('liveSlaSuccessRate');
+                const liveSlaLatencyInput = document.getElementById('liveSlaLatency');
+                const liveSlaPacketLossInput = document.getElementById('liveSlaPacketLoss');
+                const liveSlaJitterInput = document.getElementById('liveSlaJitter');
+                
+                if (liveSlaSuccess) liveSlaSuccess.value = window.activeSessionSlaSuccess;
+                if (liveSlaLatencyInput) liveSlaLatencyInput.value = window.activeSessionSlaLatency;
+                if (liveSlaPacketLossInput) liveSlaPacketLossInput.value = window.activeSessionSlaLoss;
+                if (liveSlaJitterInput) liveSlaJitterInput.value = window.activeSessionSlaJitter;
             }
         }
     } catch (e) {
@@ -1259,6 +1270,63 @@ function setupFormActions() {
         if (!resp.ok) alert("Stop request failed.");
     });
 
+    // Update Live SLA Thresholds
+    const btnUpdateLiveSla = document.getElementById('btnUpdateLiveSla');
+    if (btnUpdateLiveSla) {
+        btnUpdateLiveSla.addEventListener('click', async () => {
+            if (!currentActiveSessionId) {
+                alert("No active test session is running to update SLAs for!");
+                return;
+            }
+            
+            const successVal = parseFloat(document.getElementById('liveSlaSuccessRate').value);
+            const latencyVal = parseFloat(document.getElementById('liveSlaLatency').value);
+            const lossVal = parseFloat(document.getElementById('liveSlaPacketLoss').value);
+            const jitterVal = parseFloat(document.getElementById('liveSlaJitter').value);
+            
+            if (isNaN(successVal) || isNaN(latencyVal) || isNaN(lossVal) || isNaN(jitterVal)) {
+                alert("Please enter valid numeric values for all SLA fields.");
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/sessions/${currentActiveSessionId}/sla`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sla_success_rate: successVal,
+                        sla_latency: latencyVal,
+                        sla_packet_loss: lossVal,
+                        sla_jitter: jitterVal
+                    })
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    alert("SLA thresholds updated successfully!");
+                    // Update frontend state variables
+                    window.activeSessionSlaSuccess = data.sla_success_rate;
+                    window.activeSessionSlaLatency = data.sla_latency;
+                    window.activeSessionSlaLoss = data.sla_packet_loss;
+                    window.activeSessionSlaJitter = data.sla_jitter;
+                    
+                    // Update dashboard UI labels
+                    const targetSuccessEl = document.getElementById('slaTargetSuccess');
+                    const targetLatencyEl = document.getElementById('slaTargetLatency');
+                    const targetLossEl = document.getElementById('slaTargetLoss');
+                    
+                    if (targetSuccessEl) targetSuccessEl.textContent = window.activeSessionSlaSuccess.toFixed(1);
+                    if (targetLatencyEl) targetLatencyEl.textContent = window.activeSessionSlaLatency.toFixed(0);
+                    if (targetLossEl) targetLossEl.textContent = window.activeSessionSlaLoss.toFixed(1);
+                } else {
+                    alert("Failed to update SLAs: " + data.message);
+                }
+            } catch (err) {
+                alert("Update SLA request failed.");
+            }
+        });
+    }
+
     // RAM & Scenario Optimization Fields Disable Toggle
     const disableCheckbox = document.getElementById('formDisableRamScenarioOpt');
     if (disableCheckbox) {
@@ -1567,6 +1635,17 @@ async function viewHistoricalLogs(sessId) {
                     if (targetSuccessEl) targetSuccessEl.textContent = window.activeSessionSlaSuccess.toFixed(1);
                     if (targetLatencyEl) targetLatencyEl.textContent = window.activeSessionSlaLatency.toFixed(0);
                     if (targetLossEl) targetLossEl.textContent = window.activeSessionSlaLoss.toFixed(1);
+                    
+                    // Populate Live SLA Manager inputs
+                    const liveSlaSuccess = document.getElementById('liveSlaSuccessRate');
+                    const liveSlaLatencyInput = document.getElementById('liveSlaLatency');
+                    const liveSlaPacketLossInput = document.getElementById('liveSlaPacketLoss');
+                    const liveSlaJitterInput = document.getElementById('liveSlaJitter');
+                    
+                    if (liveSlaSuccess) liveSlaSuccess.value = window.activeSessionSlaSuccess;
+                    if (liveSlaLatencyInput) liveSlaLatencyInput.value = window.activeSessionSlaLatency;
+                    if (liveSlaPacketLossInput) liveSlaPacketLossInput.value = window.activeSessionSlaLoss;
+                    if (liveSlaJitterInput) liveSlaJitterInput.value = window.activeSessionSlaJitter;
                 }
             }
         } catch (ec) {
@@ -2335,6 +2414,25 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
         
+        // Stop mobile UI test button listener
+        const btnStop = document.getElementById(prefix === 'mobile' ? 'btnStopMobileUiTest' : 'btnStopGovUiTest');
+        if (btnStop) {
+            btnStop.addEventListener('click', async () => {
+                if (confirm("Are you sure you want to stop the running Maestro test?")) {
+                    try {
+                        const res = await fetch('/api/mobile/stop', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        const data = await res.json();
+                        alert(data.message);
+                    } catch (e) {
+                        alert("Failed to stop mobile UI test.");
+                    }
+                }
+            });
+        }
+        
         // Clear console button
         const btnClearConsole = document.getElementById(prefix === 'mobile' ? 'btnClearMobileConsole' : 'btnClearGovConsole');
         if (btnClearConsole) {
@@ -2403,21 +2501,31 @@ function appendMobileConsoleLog(line) {
 }
 
 function updateMobileTestStatus(status) {
-    const prefix = currentActiveTab === '1gov-app' ? 'gov' : 'mobile';
-    const btnRun = document.getElementById(prefix === 'mobile' ? 'btnRunMobileUiTest' : 'btnRunGovUiTest');
-    if (btnRun) {
+    ['mobile', 'gov'].forEach(p => {
+        const btnRun = document.getElementById(p === 'mobile' ? 'btnRunMobileUiTest' : 'btnRunGovUiTest');
+        const btnStop = document.getElementById(p === 'mobile' ? 'btnStopMobileUiTest' : 'btnStopGovUiTest');
         if (status === 'running') {
-            btnRun.disabled = true;
-            btnRun.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Running Maestro...';
-            btnRun.style.backgroundColor = '#6B7280';
+            if (btnRun) {
+                btnRun.disabled = true;
+                btnRun.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Running...';
+                btnRun.style.backgroundColor = '#6B7280';
+            }
+            if (btnStop) {
+                btnStop.disabled = false;
+            }
         } else {
-            btnRun.disabled = false;
-            btnRun.innerHTML = prefix === 'mobile' ? '<i class="fa-solid fa-play"></i> Run Mobile UI Test' : '<i class="fa-solid fa-play"></i> Run 1gov UI Test';
-            btnRun.style.backgroundColor = prefix === 'mobile' ? '' : '#0a5c36';
+            if (btnRun) {
+                btnRun.disabled = false;
+                btnRun.innerHTML = p === 'mobile' ? '<i class="fa-solid fa-play"></i> Run Mobile UI Test' : '<i class="fa-solid fa-play"></i> Run 1gov UI Test';
+                btnRun.style.backgroundColor = p === 'mobile' ? '' : '#0a5c36';
+            }
+            if (btnStop) {
+                btnStop.disabled = true;
+            }
             // Auto refresh reports list on completion
-            loadMobileReports(prefix);
+            loadMobileReports(p);
         }
-    }
+    });
 }
 
 async function loadMobileReports(prefix = 'mobile') {

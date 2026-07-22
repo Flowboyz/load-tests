@@ -58,7 +58,7 @@ def list_emulators():
         
     return devices
 
-def execute_flow_generator(flow_path, device_id=None, apk_path=None, api_key=None, cloud_model=None, cloud_os=None):
+def execute_flow_generator(flow_path, device_id=None, apk_path=None, api_key=None, cloud_model=None, cloud_os=None, on_process_spawned=None):
     """
     Generator yielding console log lines as Maestro executes the test.
     Supports local device testing and cloud-based testing (Maestro Cloud).
@@ -116,6 +116,8 @@ def execute_flow_generator(flow_path, device_id=None, apk_path=None, api_key=Non
     try:
         # Run process, redirecting stderr to stdout to catch all output
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        if on_process_spawned:
+            on_process_spawned(process)
         for line in process.stdout:
             line_str = line.rstrip()
             # If the output contains a run link, highlight it
