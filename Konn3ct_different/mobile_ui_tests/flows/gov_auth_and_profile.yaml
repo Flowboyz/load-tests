@@ -11,8 +11,7 @@ appId: com.konn3ct.mobile
 - hideKeyboard
 - tapOn: "Login"
 - evalScript: "java.lang.Thread.sleep(8000)"
-- assertVisible:
-    id: "join-meeting-btn"
+- assertVisible: "More"
 - tapOn: "Profile"
 - assertVisible: "Profile Information"
 - evalScript: "java.lang.Thread.sleep(1500)"
