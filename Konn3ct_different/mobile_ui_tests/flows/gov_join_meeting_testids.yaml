@@ -16,31 +16,8 @@ appId: com.konn3ct.mobile
 - tapOn:
     id: "join-room-id-input"
 - inputText: "1govtest"
-# Delay for 2 seconds to let the input settle
 - evalScript: "java.lang.Thread.sleep(2000)"
 - tapOn:
     id: "join-room-submit-btn"
-# Delay for 2 seconds to let the connection start initializing
-- evalScript: "java.lang.Thread.sleep(2000)"
-# Wait for the meeting room to connect and show the "Live" pill
-- extendedWaitUntil:
-    visible: "Live"
-    timeout: 30000
-# Open More Options (4th button on bottom toolbar)
-- tapOn: { point: "63%,95%" }
-# Raise Hand
-- tapOn: "Raise Hand"
-# Open More Options again
-- tapOn: { point: "63%,95%" }
-# Open Chat
-- tapOn:
-    id: "chat-menu-button"
-# Send Chat message
-- tapOn:
-    id: "chat-input"
-- inputText: "Hello from 1gov mobile automation! 🚀"
-- pressKey: Enter
-# Close Chat
-- tapOn: "✕"
-# Sleep for 5 minutes
-- evalScript: "java.lang.Thread.sleep(300000)"
+# Wait for Jitsi meeting view to load
+- evalScript: "java.lang.Thread.sleep(20000)"

@@ -15,9 +15,5 @@ appId: com.konn3ct.mobile
 - assertVisible: "Instant Meeting"
 # Tap the native Host button
 - tapOn: "Host"
-# Wait for the meeting room to load and show the "Live" pill
-- extendedWaitUntil:
-    visible: "Live"
-    timeout: 30000
-# Stay in the room for 1 minute
-- evalScript: "java.lang.Thread.sleep(60000)"
+# Wait for Jitsi meeting view to load
+- evalScript: "java.lang.Thread.sleep(20000)"

@@ -26,6 +26,10 @@ appId: com.konn3ct.mobile
 - hideKeyboard
 # Open the Room Selector
 - tapOn: "Choose a room"
+# Scroll to the room if the list is long
+- scrollUntilVisible:
+    element: "Maestro Auto Room"
+    direction: DOWN
 # Select the room
 - tapOn: "Maestro Auto Room"
 # Input Description

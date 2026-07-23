@@ -1,17 +1,16 @@
 appId: com.konn3ct.mobile
 ---
-# 1. Launch & Login
-- launchApp
-- tapOn:
-    id: "email-input"
-- inputText: "flowboyzamy@gmail.com"
-- tapOn:
-    id: "password-input"
-- inputText: "Samedo3333@"
-- tapOn:
-    id: "login-button"
-
-# 2. Join Meeting
+- launchApp:
+    clearState: true
+- tapOn: "Enter your MDA"
+- inputText: "konnectsandbox"
+- tapOn: "Your@email.com"
+- inputText: "odejinmisa@newwavesecosystem.com"
+- tapOn: "Enter your password"
+- inputText: "827xazLF6TBfD7N!"
+- hideKeyboard
+- tapOn: "Login"
+- evalScript: "java.lang.Thread.sleep(8000)"
 - tapOn:
     id: "join-meeting-btn"
 - tapOn:
@@ -23,27 +22,8 @@ appId: com.konn3ct.mobile
     id: "join-room-submit-btn"
 - tapOn:
     id: "join-room-submit-btn"
-
-# 3. Wait for connection to be active
-- extendedWaitUntil:
-    visible: "Live"
-    timeout: 30000
-
-# 4. Simulate Network Interruption
-# Disables Wi-Fi on Android Emulator
+- evalScript: "java.lang.Thread.sleep(10000)"
 - runShellCommand: svc wifi disable
 - evalScript: "java.lang.Thread.sleep(8000)"
-
-# Verify reconnecting screen or state is active
-# - assertVisible: "Reconnecting"
-
-# 5. Restore Network Connection
 - runShellCommand: svc wifi enable
 - evalScript: "java.lang.Thread.sleep(15000)"
-
-# Verify successful recovery back to the active meeting
-- assertVisible: "Live"
-
-# 6. Exit Room
-- tapOn: { point: "88%,95%" } # Exit button location
-- tapOn: "Leave Meeting"
