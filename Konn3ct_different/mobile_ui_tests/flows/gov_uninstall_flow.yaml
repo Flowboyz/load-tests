@@ -1,4 +1,4 @@
-appId: com.konn3ct.mobile
+appId: com.onegov.govmeeting
 ---
 # =========================================================================
 # Maestro Uninstall / Clean Reinstall Simulation Flow
@@ -17,7 +17,5 @@ appId: com.konn3ct.mobile
     clearState: true
 
 # 3. Verify the app lands on the clean onboarding / login screen
-- assertVisible:
-    id: "email-input"
-- assertVisible:
-    id: "login-button"
+- assertVisible: "Your@email.com"
+- assertVisible: "Login"

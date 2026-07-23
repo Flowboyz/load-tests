@@ -1,17 +1,13 @@
-appId: com.konn3ct.mobile
+appId: com.onegov.govmeeting
 ---
 - launchApp
-- tapOn:
-    id: "mda-input"
+- tapOn: "Enter your MDA"
 - inputText: "konnectsandbox"
-- tapOn:
-    id: "email-input"
+- tapOn: "Your@email.com"
 - inputText: "odejinmisa@newwavesecosystem.com"
-- tapOn:
-    id: "password-input"
+- tapOn: "Enter your password"
 - inputText: "827xazLF6TBfD7N!"
-- tapOn:
-    id: "login-button"
+- tapOn: "Login"
 - evalScript: "java.lang.Thread.sleep(5000)"
 # Wait for Dashboard to load
 - assertVisible: "Instant Meeting"

@@ -1,4 +1,4 @@
-appId: com.konn3ct.mobile
+appId: com.onegov.govmeeting
 ---
 # 1. Start with clean app state
 - launchApp:
@@ -23,17 +23,13 @@ appId: com.konn3ct.mobile
     clearState: true
 
 # 4. Valid Login
-- tapOn:
-    id: "mda-input"
+- tapOn: "Enter your MDA"
 - inputText: "konnectsandbox"
-- tapOn:
-    id: "email-input"
+- tapOn: "Your@email.com"
 - inputText: "odejinmisa@newwavesecosystem.com"
-- tapOn:
-    id: "password-input"
+- tapOn: "Enter your password"
 - inputText: "827xazLF6TBfD7N!"
-- tapOn:
-    id: "login-button"
+- tapOn: "Login"
 - evalScript: "java.lang.Thread.sleep(5000)"
 - evalScript: "java.lang.Thread.sleep(3000)"
 
@@ -51,5 +47,4 @@ appId: com.konn3ct.mobile
 - evalScript: "java.lang.Thread.sleep(2000)"
 
 # Verify redirect back to Login screen
-- assertVisible:
-    id: "email-input"
+- assertVisible: "Your@email.com"

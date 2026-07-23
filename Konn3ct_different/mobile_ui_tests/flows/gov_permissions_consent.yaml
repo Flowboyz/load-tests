@@ -1,4 +1,4 @@
-appId: com.konn3ct.mobile
+appId: com.onegov.govmeeting
 ---
 # 1. Launch app with all permissions denied initially to test prompt states
 - launchApp:
@@ -9,17 +9,13 @@ appId: com.konn3ct.mobile
       notifications: deny
 
 # 2. Login
-- tapOn:
-    id: "mda-input"
+- tapOn: "Enter your MDA"
 - inputText: "konnectsandbox"
-- tapOn:
-    id: "email-input"
+- tapOn: "Your@email.com"
 - inputText: "odejinmisa@newwavesecosystem.com"
-- tapOn:
-    id: "password-input"
+- tapOn: "Enter your password"
 - inputText: "827xazLF6TBfD7N!"
-- tapOn:
-    id: "login-button"
+- tapOn: "Login"
 - evalScript: "java.lang.Thread.sleep(5000)"
 
 # 3. Try to join meeting (which requires mic/camera access)
