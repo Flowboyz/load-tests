@@ -2055,23 +2055,22 @@ async function loadMobileTestData(prefix = 'mobile') {
             const select = document.getElementById(`${prefix}FlowSelect`);
             select.innerHTML = '';
             
-            // Filter flows based on tab prefix
-            const filteredFlows = flows.filter(f => {
-                if (prefix === 'mobile') {
-                    return !f.startsWith('gov_') && !f.startsWith('temp_');
-                } else if (prefix === 'gov') {
-                    return f.startsWith('gov_');
-                }
-                return true;
+            // Sort flows: Konn3ct flows (without gov_ prefix) first, Gov flows (with gov_ prefix) last
+            const sortedFlows = flows.filter(f => !f.startsWith('temp_')).sort((a, b) => {
+                const aIsGov = a.startsWith('gov_');
+                const bIsGov = b.startsWith('gov_');
+                if (aIsGov && !bIsGov) return 1;   // a (Gov) goes after b (Konn3ct)
+                if (!aIsGov && bIsGov) return -1;  // a (Konn3ct) goes before b (Gov)
+                return a.localeCompare(b);         // alphabetical sort for same type
             });
             
-            if (filteredFlows.length === 0) {
+            if (sortedFlows.length === 0) {
                 const opt = document.createElement('option');
                 opt.value = '';
-                opt.textContent = 'No matching YAML flows found';
+                opt.textContent = 'No YAML flows found';
                 select.appendChild(opt);
             } else {
-                filteredFlows.forEach(f => {
+                sortedFlows.forEach(f => {
                     const opt = document.createElement('option');
                     opt.value = f;
                     opt.textContent = f;
@@ -2079,8 +2078,8 @@ async function loadMobileTestData(prefix = 'mobile') {
                 });
                 
                 // Load content of first flow into editor
-                if (filteredFlows.length > 0) {
-                    loadMobileFlowContent(filteredFlows[0], prefix);
+                if (sortedFlows.length > 0) {
+                    loadMobileFlowContent(sortedFlows[0], prefix);
                 }
             }
         }

@@ -1,13 +1,17 @@
 appId: com.konn3ct.mobile
 ---
 - launchApp
-- tapOn: "Enter your MDA"
+- tapOn:
+    id: "mda-input"
 - inputText: "konnectsandbox"
-- tapOn: "Your@email.com"
+- tapOn:
+    id: "email-input"
 - inputText: "odejinmisa@newwavesecosystem.com"
-- tapOn: "Enter your password"
+- tapOn:
+    id: "password-input"
 - inputText: "827xazLF6TBfD7N!"
-- tapOn: "Login"
+- tapOn:
+    id: "login-button"
 - evalScript: "java.lang.Thread.sleep(5000)"
 - tapOn: "Rooms"
 - assertVisible: "Create and manage your meeting rooms."

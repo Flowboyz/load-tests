@@ -2,13 +2,17 @@ appId: com.konn3ct.mobile
 ---
 # 1. Launch & Login
 - launchApp
-- tapOn: "Enter your MDA"
+- tapOn:
+    id: "mda-input"
 - inputText: "konnectsandbox"
-- tapOn: "Your@email.com"
+- tapOn:
+    id: "email-input"
 - inputText: "odejinmisa@newwavesecosystem.com"
-- tapOn: "Enter your password"
+- tapOn:
+    id: "password-input"
 - inputText: "827xazLF6TBfD7N!"
-- tapOn: "Login"
+- tapOn:
+    id: "login-button"
 - evalScript: "java.lang.Thread.sleep(5000)"
 
 # 2. Join Meeting

@@ -17,5 +17,7 @@ appId: com.konn3ct.mobile
     clearState: true
 
 # 3. Verify the app lands on the clean onboarding / login screen
-- assertVisible: "Your@email.com"
-- assertVisible: "Login"
+- assertVisible:
+    id: "email-input"
+- assertVisible:
+    id: "login-button"

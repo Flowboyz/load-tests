@@ -632,27 +632,21 @@ def run_mobile_test():
                     )
                     
                     replacement = (
-                        '- tapOn: "Enter your MDA"\n'
+                        '- tapOn:\n'
+                        '    id: "mda-input"\n'
                         '- inputText: "konnectsandbox"\n'
-                        '- tapOn: "Your@email.com"\n'
+                        '- tapOn:\n'
+                        '    id: "email-input"\n'
                         '- inputText: "odejinmisa@newwavesecosystem.com"\n'
-                        '- tapOn: "Enter your password"\n'
+                        '- tapOn:\n'
+                        '    id: "password-input"\n'
                         '- inputText: "827xazLF6TBfD7N!"\n'
-                        '- tapOn: "Login"\n'
+                        '- tapOn:\n'
+                        '    id: "login-button"\n'
                         '- evalScript: "java.lang.Thread.sleep(5000)"'
                     )
                     
                     serialized_content = re.sub(login_pattern, replacement, serialized_content)
-                    
-                    # Replace assertions for email/password/login inputs if they exist as nested ids
-                    serialized_content = re.sub(r'assertVisible:\s*\n\s*id:\s*["\']email-input["\']', 'assertVisible: "Your@email.com"', serialized_content)
-                    serialized_content = re.sub(r'assertVisible:\s*\n\s*id:\s*["\']password-input["\']', 'assertVisible: "Enter your password"', serialized_content)
-                    serialized_content = re.sub(r'assertVisible:\s*\n\s*id:\s*["\']login-button["\']', 'assertVisible: "Login"', serialized_content)
-                    
-                    # Also support inline assertion matches
-                    serialized_content = re.sub(r'assertVisible:\s*["\']email-input["\']', 'assertVisible: "Your@email.com"', serialized_content)
-                    serialized_content = re.sub(r'assertVisible:\s*["\']password-input["\']', 'assertVisible: "Enter your password"', serialized_content)
-                    serialized_content = re.sub(r'assertVisible:\s*["\']login-button["\']', 'assertVisible: "Login"', serialized_content)
                 
                 if app_id:
                     # Replace all references of the old app ID to the new app ID to keep flow commands consistent
