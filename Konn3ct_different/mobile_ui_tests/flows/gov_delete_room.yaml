@@ -15,9 +15,9 @@ appId: com.konn3ct.mobile
 - assertVisible: "Create and manage your meeting rooms."
 # Scroll down until the Maestro Auto Room is fully visible on the screen
 - scrollUntilVisible:
-    element: "Maestro Auto Room"
+    element: "000 Maestro Room"
     direction: DOWN
-# Tap the trash button directly to the right of "Maestro Auto Room"
-- tapOn: { rightOf: "Maestro Auto Room" }
+# Tap the trash button directly to the right of "000 Maestro Room"
+- tapOn: { rightOf: "000 Maestro Room" }
 # Confirm deletion in the alert popup
 - tapOn: "Delete"

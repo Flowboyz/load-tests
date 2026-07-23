@@ -19,4 +19,6 @@ appId: com.konn3ct.mobile
 - tapOn: "Enter YouTube Key"
 - inputText: "test-stream-key-12345"
 - hideKeyboard
-- tapOn: "Cancel"
+# Press Android back button to dismiss the modal instead of tapping Cancel button
+- back
+- evalScript: "java.lang.Thread.sleep(2000)"

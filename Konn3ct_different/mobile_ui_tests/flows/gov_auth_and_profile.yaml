@@ -21,5 +21,8 @@ appId: com.konn3ct.mobile
     element: "Log Out"
     direction: DOWN
 - tapOn: "Log Out"
+- evalScript: "java.lang.Thread.sleep(1500)"
+# Tap Log Out again on confirmation dialog
+- tapOn: "Log Out"
 - evalScript: "java.lang.Thread.sleep(2000)"
 - assertVisible: "Your@email.com"

@@ -19,10 +19,10 @@ appId: com.konn3ct.mobile
 - assertVisible: "Create a Room"
 # Input Room Name
 - tapOn: "e.g. Marketing Weekly Sync"
-- inputText: "Maestro Auto Room"
+- inputText: "000 Maestro Room"
 # Hide keyboard so the submit button is not covered
 - hideKeyboard
 # Submit the form (since the background button is inactive, this will target the modal's submit button)
 - tapOn: "Create Room"
 # Verify Success
-- assertVisible: "Maestro Auto Room"
+- assertVisible: "000 Maestro Room"

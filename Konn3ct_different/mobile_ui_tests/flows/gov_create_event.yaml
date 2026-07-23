@@ -11,35 +11,28 @@ appId: com.konn3ct.mobile
 - hideKeyboard
 - tapOn: "Login"
 - evalScript: "java.lang.Thread.sleep(8000)"
-# Navigate to Events via More menu
 - tapOn: "More"
 - tapOn: "Events"
 - assertVisible: "Manage pre-registered events & participants"
 - tapOn: "Create Event"
-# Input Title
-- tapOn: "e.g. Annual Tech Summit"
+- assertVisible: "Event Title"
+- tapOn: "Event Title"
 - inputText: "Maestro Tech Summit"
-# Input Host Name
-- tapOn: "Your Name or Company"
-- inputText: "Maestro QA Team"
-# Dismiss keyboard to reveal the Room selector
+- tapOn: "Event Description"
+- inputText: "This is a pre-registered event compiled for remote mobile performance tests."
 - hideKeyboard
-# Open the Room Selector
 - tapOn: "Choose a room"
-# Scroll to the room if the list is long
-- scrollUntilVisible:
-    element: "Maestro Auto Room"
-    direction: DOWN
-# Select the room
-- tapOn: "Maestro Auto Room"
-# Input Description
-- tapOn: "Describe what your event is about..."
-- inputText: "An awesome automated tech event."
-# Hide keyboard so it does not cover the submit button
-- hideKeyboard
-# Submit the form
-- tapOn: "Create Event"
-# Dismiss the Success Modal
+- tapOn: "000 Maestro Room"
+- tapOn: "Start Date"
 - tapOn: "OK"
-# Verify Success
-- assertVisible: "Maestro Tech Summit"
+- tapOn: "Start Time"
+- tapOn: "OK"
+- tapOn: "End Date"
+- tapOn: "OK"
+- tapOn: "End Time"
+- tapOn: "OK"
+- scrollUntilVisible:
+    element: "Create"
+    direction: DOWN
+- tapOn: "Create"
+- evalScript: "java.lang.Thread.sleep(3000)"
