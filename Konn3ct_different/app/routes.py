@@ -560,6 +560,7 @@ def run_mobile_test():
     device_id = data.get('device_id')
     apk_path = data.get('apk_path')
     api_key = data.get('api_key') or os.getenv('MAESTRO_API_KEY')
+    project_id = data.get('project_id')
     room_slug = data.get('room_slug')
     cloud_model = data.get('cloud_model')
     cloud_os = data.get('cloud_os')
@@ -639,7 +640,7 @@ def run_mobile_test():
                 global active_mobile_process
                 active_mobile_process = proc
                 
-            for log_line in execute_flow_generator(target_flow_path, device_id, apk_path, api_key, cloud_model, cloud_os, on_process_spawned=register_process):
+            for log_line in execute_flow_generator(target_flow_path, device_id, apk_path, api_key, cloud_model, cloud_os, project_id=project_id, on_process_spawned=register_process):
                 log_lines.append(log_line)
                 socketio.emit('mobile_ui_test_log', {'line': log_line})
                 

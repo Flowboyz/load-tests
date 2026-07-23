@@ -2029,13 +2029,16 @@ async function loadMobileTestData(prefix = 'mobile') {
             
             // Check visibility of Maestro Cloud key field on load
             const keyGroup = document.getElementById(prefix === 'mobile' ? 'maestroCloudKeyGroup' : 'govMaestroCloudKeyGroup');
+            const projectGroup = document.getElementById(prefix === 'mobile' ? 'maestroCloudProjectGroup' : 'govMaestroCloudProjectGroup');
             const cloudOpts = document.getElementById(prefix === 'mobile' ? 'maestroCloudDeviceOptions' : 'govMaestroCloudDeviceOptions');
             if (select && keyGroup) {
                 if (select.value === 'maestro_cloud') {
                     keyGroup.style.display = 'block';
+                    if (projectGroup) projectGroup.style.display = 'block';
                     if (cloudOpts) cloudOpts.style.display = 'flex';
                 } else {
                     keyGroup.style.display = 'none';
+                    if (projectGroup) projectGroup.style.display = 'none';
                     if (cloudOpts) cloudOpts.style.display = 'none';
                 }
             }
@@ -2388,14 +2391,17 @@ document.addEventListener('DOMContentLoaded', () => {
         // Target device selection change to toggle API Key and Cloud Options visibility
         const deviceSelect = document.getElementById(`${prefix}DeviceSelect`);
         const keyGroup = document.getElementById(prefix === 'mobile' ? 'maestroCloudKeyGroup' : 'govMaestroCloudKeyGroup');
+        const projectGroup = document.getElementById(prefix === 'mobile' ? 'maestroCloudProjectGroup' : 'govMaestroCloudProjectGroup');
         const cloudOpts = document.getElementById(prefix === 'mobile' ? 'maestroCloudDeviceOptions' : 'govMaestroCloudDeviceOptions');
         if (deviceSelect && keyGroup) {
             deviceSelect.addEventListener('change', (e) => {
                 if (e.target.value === 'maestro_cloud') {
                     keyGroup.style.display = 'block';
+                    if (projectGroup) projectGroup.style.display = 'block';
                     if (cloudOpts) cloudOpts.style.display = 'flex';
                 } else {
                     keyGroup.style.display = 'none';
+                    if (projectGroup) projectGroup.style.display = 'none';
                     if (cloudOpts) cloudOpts.style.display = 'none';
                 }
             });
@@ -2409,6 +2415,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const deviceId = document.getElementById(`${prefix}DeviceSelect`).value;
                 const apkPath = document.getElementById(prefix === 'mobile' ? 'mobileAppApk' : 'govAppApk').value;
                 const apiKey = document.getElementById(prefix === 'mobile' ? 'mobileMaestroApiKey' : 'govMaestroApiKey').value.trim();
+                const projectId = document.getElementById(prefix === 'mobile' ? 'mobileMaestroProjectId' : 'govMaestroProjectId').value.trim();
                 
                 if (!flowFile) {
                     alert("Please select a test flow to run.");
@@ -2429,6 +2436,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     device_id: deviceId, 
                     apk_path: apkPath,
                     api_key: apiKey,
+                    project_id: projectId,
                     room_slug: roomSlug,
                     cloud_model: cloudModel,
                     cloud_os: cloudOs,

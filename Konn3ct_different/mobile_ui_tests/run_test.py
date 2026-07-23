@@ -58,7 +58,7 @@ def list_emulators():
         
     return devices
 
-def execute_flow_generator(flow_path, device_id=None, apk_path=None, api_key=None, cloud_model=None, cloud_os=None, on_process_spawned=None):
+def execute_flow_generator(flow_path, device_id=None, apk_path=None, api_key=None, cloud_model=None, cloud_os=None, project_id=None, on_process_spawned=None):
     """
     Generator yielding console log lines as Maestro executes the test.
     Supports local device testing and cloud-based testing (Maestro Cloud).
@@ -93,6 +93,8 @@ def execute_flow_generator(flow_path, device_id=None, apk_path=None, api_key=Non
         cmd = ["maestro", "cloud"]
         if api_key:
             cmd.extend(["--apiKey", api_key])
+        if project_id:
+            cmd.extend(["--project-id", project_id])
         if cloud_model:
             cmd.extend(["--device-model", cloud_model])
         if cloud_os:
