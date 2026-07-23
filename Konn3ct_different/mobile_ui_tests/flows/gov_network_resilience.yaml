@@ -1,0 +1,49 @@
+appId: com.konn3ct.mobile
+---
+# 1. Launch & Login
+- launchApp
+- tapOn: "Enter your MDA"
+- inputText: "konnectsandbox"
+- tapOn: "Your@email.com"
+- inputText: "odejinmisa@newwavesecosystem.com"
+- tapOn: "Enter your password"
+- inputText: "827xazLF6TBfD7N!"
+- tapOn: "Login"
+- evalScript: "java.lang.Thread.sleep(5000)"
+
+# 2. Join Meeting
+- tapOn:
+    id: "join-meeting-btn"
+- tapOn:
+    id: "join-room-id-input"
+- inputText: "1govtest"
+- evalScript: "java.lang.Thread.sleep(2000)"
+- tapOn: "Mic On"
+- assertVisible:
+    id: "join-room-submit-btn"
+- tapOn:
+    id: "join-room-submit-btn"
+
+# 3. Wait for connection to be active
+- extendedWaitUntil:
+    visible: "Live"
+    timeout: 30000
+
+# 4. Simulate Network Interruption
+# Disables Wi-Fi on Android Emulator
+- runShellCommand: svc wifi disable
+- evalScript: "java.lang.Thread.sleep(8000)"
+
+# Verify reconnecting screen or state is active
+# - assertVisible: "Reconnecting"
+
+# 5. Restore Network Connection
+- runShellCommand: svc wifi enable
+- evalScript: "java.lang.Thread.sleep(15000)"
+
+# Verify successful recovery back to the active meeting
+- assertVisible: "Live"
+
+# 6. Exit Room
+- tapOn: { point: "88%,95%" } # Exit button location
+- tapOn: "Leave Meeting"

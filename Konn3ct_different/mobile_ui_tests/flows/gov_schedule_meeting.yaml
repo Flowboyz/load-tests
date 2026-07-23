@@ -1,0 +1,38 @@
+appId: com.konn3ct.mobile
+---
+- launchApp
+- tapOn: "Enter your MDA"
+- inputText: "konnectsandbox"
+- tapOn: "Your@email.com"
+- inputText: "odejinmisa@newwavesecosystem.com"
+- tapOn: "Enter your password"
+- inputText: "827xazLF6TBfD7N!"
+- tapOn: "Login"
+- evalScript: "java.lang.Thread.sleep(5000)"
+# Tap the schedule button on the dashboard
+- tapOn: "Schedule for later"
+- assertVisible: "Manage your upcoming meetings"
+# Tap the plus (+) icon at the top right to open Schedule Session form
+- tapOn:
+    point: "90%,7%"
+# Input Title
+- tapOn: "e.g. Weekly Product Sync"
+- inputText: "Maestro Automated Sync"
+# Input Hostname (Required Field)
+- tapOn: "e.g. John Doe"
+- inputText: "Maestro Host"
+# Hide keyboard to expose the description field
+- hideKeyboard
+# Input Description
+- tapOn: "What is this session about?"
+- inputText: "Automated test meeting scheduled by Maestro."
+# Hide keyboard to expose room selector and submit buttons
+- hideKeyboard
+# Scroll down until the Schedule Session button is fully visible
+- scrollUntilVisible:
+    element: "Schedule Session"
+    direction: DOWN
+# Submit the form (Schedule Session)
+- tapOn: "Schedule Session"
+# Verify Success
+- assertVisible: "Maestro Automated Sync"

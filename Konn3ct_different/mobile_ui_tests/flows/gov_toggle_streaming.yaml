@@ -1,0 +1,29 @@
+appId: com.konn3ct.mobile
+---
+- launchApp
+- tapOn: "Enter your MDA"
+- inputText: "konnectsandbox"
+- tapOn: "Your@email.com"
+- inputText: "odejinmisa@newwavesecosystem.com"
+- tapOn: "Enter your password"
+- inputText: "827xazLF6TBfD7N!"
+- tapOn: "Login"
+- evalScript: "java.lang.Thread.sleep(5000)"
+- tapOn: "More"
+- tapOn: "Streaming"
+- assertVisible: "Live Streams"
+# Open the streaming configuration modal
+- tapOn: "Start Stream"
+# Wait for the modal to load
+- assertVisible: "Start New Stream"
+# Enter YouTube Stream Key
+- tapOn: "Enter YouTube Key"
+- inputText: "test-stream-key-12345"
+# Hide keyboard so the start button is not covered
+- hideKeyboard
+# Start Broadcasting
+- tapOn: "Start Broadcasting"
+# Wait and verify that Stop Streaming button appears
+- assertVisible: "Stop Streaming"
+# Stop Streaming
+- tapOn: "Stop Streaming"

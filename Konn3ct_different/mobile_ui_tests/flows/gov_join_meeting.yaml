@@ -1,0 +1,43 @@
+appId: com.konn3ct.mobile
+---
+- launchApp
+- tapOn: "Enter your MDA"
+- inputText: "konnectsandbox"
+- tapOn: "Your@email.com"
+- inputText: "odejinmisa@newwavesecosystem.com"
+- tapOn: "Enter your password"
+- inputText: "827xazLF6TBfD7N!"
+- tapOn: "Login"
+- evalScript: "java.lang.Thread.sleep(5000)"
+- tapOn: "Join"
+- tapOn: "e.g. general-meeting"
+- inputText: "1govtest"
+# Delay for 2 seconds to let the input settle
+- evalScript: "java.lang.Thread.sleep(2000)"
+# Enable microphone
+- tapOn: "Mic On"
+# Assert that the Join Room button is visible before tapping
+- assertVisible: "Join Room"
+- tapOn: "Join Room"
+# Delay for 2 seconds to let the connection start initializing
+- evalScript: "java.lang.Thread.sleep(2000)"
+# Wait for the meeting room to connect and show the "Live" pill
+- extendedWaitUntil:
+    visible: "Live"
+    timeout: 30000
+# Open More Options (4th button on bottom toolbar)
+- tapOn: { point: "63%,95%" }
+# Raise Hand
+- tapOn: "Raise Hand"
+# Open More Options again
+- tapOn: { point: "63%,95%" }
+# Open Chat
+- tapOn: "Chat"
+# Send Chat message
+- tapOn: "Type a message..."
+- inputText: "Hello from the mobile automation bot! 🚀"
+- pressKey: Enter
+# Close Chat
+- tapOn: "✕"
+# Sleep for 5 minutes
+- evalScript: "java.lang.Thread.sleep(300000)"

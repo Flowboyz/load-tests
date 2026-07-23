@@ -1,0 +1,44 @@
+appId: com.konn3ct.mobile
+---
+# 1. Launch app with all permissions denied initially to test prompt states
+- launchApp:
+    clearState: true
+    permissions:
+      camera: deny
+      microphone: deny
+      notifications: deny
+
+# 2. Login
+- tapOn: "Enter your MDA"
+- inputText: "konnectsandbox"
+- tapOn: "Your@email.com"
+- inputText: "odejinmisa@newwavesecosystem.com"
+- tapOn: "Enter your password"
+- inputText: "827xazLF6TBfD7N!"
+- tapOn: "Login"
+- evalScript: "java.lang.Thread.sleep(5000)"
+
+# 3. Try to join meeting (which requires mic/camera access)
+- tapOn:
+    id: "join-meeting-btn"
+- tapOn:
+    id: "join-room-id-input"
+- inputText: "1govtest"
+- evalScript: "java.lang.Thread.sleep(2000)"
+
+# 4. Attempt to turn on Mic (this should trigger system prompt or error message because permission was denied)
+- tapOn: "Mic On"
+- evalScript: "java.lang.Thread.sleep(2000)"
+
+# 5. Set permissions dynamically mid-flow to grant access
+- setPermissions:
+    permissions:
+      camera: allow
+      microphone: allow
+      notifications: allow
+
+# 6. Retry turning on Mic
+- tapOn: "Mic On"
+- evalScript: "java.lang.Thread.sleep(1000)"
+- assertVisible:
+    id: "join-room-submit-btn"

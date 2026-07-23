@@ -1,0 +1,21 @@
+appId: com.konn3ct.mobile
+---
+# =========================================================================
+# Maestro Uninstall / Clean Reinstall Simulation Flow
+# 
+# Note: Maestro YAML files do not support a physical "uninstall" command.
+# To test the clean installation experience, we use `clearState: true` inside
+# the launchApp command. This wipes all local storage, cookies, caches,
+# and credentials, starting the app as if it was just downloaded.
+# =========================================================================
+
+# 1. Terminate any active app process
+- stopApp: com.konn3ct.mobile
+
+# 2. Simulate fresh install / first-time onboarding by clearing all state
+- launchApp:
+    clearState: true
+
+# 3. Verify the app lands on the clean onboarding / login screen
+- assertVisible: "Your@email.com"
+- assertVisible: "Login"

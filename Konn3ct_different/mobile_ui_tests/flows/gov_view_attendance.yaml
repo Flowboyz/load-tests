@@ -1,0 +1,21 @@
+appId: com.konn3ct.mobile
+---
+- launchApp
+- tapOn: "Enter your MDA"
+- inputText: "konnectsandbox"
+- tapOn: "Your@email.com"
+- inputText: "odejinmisa@newwavesecosystem.com"
+- tapOn: "Enter your password"
+- inputText: "827xazLF6TBfD7N!"
+- tapOn: "Login"
+- evalScript: "java.lang.Thread.sleep(5000)"
+- tapOn: "More"
+- tapOn: "Attendance"
+- assertVisible: "Meeting Attendance"
+# Conditionally view details only if a past meeting (and the "View Participants" button) is present
+- runFlow:
+    when:
+      visible: "View Participants"
+    commands:
+      - tapOn: "View Participants"
+      - assertVisible: "Attendance Details"

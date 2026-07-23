@@ -4,7 +4,25 @@ appId: com.konn3ct.mobile
 - launchApp:
     clearState: true
 
-# 2. Valid Login for 1-Gov using MDA, Email, and Password
+# 2. Test Invalid Credentials
+- tapOn:
+    id: "email-input"
+- inputText: "fakeuser@konn3ct.com"
+- tapOn:
+    id: "password-input"
+- inputText: "WrongPass123!"
+- tapOn:
+    id: "login-button"
+- evalScript: "java.lang.Thread.sleep(1500)"
+
+# Note: Assert an error toast or message is shown
+# - assertVisible: "Invalid username or password"
+
+# 3. Clear states by relaunching or erasing text
+- launchApp:
+    clearState: true
+
+# 4. Valid Login
 - tapOn: "Enter your MDA"
 - inputText: "konnectsandbox"
 - tapOn: "Your@email.com"
@@ -13,17 +31,20 @@ appId: com.konn3ct.mobile
 - inputText: "827xazLF6TBfD7N!"
 - tapOn: "Login"
 - evalScript: "java.lang.Thread.sleep(5000)"
+- evalScript: "java.lang.Thread.sleep(3000)"
 
-# Verify home screen has loaded (using either join-meeting-btn or Profile navigation)
-- assertVisible: "Profile"
+# Verify home screen has loaded
+- assertVisible:
+    id: "join-meeting-btn"
 
-# 3. Navigate to Profile
+# 5. Navigate to Profile
 - tapOn: "Profile"
-- evalScript: "java.lang.Thread.sleep(2000)"
+- assertVisible: "Profile Information"
+- evalScript: "java.lang.Thread.sleep(1500)"
 
-# 4. Logout from the app
+# 6. Logout from the app
 - tapOn: "Logout"
 - evalScript: "java.lang.Thread.sleep(2000)"
 
 # Verify redirect back to Login screen
-- assertVisible: "Login"
+- assertVisible: "Your@email.com"

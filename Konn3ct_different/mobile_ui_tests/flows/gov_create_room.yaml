@@ -1,0 +1,26 @@
+appId: com.konn3ct.mobile
+---
+- launchApp
+- tapOn: "Enter your MDA"
+- inputText: "konnectsandbox"
+- tapOn: "Your@email.com"
+- inputText: "odejinmisa@newwavesecosystem.com"
+- tapOn: "Enter your password"
+- inputText: "827xazLF6TBfD7N!"
+- tapOn: "Login"
+- evalScript: "java.lang.Thread.sleep(5000)"
+- tapOn: "Rooms"
+- assertVisible: "Create and manage your meeting rooms."
+# Open the Create Modal
+- tapOn: "Create Room"
+# Wait for Modal to fully load
+- assertVisible: "Create a Room"
+# Input Room Name
+- tapOn: "e.g. Marketing Weekly Sync"
+- inputText: "Maestro Auto Room"
+# Hide keyboard so the submit button is not covered
+- hideKeyboard
+# Submit the form (since the background button is inactive, this will target the modal's submit button)
+- tapOn: "Create Room"
+# Verify Success
+- assertVisible: "Maestro Auto Room"

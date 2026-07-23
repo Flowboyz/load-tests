@@ -1,0 +1,19 @@
+appId: com.konn3ct.mobile
+---
+- launchApp
+- tapOn: "Enter your MDA"
+- inputText: "konnectsandbox"
+- tapOn: "Your@email.com"
+- inputText: "odejinmisa@newwavesecosystem.com"
+- tapOn: "Enter your password"
+- inputText: "827xazLF6TBfD7N!"
+- tapOn: "Login"
+- evalScript: "java.lang.Thread.sleep(5000)"
+- tapOn: "More"
+- tapOn: "Recordings"
+- assertVisible: "Recordings"
+- tapOn: "Search recordings..."
+- inputText: "Maestro Test Recording"
+# Tap Share button on the recording card
+- tapOn: { point: "78%,46%" }
+- assertVisible: "Link Copied"
