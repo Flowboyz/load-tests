@@ -1,4 +1,4 @@
-appId: com.onegov.govmeeting
+appId: com.konn3ct.mobile
 ---
 # 1. Launch app with all permissions denied initially to test prompt states
 - launchApp:
