@@ -620,9 +620,8 @@ def run_mobile_test():
                     serialized_content = re.sub(pattern, rf'\g<1>"{room_slug}"', serialized_content)
                 
                 if app_id:
-                    # Regex replace the appId key at the top of the YAML file
-                    import re
-                    serialized_content = re.sub(r'^appId:\s*.*', f'appId: {app_id}', serialized_content, flags=re.MULTILINE)
+                    # Replace all references of the old app ID to the new app ID to keep flow commands consistent
+                    serialized_content = serialized_content.replace("com.konn3ct.mobile", app_id)
                 
                 # If running on Maestro Cloud, isolate the flow file in a temporary directory
                 if device_id == "maestro_cloud":

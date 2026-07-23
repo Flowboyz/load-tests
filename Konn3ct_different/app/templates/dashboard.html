@@ -1371,7 +1371,7 @@
                             <div id="paneGovVisualBuilder" style="padding: 16px; display: flex; flex-direction: column; gap: 16px;">
                                 <div class="form-group" style="margin-bottom: 8px;">
                                     <label for="govAppId" style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 4px;">1gov App ID (Package Name) *</label>
-                                    <input type="text" id="govAppId" value="com.onegov.govmeeting" placeholder="e.g. com.onegov.govmeeting" style="width: 100%; font-family: monospace; font-size: 12px; padding: 8px; background: #1e1e1e; color: #d4d4d4; border: 1px solid var(--border-color); border-radius: 6px; outline: none;" readonly>
+                                    <input type="text" id="govAppId" value="com.konn3ct.mobile" placeholder="e.g. com.konn3ct.mobile" style="width: 100%; font-family: monospace; font-size: 12px; padding: 8px; background: #1e1e1e; color: #d4d4d4; border: 1px solid var(--border-color); border-radius: 6px; outline: none;">
                                 </div>
                                 
                                 <div id="visualGovStepList" style="display: flex; flex-direction: column; gap: 10px; max-height: 300px; overflow-y: auto; padding-right: 4px;">
@@ -1445,5 +1445,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
-<script src="{{ url_for('static', filename='js/dashboard.js') }}?v=1.2"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}?v=1.3"></script>
 {% endblock %}

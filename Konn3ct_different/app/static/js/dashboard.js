@@ -2440,7 +2440,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     room_slug: roomSlug,
                     cloud_model: cloudModel,
                     cloud_os: cloudOs,
-                    appId: prefix === 'mobile' ? 'com.konn3ct.mobile' : 'com.onegov.govmeeting'
+                    appId: document.getElementById(prefix === 'mobile' ? 'mobileAppId' : 'govAppId').value.trim()
                 };
                 
                 if (activeEditorTab === "visual" && isVisualEditorDirty) {
