@@ -11,6 +11,85 @@ def strip_ansi_codes(text):
     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
     return ansi_escape.sub('', text)
 
+def analyze_logs(log_lines):
+    analysis = {
+        "summary": "The test run completed, but some assertions or steps did not succeed.",
+        "category": "General Execution Failure",
+        "details": "Please review the raw console logs for more details.",
+        "links": [],
+        "device": "Unknown Device"
+    }
+    
+    cleaned = [strip_ansi_codes(line).strip() for line in log_lines]
+    
+    # Look for Maestro cloud links
+    link_pattern = re.compile(r'https://app\.maestro\.dev/\S+')
+    for line in cleaned:
+        found_links = link_pattern.findall(line)
+        for l in found_links:
+            # Strip trailing braces/quotes if any
+            l_clean = l.rstrip(')').rstrip(']').rstrip('"').rstrip("'")
+            if l_clean not in analysis["links"]:
+                analysis["links"].append(l_clean)
+                
+    # Look for device specs
+    device_flag = False
+    device_lines = []
+    for line in cleaned:
+        if "Maestro cloud device specs:" in line:
+            device_flag = True
+            continue
+        if device_flag:
+            if line.startswith("*"):
+                device_lines.append(line.replace("*", "").strip())
+            elif line.startswith("?"):
+                device_flag = False
+                
+    if device_lines:
+        analysis["device"] = ", ".join(device_lines)
+        
+    full_log_text = "\n".join(cleaned)
+    
+    if "Cannot enter raw mode on a non-interactive terminal" in full_log_text:
+        analysis["category"] = "Interactive Terminal Error"
+        analysis["summary"] = "The Maestro CLI crashed because it tried to prompt for project selection in a headless environment."
+        analysis["details"] = "This occurs when your Maestro Cloud API Key is associated with multiple projects and the --project-id flag is not provided. To resolve this, ensure you configure the Project ID in the dashboard settings."
+    elif "No flows in workspace match app ID" in full_log_text:
+        mismatch_match = re.search(r"No flows in workspace match app ID '(.*?)'\. Found app IDs: (.*)", full_log_text)
+        analysis["category"] = "App ID Mismatch"
+        analysis["summary"] = "Maestro Cloud rejected the test because the appId defined in the test script does not match the package name of the uploaded APK."
+        if mismatch_match:
+            expected = mismatch_match.group(1)
+            found = mismatch_match.group(2)
+            analysis["details"] = (
+                f"The uploaded APK was packaged under '{expected}', but the test flow was configured for '{found}'.\n"
+                f"Recommendation: Update the App ID in your configuration or flow file to '{expected}' to match the APK's true package name."
+            )
+        else:
+            analysis["details"] = "The appId defined in the YAML flow file does not match the uploaded APK's package name."
+    elif "Assertion is false" in full_log_text or "Assertion failed" in full_log_text:
+        analysis["category"] = "Functional Assertion Failure"
+        analysis["summary"] = "A user interface assertion failed during execution (an expected UI element was not visible)."
+        assertion_match = re.search(r"Assertion is false:\s*(.*)", full_log_text)
+        if not assertion_match:
+            assertion_match = re.search(r"Assertion failed:\s*(.*)", full_log_text)
+        if assertion_match:
+            reason = assertion_match.group(1)
+            analysis["details"] = (
+                f"Failed assertion: '{reason}'.\n"
+                f"This typically means the application did not transition to the expected screen in time, "
+                f"or the element ID/text used in the test step does not exist on the current screen.\n"
+                f"Recommendation: Verify if the login/onboarding flow of the app matches the selectors in your script."
+            )
+        else:
+            analysis["details"] = "A test assertion failed. An element was not found or was not visible on the screen."
+    elif "Maestro execution completed successfully" in full_log_text or "1/1 Flow Passed" in full_log_text:
+        analysis["category"] = "Successful Run"
+        analysis["summary"] = "The test execution completed successfully. All steps passed!"
+        analysis["details"] = "No errors were detected in the log stream."
+        
+    return analysis
+
 def generate_mobile_reports(flow_path, device_id, log_lines, duration_sec):
     """
     Generates Markdown and Word reports based on Maestro test execution output.
@@ -74,10 +153,10 @@ def generate_mobile_reports(flow_path, device_id, log_lines, duration_sec):
     # Post-process: Check for success completion marker or failed marker to override verdict
     for line in cleaned_log_lines:
         clean_line = line.strip()
-        if "Maestro execution completed successfully" in clean_line:
+        if "Maestro execution completed successfully" in clean_line or "1/1 Flow Passed" in clean_line:
             verdict = "PASS"
             break
-        elif "Maestro failed" in clean_line or "Maestro crashed" in clean_line:
+        elif "Maestro failed" in clean_line or "Maestro crashed" in clean_line or "1/1 Flow Failed" in clean_line:
             verdict = "FAIL"
             break
             
@@ -124,6 +203,7 @@ def generate_mobile_reports(flow_path, device_id, log_lines, duration_sec):
 
 def write_markdown_report(filepath, flow_name, device_id, verdict, steps, error_details, duration_sec, timestamp_str, log_lines):
     verdict_color = "🟢 **PASS**" if verdict == "PASS" else "🔴 **FAIL**"
+    analysis_data = analyze_logs(log_lines)
     
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(f"# Konn3ct Mobile UI Test Report\n\n")
@@ -148,7 +228,16 @@ def write_markdown_report(filepath, flow_name, device_id, verdict, steps, error_
             f.write(f"| {s['index']} | `{s['action']}` | {status_emoji} |\n")
         f.write("\n")
         
-        f.write(f"## 3. Raw Console Logs\n")
+        f.write(f"## 3. Log & Failure Analysis\n")
+        f.write(f"| Diagnostic Metric | Analysis Results |\n")
+        f.write(f"| :--- | :--- |\n")
+        f.write(f"| **Analysis Summary** | {analysis_data['summary']} |\n")
+        f.write(f"| **Failure Category** | {analysis_data['category']} |\n")
+        f.write(f"| **Diagnostic Details** | {analysis_data['details']} |\n")
+        links_str = ", ".join([f"[{l}]({l})" for l in analysis_data["links"]]) if analysis_data["links"] else "None"
+        f.write(f"| **Maestro Cloud Links** | {links_str} |\n\n")
+        
+        f.write(f"## 4. Raw Console Logs\n")
         f.write(f"```text\n")
         for line in log_lines:
             f.write(f"{line}\n")
@@ -312,15 +401,65 @@ def write_docx_report(filepath, flow_name, device_id, verdict, steps, error_deta
             
     doc.add_paragraph().paragraph_format.space_after = Pt(12)
     
-    # Heading 3: Raw Console Logs
-    h3 = doc.add_paragraph()
-    h3.paragraph_format.space_before = Pt(12)
-    h3.paragraph_format.space_after = Pt(8)
-    run_h3 = h3.add_run("3. Raw Console Logs")
-    run_h3.font.name = "Arial"
-    run_h3.font.size = Pt(16)
-    run_h3.font.bold = True
-    run_h3.font.color.rgb = c_primary
+    # Heading 3: Log & Failure Analysis
+    h_analysis = doc.add_paragraph()
+    h_analysis.paragraph_format.space_before = Pt(18)
+    h_analysis.paragraph_format.space_after = Pt(8)
+    run_h_analysis = h_analysis.add_run("3. Log & Failure Analysis")
+    run_h_analysis.font.name = "Arial"
+    run_h_analysis.font.size = Pt(16)
+    run_h_analysis.font.bold = True
+    run_h_analysis.font.color.rgb = c_primary
+    
+    analysis_data = analyze_logs(log_lines)
+    
+    ana_table = doc.add_table(rows=4, cols=2)
+    ana_table.style = 'Light Shading Accent 1'
+    
+    ana_rows = [
+        ("Analysis Summary", analysis_data["summary"]),
+        ("Failure Category", analysis_data["category"]),
+        ("Diagnostic Details", analysis_data["details"]),
+        ("Maestro Cloud Links", "\n".join(analysis_data["links"]) if analysis_data["links"] else "None")
+    ]
+    
+    for idx, (label, val) in enumerate(ana_rows):
+        row = ana_table.rows[idx]
+        cell_lbl, cell_val = row.cells[0], row.cells[1]
+        
+        p_lbl = cell_lbl.paragraphs[0]
+        p_lbl.paragraph_format.space_after = Pt(2)
+        r_lbl = p_lbl.add_run(label)
+        r_lbl.font.bold = True
+        r_lbl.font.size = Pt(10)
+        
+        p_val = cell_val.paragraphs[0]
+        p_val.paragraph_format.space_after = Pt(2)
+        r_val = p_val.add_run(val)
+        r_val.font.size = Pt(10)
+        
+        if label == "Failure Category" and analysis_data["category"] != "Successful Run":
+            r_val.font.bold = True
+            r_val.font.color.rgb = c_red
+        elif label == "Failure Category" and analysis_data["category"] == "Successful Run":
+            r_val.font.bold = True
+            r_val.font.color.rgb = c_green
+            
+        set_cell_background(cell_lbl, "F3F4F6")
+        set_cell_margins(cell_lbl)
+        set_cell_margins(cell_val)
+        
+    doc.add_paragraph().paragraph_format.space_after = Pt(12)
+    
+    # Heading 4: Raw Console Logs
+    h4 = doc.add_paragraph()
+    h4.paragraph_format.space_before = Pt(12)
+    h4.paragraph_format.space_after = Pt(8)
+    run_h4 = h4.add_run("4. Raw Console Logs")
+    run_h4.font.name = "Arial"
+    run_h4.font.size = Pt(16)
+    run_h4.font.bold = True
+    run_h4.font.color.rgb = c_primary
     
     # Add raw logs as preformatted block
     p_log = doc.add_paragraph()

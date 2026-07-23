@@ -1,0 +1,29 @@
+appId: com.konn3ct.mobile
+---
+# 1. Start with clean app state
+- launchApp:
+    clearState: true
+
+# 2. Valid Login for 1-Gov using MDA, Email, and Password
+- tapOn: "Enter your MDA"
+- inputText: "konnectsandbox"
+- tapOn: "Your@email.com"
+- inputText: "odejinmisa@newwavesecosystem.com"
+- tapOn: "Enter your password"
+- inputText: "827xazLF6TBfD7N!"
+- tapOn: "Login"
+- evalScript: "java.lang.Thread.sleep(5000)"
+
+# Verify home screen has loaded (using either join-meeting-btn or Profile navigation)
+- assertVisible: "Profile"
+
+# 3. Navigate to Profile
+- tapOn: "Profile"
+- evalScript: "java.lang.Thread.sleep(2000)"
+
+# 4. Logout from the app
+- tapOn: "Logout"
+- evalScript: "java.lang.Thread.sleep(2000)"
+
+# Verify redirect back to Login screen
+- assertVisible: "Login"

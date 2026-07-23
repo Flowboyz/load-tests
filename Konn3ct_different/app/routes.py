@@ -564,6 +564,7 @@ def run_mobile_test():
     room_slug = data.get('room_slug')
     cloud_model = data.get('cloud_model')
     cloud_os = data.get('cloud_os')
+    app_type = data.get('app_type', 'mobile')
     
     if not flow_file:
         return jsonify({'message': 'Missing target flow file'}), 400
@@ -606,7 +607,7 @@ def run_mobile_test():
         target_flow_path = flow_path
         temp_flow_created = False
         
-        if room_slug or app_id or device_id == "maestro_cloud":
+        if room_slug or app_id or device_id == "maestro_cloud" or app_type == "gov":
             try:
                 with open(flow_path, 'r', encoding='utf-8') as f:
                     flow_content = f.read()
@@ -618,6 +619,40 @@ def run_mobile_test():
                     import re
                     pattern = r'(tapOn:\s*["\']?Join["\']?\s*\n\s*-\s*tapOn:\s*["\']?e\.g\.\s*general-meeting["\']?\s*\n\s*-\s*inputText:\s*)(["\']?[a-zA-Z0-9_\-]+["\']?)'
                     serialized_content = re.sub(pattern, rf'\g<1>"{room_slug}"', serialized_content)
+                
+                if app_type == "gov":
+                    # Replace Konn3ct login steps with 1Gov login steps (MDA, Email, Password, Login)
+                    import re
+                    login_pattern = (
+                        r'-\s*tapOn:\s*(?:\n\s*id:\s*["\']email-input["\']|["\']Demo@email\.com["\'])\s*\n'
+                        r'\s*-\s*inputText:\s*["\']flowboyzamy@gmail\.com["\']\s*\n'
+                        r'\s*-\s*tapOn:\s*(?:\n\s*id:\s*["\']password-input["\']|["\']Enter\s+your\s+password["\'])\s*\n'
+                        r'\s*-\s*inputText:\s*["\']Samedo3333@["\']\s*\n'
+                        r'\s*-\s*tapOn:\s*(?:\n\s*id:\s*["\']login-button["\']|["\']Login["\'])'
+                    )
+                    
+                    replacement = (
+                        '- tapOn: "Enter your MDA"\n'
+                        '- inputText: "konnectsandbox"\n'
+                        '- tapOn: "Your@email.com"\n'
+                        '- inputText: "odejinmisa@newwavesecosystem.com"\n'
+                        '- tapOn: "Enter your password"\n'
+                        '- inputText: "827xazLF6TBfD7N!"\n'
+                        '- tapOn: "Login"\n'
+                        '- evalScript: "java.lang.Thread.sleep(5000)"'
+                    )
+                    
+                    serialized_content = re.sub(login_pattern, replacement, serialized_content)
+                    
+                    # Replace assertions for email/password/login inputs if they exist as nested ids
+                    serialized_content = re.sub(r'assertVisible:\s*\n\s*id:\s*["\']email-input["\']', 'assertVisible: "Your@email.com"', serialized_content)
+                    serialized_content = re.sub(r'assertVisible:\s*\n\s*id:\s*["\']password-input["\']', 'assertVisible: "Enter your password"', serialized_content)
+                    serialized_content = re.sub(r'assertVisible:\s*\n\s*id:\s*["\']login-button["\']', 'assertVisible: "Login"', serialized_content)
+                    
+                    # Also support inline assertion matches
+                    serialized_content = re.sub(r'assertVisible:\s*["\']email-input["\']', 'assertVisible: "Your@email.com"', serialized_content)
+                    serialized_content = re.sub(r'assertVisible:\s*["\']password-input["\']', 'assertVisible: "Enter your password"', serialized_content)
+                    serialized_content = re.sub(r'assertVisible:\s*["\']login-button["\']', 'assertVisible: "Login"', serialized_content)
                 
                 if app_id:
                     # Replace all references of the old app ID to the new app ID to keep flow commands consistent
