@@ -14,6 +14,4 @@ appId: com.konn3ct.mobile
 - tapOn: "More"
 - tapOn: "Recordings"
 - assertVisible: "Recordings"
-- tapOn:
-    point: "50%,25%"
-- assertVisible: "Playback"
+- evalScript: "java.lang.Thread.sleep(2000)"

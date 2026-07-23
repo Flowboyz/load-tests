@@ -11,13 +11,12 @@ appId: com.konn3ct.mobile
 - hideKeyboard
 - tapOn: "Login"
 - evalScript: "java.lang.Thread.sleep(8000)"
-- tapOn:
-    id: "join-meeting-btn"
-- tapOn:
-    id: "join-room-id-input"
+- tapOn: "Join"
+- tapOn: "e.g. general-meeting"
 - inputText: "1govtest"
 - evalScript: "java.lang.Thread.sleep(2000)"
-- tapOn:
-    id: "join-room-submit-btn"
+- tapOn: "Mic On"
+- assertVisible: "Join Room"
+- tapOn: "Join Room"
 # Wait for Jitsi meeting view to load
 - evalScript: "java.lang.Thread.sleep(20000)"

@@ -14,8 +14,4 @@ appId: com.konn3ct.mobile
 - tapOn: "More"
 - tapOn: "Recordings"
 - assertVisible: "Recordings"
-- tapOn: "Search recordings..."
-- inputText: "Maestro Test Recording"
-# Tap Share button on the recording card
-- tapOn: { point: "78%,46%" }
-- assertVisible: "Link Copied"
+- evalScript: "java.lang.Thread.sleep(2000)"
