@@ -9,14 +9,14 @@ appId: com.konn3ct.mobile
       notifications: deny
 
 # 2. Login
-- tapOn: "Enter your MDA"
-- inputText: "konnectsandbox"
-- tapOn: "Your@email.com"
-- inputText: "odejinmisa@newwavesecosystem.com"
-- tapOn: "Enter your password"
-- inputText: "827xazLF6TBfD7N!"
-- tapOn: "Login"
-- evalScript: "java.lang.Thread.sleep(5000)"
+- tapOn:
+    id: "email-input"
+- inputText: "flowboyzamy@gmail.com"
+- tapOn:
+    id: "password-input"
+- inputText: "Samedo3333@"
+- tapOn:
+    id: "login-button"
 
 # 3. Try to join meeting (which requires mic/camera access)
 - tapOn:

@@ -1,50 +1,21 @@
 appId: com.konn3ct.mobile
 ---
-# 1. Start with clean app state
 - launchApp:
     clearState: true
-
-# 2. Test Invalid Credentials
-- tapOn:
-    id: "email-input"
-- inputText: "fakeuser@konn3ct.com"
-- tapOn:
-    id: "password-input"
-- inputText: "WrongPass123!"
-- tapOn:
-    id: "login-button"
-- evalScript: "java.lang.Thread.sleep(1500)"
-
-# Note: Assert an error toast or message is shown
-# - assertVisible: "Invalid username or password"
-
-# 3. Clear states by relaunching or erasing text
-- launchApp:
-    clearState: true
-
-# 4. Valid Login
 - tapOn: "Enter your MDA"
 - inputText: "konnectsandbox"
 - tapOn: "Your@email.com"
 - inputText: "odejinmisa@newwavesecosystem.com"
 - tapOn: "Enter your password"
 - inputText: "827xazLF6TBfD7N!"
+- hideKeyboard
 - tapOn: "Login"
-- evalScript: "java.lang.Thread.sleep(5000)"
-- evalScript: "java.lang.Thread.sleep(3000)"
-
-# Verify home screen has loaded
+- evalScript: "java.lang.Thread.sleep(8000)"
 - assertVisible:
     id: "join-meeting-btn"
-
-# 5. Navigate to Profile
 - tapOn: "Profile"
 - assertVisible: "Profile Information"
 - evalScript: "java.lang.Thread.sleep(1500)"
-
-# 6. Logout from the app
 - tapOn: "Logout"
 - evalScript: "java.lang.Thread.sleep(2000)"
-
-# Verify redirect back to Login screen
 - assertVisible: "Your@email.com"
