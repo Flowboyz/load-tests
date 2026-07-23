@@ -15,6 +15,6 @@ appId: com.konn3ct.mobile
 - tapOn: "Profile"
 - assertVisible: "Profile Information"
 - evalScript: "java.lang.Thread.sleep(1500)"
-- tapOn: "Logout"
+- tapOn: "Log Out"
 - evalScript: "java.lang.Thread.sleep(2000)"
 - assertVisible: "Your@email.com"
