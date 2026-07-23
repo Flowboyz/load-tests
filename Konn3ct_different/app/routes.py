@@ -606,7 +606,7 @@ def run_mobile_test():
         target_flow_path = flow_path
         temp_flow_created = False
         
-        if room_slug or app_id:
+        if room_slug or app_id or device_id == "maestro_cloud":
             try:
                 with open(flow_path, 'r', encoding='utf-8') as f:
                     flow_content = f.read()
@@ -624,7 +624,16 @@ def run_mobile_test():
                     import re
                     serialized_content = re.sub(r'^appId:\s*.*', f'appId: {app_id}', serialized_content, flags=re.MULTILINE)
                 
-                if serialized_content != flow_content:
+                # If running on Maestro Cloud, isolate the flow file in a temporary directory
+                if device_id == "maestro_cloud":
+                    temp_dir_name = f"temp_workspace_{int(time.time())}"
+                    temp_workspace_dir = os.path.join(project_root, "mobile_ui_tests", "flows", temp_dir_name)
+                    os.makedirs(temp_workspace_dir, exist_ok=True)
+                    target_flow_path = os.path.join(temp_workspace_dir, flow_file)
+                    with open(target_flow_path, 'w', encoding='utf-8') as f:
+                        f.write(serialized_content)
+                    temp_flow_created = True
+                elif serialized_content != flow_content:
                     temp_flow_file = f"temp_{int(time.time())}_{flow_file}"
                     target_flow_path = os.path.join(project_root, "mobile_ui_tests", "flows", temp_flow_file)
                     with open(target_flow_path, 'w', encoding='utf-8') as f:
@@ -661,7 +670,11 @@ def run_mobile_test():
             if temp_flow_created and os.path.exists(target_flow_path):
                 try:
                     os.remove(target_flow_path)
-                except:
+                    # If it was in a temp workspace directory, delete the directory too
+                    temp_dir = os.path.dirname(target_flow_path)
+                    if os.path.basename(temp_dir).startswith("temp_workspace_"):
+                        os.rmdir(temp_dir)
+                except Exception:
                     pass
             global active_mobile_process
             active_mobile_process = None
