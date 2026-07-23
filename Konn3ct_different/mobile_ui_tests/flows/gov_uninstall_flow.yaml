@@ -10,7 +10,7 @@ appId: com.onegov.govmeeting
 # =========================================================================
 
 # 1. Terminate any active app process
-- stopApp: com.konn3ct.mobile
+- stopApp: com.onegov.govmeeting
 
 # 2. Simulate fresh install / first-time onboarding by clearing all state
 - launchApp:
