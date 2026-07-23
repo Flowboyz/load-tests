@@ -2055,13 +2055,23 @@ async function loadMobileTestData(prefix = 'mobile') {
             const select = document.getElementById(`${prefix}FlowSelect`);
             select.innerHTML = '';
             
-            if (flows.length === 0) {
+            // Filter flows based on tab prefix
+            const filteredFlows = flows.filter(f => {
+                if (prefix === 'mobile') {
+                    return !f.startsWith('gov_') && !f.startsWith('temp_');
+                } else if (prefix === 'gov') {
+                    return f.startsWith('gov_');
+                }
+                return true;
+            });
+            
+            if (filteredFlows.length === 0) {
                 const opt = document.createElement('option');
                 opt.value = '';
-                opt.textContent = 'No YAML flows found';
+                opt.textContent = 'No matching YAML flows found';
                 select.appendChild(opt);
             } else {
-                flows.forEach(f => {
+                filteredFlows.forEach(f => {
                     const opt = document.createElement('option');
                     opt.value = f;
                     opt.textContent = f;
@@ -2069,8 +2079,8 @@ async function loadMobileTestData(prefix = 'mobile') {
                 });
                 
                 // Load content of first flow into editor
-                if (flows.length > 0) {
-                    loadMobileFlowContent(flows[0], prefix);
+                if (filteredFlows.length > 0) {
+                    loadMobileFlowContent(filteredFlows[0], prefix);
                 }
             }
         }
