@@ -25,7 +25,7 @@ appId: com.konn3ct.mobile
 - inputText:
     text: "konnectsandbox"
     optional: true
-- tapOn: "Your@email.com"
+- tapOn: "Email"
 - inputText: "odejinmisa@newwavesecosystem.com"
 - tapOn: "Enter your password"
 - inputText: "827xazLF6TBfD7N!"
