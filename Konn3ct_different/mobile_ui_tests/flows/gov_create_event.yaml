@@ -17,11 +17,11 @@ appId: com.konn3ct.mobile
 - evalScript: "java.lang.Thread.sleep(6000)"
 - tapOn: "Create Event"
 - evalScript: "java.lang.Thread.sleep(3000)"
-- assertVisible: "Title"
-- tapOn: "Title"
+- assertVisible: "e.g. Annual Tech Summit"
+- tapOn: "e.g. Annual Tech Summit"
 - inputText: "Maestro Tech Summit"
-- tapOn: "Description"
-- inputText: "This is a pre-registered event compiled for remote mobile performance tests."
+- tapOn: "Your Name or Company"
+- inputText: "Maestro QA Team"
 - hideKeyboard
 - tapOn: "Choose a room"
 - tapOn: "000 Maestro Room"
@@ -33,6 +33,9 @@ appId: com.konn3ct.mobile
 - tapOn: "OK"
 - tapOn: "End Time"
 - tapOn: "OK"
+- tapOn: "Describe what your event is about..."
+- inputText: "This is a pre-registered event compiled for remote mobile performance tests."
+- hideKeyboard
 - scrollUntilVisible:
     element: "Create"
     direction: DOWN
