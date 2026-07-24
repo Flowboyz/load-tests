@@ -15,6 +15,7 @@ appId: com.konn3ct.mobile
 - tapOn: "Events"
 - assertVisible: "Manage pre-registered events & participants"
 - tapOn: "Create Event"
+- evalScript: "java.lang.Thread.sleep(3000)"
 - assertVisible: "Event Title"
 - tapOn: "Event Title"
 - inputText: "Maestro Tech Summit"
