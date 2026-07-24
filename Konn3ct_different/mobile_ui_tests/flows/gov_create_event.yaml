@@ -24,6 +24,7 @@ appId: com.konn3ct.mobile
 - inputText: "Maestro QA Team"
 - hideKeyboard
 - tapOn: "Choose a room"
+- evalScript: "java.lang.Thread.sleep(3000)"
 - tapOn: "000 Maestro Room"
 - tapOn: "Start Date"
 - tapOn: "OK"
