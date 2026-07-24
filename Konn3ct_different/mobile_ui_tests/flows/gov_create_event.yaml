@@ -2,6 +2,12 @@ appId: com.konn3ct.mobile
 ---
 - launchApp:
     clearState: true
+- tapOn:
+    text: "SKIP"
+    optional: true
+- tapOn:
+    text: "Skip"
+    optional: true
 - tapOn: "Enter your MDA"
 - inputText: "konnectsandbox"
 - tapOn: "Your@email.com"
@@ -25,9 +31,7 @@ appId: com.konn3ct.mobile
 - hideKeyboard
 - tapOn: "Choose a room"
 - evalScript: "java.lang.Thread.sleep(3000)"
-- tapOn:
-    text: "000 Maestro.*"
-    regex: true
+- tapOn: "/000 Maestro.*/"
 - tapOn: "Start Date"
 - tapOn: "OK"
 - tapOn: "Start Time"
