@@ -12,13 +12,9 @@ appId: com.konn3ct.mobile
 - inputText:
     text: "konnectsandbox"
     optional: true
-- tapOn:
-    className: "android.widget.EditText"
-    index: 0
+- tapOn: "Email"
 - inputText: "odejinmisa@newwavesecosystem.com"
-- tapOn:
-    className: "android.widget.EditText"
-    index: 1
+- tapOn: "Enter your password"
 - inputText: "827xazLF6TBfD7N!"
 - hideKeyboard
 - tapOn: "Login"

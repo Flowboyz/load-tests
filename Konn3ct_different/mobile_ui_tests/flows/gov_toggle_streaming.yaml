@@ -18,6 +18,12 @@ appId: com.konn3ct.mobile
 - tapOn:
     text: "Next"
     optional: true
+- tapOn:
+    text: "Sign In"
+    optional: true
+- tapOn:
+    text: "Sign in"
+    optional: true
 - evalScript: "java.lang.Thread.sleep(2000)"
 - tapOn:
     text: "Enter your MDA"
@@ -25,13 +31,9 @@ appId: com.konn3ct.mobile
 - inputText:
     text: "konnectsandbox"
     optional: true
-- tapOn:
-    className: "android.widget.EditText"
-    index: 0
+- tapOn: "Email"
 - inputText: "odejinmisa@newwavesecosystem.com"
-- tapOn:
-    className: "android.widget.EditText"
-    index: 1
+- tapOn: "Enter your password"
 - inputText: "827xazLF6TBfD7N!"
 - hideKeyboard
 - tapOn: "Login"
