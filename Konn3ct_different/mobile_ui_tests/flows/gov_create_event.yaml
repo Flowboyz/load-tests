@@ -14,6 +14,7 @@ appId: com.konn3ct.mobile
 - tapOn: "More"
 - tapOn: "Events"
 - assertVisible: "Manage pre-registered events & participants"
+- evalScript: "java.lang.Thread.sleep(3000)"
 - tapOn: "Create Event"
 - evalScript: "java.lang.Thread.sleep(3000)"
 - assertVisible: "Title"
