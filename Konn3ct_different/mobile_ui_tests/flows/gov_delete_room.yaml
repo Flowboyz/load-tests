@@ -13,10 +13,7 @@ appId: com.konn3ct.mobile
 - evalScript: "java.lang.Thread.sleep(8000)"
 - tapOn: "Rooms"
 - assertVisible: "Create and manage your meeting rooms."
-# Scroll down until the Maestro Auto Room is fully visible on the screen
-- scrollUntilVisible:
-    element: "000 Maestro Room"
-    direction: DOWN
+- assertVisible: "000 Maestro Room"
 # Tap the trash button directly to the right of "000 Maestro Room"
 - tapOn: { rightOf: "000 Maestro Room" }
 # Confirm deletion in the alert popup

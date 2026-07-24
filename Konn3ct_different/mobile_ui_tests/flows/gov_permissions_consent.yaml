@@ -15,10 +15,8 @@ appId: com.konn3ct.mobile
 - hideKeyboard
 - tapOn: "Login"
 - evalScript: "java.lang.Thread.sleep(8000)"
-- tapOn:
-    id: "join-meeting-btn"
-- tapOn:
-    id: "join-room-id-input"
+- tapOn: "Join"
+- tapOn: "e.g. general-meeting"
 - inputText: "1govtest"
 - evalScript: "java.lang.Thread.sleep(2000)"
 - tapOn: "Mic On"
@@ -30,5 +28,4 @@ appId: com.konn3ct.mobile
       notifications: allow
 - tapOn: "Mic On"
 - evalScript: "java.lang.Thread.sleep(1000)"
-- assertVisible:
-    id: "join-room-submit-btn"
+- assertVisible: "Join Room"
