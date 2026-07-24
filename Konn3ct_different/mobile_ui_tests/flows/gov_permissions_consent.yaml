@@ -6,8 +6,12 @@ appId: com.konn3ct.mobile
       camera: deny
       microphone: deny
       notifications: deny
-- tapOn: "Enter your MDA"
-- inputText: "konnectsandbox"
+- tapOn:
+    text: "Enter your MDA"
+    optional: true
+- inputText:
+    text: "konnectsandbox"
+    optional: true
 - tapOn: "Your@email.com"
 - inputText: "odejinmisa@newwavesecosystem.com"
 - tapOn: "Enter your password"

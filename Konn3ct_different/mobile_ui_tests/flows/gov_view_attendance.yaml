@@ -19,8 +19,12 @@ appId: com.konn3ct.mobile
     text: "Next"
     optional: true
 - evalScript: "java.lang.Thread.sleep(2000)"
-- tapOn: "Enter your MDA"
-- inputText: "konnectsandbox"
+- tapOn:
+    text: "Enter your MDA"
+    optional: true
+- inputText:
+    text: "konnectsandbox"
+    optional: true
 - tapOn: "Your@email.com"
 - inputText: "odejinmisa@newwavesecosystem.com"
 - tapOn: "Enter your password"
