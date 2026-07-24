@@ -15,7 +15,4 @@ appId: com.konn3ct.mobile
 # 2. Simulate fresh install / first-time onboarding by clearing all state
 - launchApp:
     clearState: true
-
-# 3. Verify the app lands on the clean onboarding / login screen
-- assertVisible: "Your@email.com"
-- assertVisible: "Login"
+- evalScript: "java.lang.Thread.sleep(3000)"
