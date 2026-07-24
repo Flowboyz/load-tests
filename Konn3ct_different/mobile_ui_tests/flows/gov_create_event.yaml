@@ -25,7 +25,9 @@ appId: com.konn3ct.mobile
 - hideKeyboard
 - tapOn: "Choose a room"
 - evalScript: "java.lang.Thread.sleep(3000)"
-- tapOn: "000 Maestro Room"
+- tapOn:
+    text: "000 Maestro.*"
+    regex: true
 - tapOn: "Start Date"
 - tapOn: "OK"
 - tapOn: "Start Time"

@@ -13,8 +13,11 @@ appId: com.konn3ct.mobile
 - evalScript: "java.lang.Thread.sleep(8000)"
 - tapOn: "Rooms"
 - assertVisible: "Create and manage your meeting rooms."
-- assertVisible: "000 Maestro Room"
+- assertVisible:
+    text: "000 Maestro.*"
+    regex: true
 # Tap the trash button directly to the right of "000 Maestro Room"
-- tapOn: { rightOf: "000 Maestro Room" }
+- tapOn:
+    rightOf: { text: "000 Maestro.*", regex: true }
 # Confirm deletion in the alert popup
 - tapOn: "Delete"
