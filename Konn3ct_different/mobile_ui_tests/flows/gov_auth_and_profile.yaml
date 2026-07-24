@@ -15,7 +15,7 @@ appId: com.konn3ct.mobile
 - tapOn: "Profile"
 - assertVisible: "Profile Information"
 - evalScript: "java.lang.Thread.sleep(1500)"
-- back
+- tapOn: { point: "8%,6%" }
 - evalScript: "java.lang.Thread.sleep(1500)"
 - scrollUntilVisible:
     element: "Log Out"
