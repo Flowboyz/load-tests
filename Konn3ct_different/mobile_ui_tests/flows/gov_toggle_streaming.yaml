@@ -2,12 +2,23 @@ appId: com.konn3ct.mobile
 ---
 - launchApp:
     clearState: true
+- evalScript: "java.lang.Thread.sleep(5000)"
 - tapOn:
     text: "SKIP"
     optional: true
 - tapOn:
     text: "Skip"
     optional: true
+- tapOn:
+    text: "GET STARTED"
+    optional: true
+- tapOn:
+    text: "Get Started"
+    optional: true
+- tapOn:
+    text: "Next"
+    optional: true
+- evalScript: "java.lang.Thread.sleep(2000)"
 - tapOn: "Enter your MDA"
 - inputText: "konnectsandbox"
 - tapOn: "Your@email.com"
