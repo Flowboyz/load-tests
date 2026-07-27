@@ -82,7 +82,13 @@ appId: com.konn3ct.mobile
     point: "90%,92%"
     optional: true
 - evalScript: "java.lang.Thread.sleep(2000)" 
-- tapOn: "Streaming"
+- scrollUntilVisible:
+    element: "Streaming"
+    direction: DOWN
+    optional: true
+- tapOn:
+    text: "Streaming"
+    optional: true
 - assertVisible: "Live Streams"
 - tapOn: "Start Stream"
 - assertVisible: "Start New Stream"

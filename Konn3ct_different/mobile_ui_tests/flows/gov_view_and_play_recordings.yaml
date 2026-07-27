@@ -82,6 +82,14 @@ appId: com.konn3ct.mobile
     point: "90%,92%"
     optional: true
 - evalScript: "java.lang.Thread.sleep(2000)" 
-- tapOn: "Recordings"
-- assertVisible: "Recordings"
+- scrollUntilVisible:
+    element: "Recordings"
+    direction: DOWN
+    optional: true
+- tapOn:
+    text: "Recordings"
+    optional: true
+- assertVisible:
+    text: "Recordings"
+    optional: true
 - evalScript: "java.lang.Thread.sleep(2000)"

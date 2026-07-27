@@ -82,7 +82,13 @@ appId: com.konn3ct.mobile
     point: "90%,92%"
     optional: true
 - evalScript: "java.lang.Thread.sleep(2000)" 
-- tapOn: "Attendance"
+- scrollUntilVisible:
+    element: "Attendance"
+    direction: DOWN
+    optional: true
+- tapOn:
+    text: "Attendance"
+    optional: true
 - assertVisible: "Meeting Attendance"
 - runFlow:
     when:
