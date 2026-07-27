@@ -96,11 +96,11 @@ appId: com.konn3ct.mobile
     optional: true
 - evalScript: "java.lang.Thread.sleep(2000)"
 - scrollUntilVisible:
-    element: "Log Out"
+    element: "Sign Out"
     direction: DOWN
-- tapOn: "Log Out"
+- tapOn: "Sign Out"
 - evalScript: "java.lang.Thread.sleep(1500)"
 # Tap Log Out again on confirmation dialog
-- tapOn: "Log Out"
+- tapOn: "Sign Out"
 - evalScript: "java.lang.Thread.sleep(2000)"
 - assertVisible: "Email"
