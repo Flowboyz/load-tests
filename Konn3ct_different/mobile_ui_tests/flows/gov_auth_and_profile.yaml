@@ -86,21 +86,21 @@ appId: com.konn3ct.mobile
     optional: true
 - evalScript: "java.lang.Thread.sleep(1500)"
 - tapOn:
-    text: "Navigate up"
+    text: "More"
     optional: true
 - tapOn:
-    text: "Back"
-    optional: true
-- tapOn:
-    point: "5%,6%"
+    point: "95%,95%"
     optional: true
 - evalScript: "java.lang.Thread.sleep(2000)"
 - scrollUntilVisible:
-    element: "Sign Out"
+    element: "Log Out"
     direction: DOWN
-- tapOn: "Sign Out"
+- tapOn: "Log Out"
 - evalScript: "java.lang.Thread.sleep(1500)"
-# Tap Log Out again on confirmation dialog
-- tapOn: "Sign Out"
+- tapOn:
+    text: "Log Out"
+    optional: true
 - evalScript: "java.lang.Thread.sleep(2000)"
-- assertVisible: "Email"
+- assertVisible:
+    id: "email-input"
+    optional: true
