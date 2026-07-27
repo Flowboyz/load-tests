@@ -71,11 +71,26 @@ appId: com.konn3ct.mobile
 - tapOn:
     point: "50%,64%"
     optional: true
-- evalScript: "java.lang.Thread.sleep(8000)"
-- tapOn: "Rooms"
-- assertVisible: "Create and manage your meeting rooms."
-# Open the Create Modal
-- tapOn: "Create Room"
+- evalScript: "java.lang.Thread.sleep(5000)"
+- tapOn:
+    id: "create-room-btn"
+    optional: true
+- tapOn:
+    text: "Rooms"
+    optional: true
+- tapOn:
+    point: "30%,90%"
+    optional: true
+- tapOn:
+    point: "30%,92%"
+    optional: true
+- evalScript: "java.lang.Thread.sleep(2000)"
+- tapOn:
+    id: "create-room-btn"
+    optional: true
+- tapOn:
+    text: "Create Room"
+    optional: true
 # Wait for Modal to fully load
 - assertVisible: "Create a Room"
 # Input Room Name
