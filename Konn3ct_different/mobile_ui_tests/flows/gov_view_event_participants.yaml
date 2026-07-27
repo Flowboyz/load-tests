@@ -73,7 +73,16 @@ appId: com.konn3ct.mobile
     optional: true
 - evalScript: "java.lang.Thread.sleep(8000)"
 # Navigate to Events via More menu
-- tapOn: "More"
+- tapOn:
+    text: "More"
+    optional: true
+- tapOn:
+    point: "90%,90%"
+    optional: true
+- tapOn:
+    point: "90%,92%"
+    optional: true
+- evalScript: "java.lang.Thread.sleep(2000)" 
 - tapOn: "Events"
 - assertVisible: "Manage pre-registered events & participants"
 # Conditionally check participants only if the event exists
