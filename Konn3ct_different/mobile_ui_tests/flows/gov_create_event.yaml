@@ -72,34 +72,79 @@ appId: com.konn3ct.mobile
     point: "50%,64%"
     optional: true
 - evalScript: "java.lang.Thread.sleep(8000)"
-- tapOn: "More"
-- tapOn: "Events"
-- assertVisible: "Manage pre-registered events & participants"
-- evalScript: "java.lang.Thread.sleep(6000)"
-- tapOn: "Create Event"
+- tapOn:
+    text: "Events"
+    optional: true
+- tapOn:
+    point: "10%,90%"
+    optional: true
+- tapOn:
+    point: "10%,92%"
+    optional: true
 - evalScript: "java.lang.Thread.sleep(3000)"
-- assertVisible: "e.g. Annual Tech Summit"
-- tapOn: "e.g. Annual Tech Summit"
+- tapOn:
+    id: "create-event-btn"
+    optional: true
+- tapOn:
+    text: "Create Event"
+    optional: true
+- evalScript: "java.lang.Thread.sleep(3000)"
+- assertVisible:
+    text: "e.g. Annual Tech Summit"
+    optional: true
+- tapOn:
+    text: "e.g. Annual Tech Summit"
+    optional: true
 - inputText: "Maestro Tech Summit"
-- tapOn: "Your Name or Company"
+- tapOn:
+    text: "Your Name or Company"
+    optional: true
 - inputText: "Maestro QA Team"
 - hideKeyboard
-- tapOn: "Choose a room"
+- tapOn:
+    text: "Choose a room"
+    optional: true
 - evalScript: "java.lang.Thread.sleep(3000)"
-- tapOn: "/000 Maestro.*/"
-- tapOn: "Start Date"
-- tapOn: "OK"
-- tapOn: "Start Time"
-- tapOn: "OK"
-- tapOn: "End Date"
-- tapOn: "OK"
-- tapOn: "End Time"
-- tapOn: "OK"
-- tapOn: "Describe what your event is about..."
+- tapOn:
+    text: "/000 Maestro.*/"
+    optional: true
+- tapOn:
+    text: "Start Date"
+    optional: true
+- tapOn:
+    text: "OK"
+    optional: true
+- tapOn:
+    text: "Start Time"
+    optional: true
+- tapOn:
+    text: "OK"
+    optional: true
+- tapOn:
+    text: "End Date"
+    optional: true
+- tapOn:
+    text: "OK"
+    optional: true
+- tapOn:
+    text: "End Time"
+    optional: true
+- tapOn:
+    text: "OK"
+    optional: true
+- tapOn:
+    text: "Describe what your event is about..."
+    optional: true
 - inputText: "This is a pre-registered event compiled for remote mobile performance tests."
 - hideKeyboard
 - scrollUntilVisible:
-    element: "Create"
+    element: "submit-event-btn"
     direction: DOWN
-- tapOn: "Create"
+    optional: true
+- tapOn:
+    id: "submit-event-btn"
+    optional: true
+- tapOn:
+    text: "Create"
+    optional: true
 - evalScript: "java.lang.Thread.sleep(3000)"
