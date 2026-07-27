@@ -31,9 +31,20 @@ appId: com.konn3ct.mobile
 - tapOn:
     id: "mda-input"
     optional: true
+- tapOn:
+    text: "Enter your MDA"
+    optional: true
 - inputText:
     text: "konnectsandbox"
     optional: true
+- pressKey: Enter
+- tapOn:
+    text: "Next"
+    optional: true
+- tapOn:
+    text: "Continue"
+    optional: true
+- evalScript: "java.lang.Thread.sleep(3000)"
 - tapOn:
     id: "email-input"
     optional: true
