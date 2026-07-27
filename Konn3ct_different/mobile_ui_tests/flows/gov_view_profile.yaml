@@ -27,14 +27,21 @@ appId: com.konn3ct.mobile
 - evalScript: "java.lang.Thread.sleep(3000)"
 - tapOn: "Email"
 - inputText: "odejinmisa@newwavesecosystem.com"
-- tapOn: "Enter your password"
-- inputText: "827xazLF6TBfD7N!"
 - tapOn:
-    point: "50%,20%"
+    text: "Password"
     optional: true
+- tapOn:
+    text: "Enter your password"
+    optional: true
+- inputText: "827xazLF6TBfD7N!"
+- pressKey: Enter
 - hideKeyboard
 - evalScript: "java.lang.Thread.sleep(1000)"
-- tapOn: "Login"
+- tapOn:
+    text: "Login"
+    optional: true
+- tapOn:
+    point: "50%,64%"
 - evalScript: "java.lang.Thread.sleep(8000)"
 - tapOn: "Profile"
 - assertVisible: "Profile Information"
