@@ -78,7 +78,7 @@ appId: com.konn3ct.mobile
     text: "Profile"
     optional: true
 - tapOn:
-    point: "85%,95%"
+    point: "70%,95%"
     optional: true
 - evalScript: "java.lang.Thread.sleep(2000)"
 - assertVisible:
@@ -89,7 +89,7 @@ appId: com.konn3ct.mobile
     text: "More"
     optional: true
 - tapOn:
-    point: "95%,95%"
+    point: "90%,95%"
     optional: true
 - evalScript: "java.lang.Thread.sleep(2000)"
 - scrollUntilVisible:
