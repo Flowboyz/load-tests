@@ -29,12 +29,11 @@ appId: com.konn3ct.mobile
 - inputText: "odejinmisa@newwavesecosystem.com"
 - tapOn: "Enter your password"
 - inputText: "827xazLF6TBfD7N!"
-- hideKeyboard
-- back
-- evalScript: "java.lang.Thread.sleep(1500)"
 - tapOn:
-    text: "Login"
+    point: "50%,20%"
     optional: true
+- hideKeyboard
+- evalScript: "java.lang.Thread.sleep(1000)"
 - tapOn: "Login"
 - evalScript: "java.lang.Thread.sleep(8000)"
 - tapOn: "Join"
