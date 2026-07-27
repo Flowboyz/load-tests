@@ -60,8 +60,10 @@ appId: com.konn3ct.mobile
 - tapOn:
     point: "50%,64%"
     optional: true
-- evalScript: "java.lang.Thread.sleep(8000)"
-- assertVisible: "More"
+- assertVisible:
+    id: "host-meeting-btn"
+    optional: true
+- assertVisible: "Profile"
 - tapOn: "Profile"
 - assertVisible: "Profile Information"
 - evalScript: "java.lang.Thread.sleep(1500)"
