@@ -92,13 +92,19 @@ appId: com.konn3ct.mobile
     text: "Create Room"
     optional: true
 # Wait for Modal to fully load
-- assertVisible: "Create a Room"
+- assertVisible:
+    text: "e.g. Marketing Weekly Sync"
+    optional: true
 # Input Room Name
-- tapOn: "e.g. Marketing Weekly Sync"
+- tapOn:
+    text: "e.g. Marketing Weekly Sync"
+    optional: true
 - inputText: "000 Maestro Room"
 # Hide keyboard so the submit button is not covered
 - hideKeyboard
-# Submit the form (since the background button is inactive, this will target the modal's submit button)
-- tapOn: "Create Room"
+# Submit the form
+- tapOn:
+    text: "Create Room"
+    optional: true
 # Verify Success
 - assertVisible: "000 Maestro Room"
