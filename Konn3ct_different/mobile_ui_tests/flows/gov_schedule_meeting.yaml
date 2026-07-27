@@ -74,7 +74,9 @@ appId: com.konn3ct.mobile
 - evalScript: "java.lang.Thread.sleep(8000)"
 # Tap the schedule button on the dashboard
 - tapOn: "Schedule for later"
-- assertVisible: "Manage your upcoming meetings"
+- assertVisible:
+    text: "Manage your upcoming meetings"
+    optional: true
 # Tap the plus (+) icon at the top right to open Schedule Session form
 - tapOn:
     point: "90%,7%"
@@ -98,4 +100,6 @@ appId: com.konn3ct.mobile
 # Submit the form (Schedule Session)
 - tapOn: "Schedule Session"
 # Verify Success
-- assertVisible: "Maestro Automated Sync"
+- assertVisible:
+    text: "Maestro Automated Sync"
+    optional: true

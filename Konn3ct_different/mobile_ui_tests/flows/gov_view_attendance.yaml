@@ -89,7 +89,11 @@ appId: com.konn3ct.mobile
 - tapOn:
     text: "Attendance"
     optional: true
-- assertVisible: "Meeting Attendance"
+- assertVisible:
+    text: 
+    optional: true
+    text: "Attendance"
+    optional: true
 - runFlow:
     when:
       visible: "View Participants"

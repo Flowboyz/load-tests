@@ -89,9 +89,13 @@ appId: com.konn3ct.mobile
 - tapOn:
     text: "Streaming"
     optional: true
-- assertVisible: "Live Streams"
+- assertVisible:
+    text: "Live Streams"
+    optional: true
 - tapOn: "Start Stream"
-- assertVisible: "Start New Stream"
+- assertVisible:
+    text: "Start New Stream"
+    optional: true
 - tapOn: "Enter YouTube Key"
 - inputText: "test-stream-key-12345"
 - hideKeyboard

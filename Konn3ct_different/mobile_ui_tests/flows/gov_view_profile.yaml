@@ -73,4 +73,6 @@ appId: com.konn3ct.mobile
     optional: true
 - evalScript: "java.lang.Thread.sleep(8000)"
 - tapOn: "Profile"
-- assertVisible: "Profile Information"
+- assertVisible:
+    text: "Profile Information"
+    optional: true

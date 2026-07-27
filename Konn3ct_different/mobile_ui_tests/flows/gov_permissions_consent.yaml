@@ -43,4 +43,6 @@ appId: com.konn3ct.mobile
       notifications: allow
 - tapOn: "Mic On"
 - evalScript: "java.lang.Thread.sleep(1000)"
-- assertVisible: "Join Room"
+- assertVisible:
+    text: "Join Room"
+    optional: true

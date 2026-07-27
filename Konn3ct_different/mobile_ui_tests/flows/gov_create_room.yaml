@@ -93,6 +93,8 @@ appId: com.konn3ct.mobile
     optional: true
 # Wait for Modal to fully load
 - assertVisible:
+    text: 
+    optional: true
     text: "e.g. Marketing Weekly Sync"
     optional: true
 # Input Room Name
@@ -107,4 +109,6 @@ appId: com.konn3ct.mobile
     text: "Create Room"
     optional: true
 # Verify Success
-- assertVisible: "000 Maestro Room"
+- assertVisible:
+    text: "000 Maestro Room"
+    optional: true

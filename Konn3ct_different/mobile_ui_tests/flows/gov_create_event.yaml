@@ -90,6 +90,8 @@ appId: com.konn3ct.mobile
     optional: true
 - evalScript: "java.lang.Thread.sleep(3000)"
 - assertVisible:
+    text: 
+    optional: true
     text: "e.g. Annual Tech Summit"
     optional: true
 - tapOn:

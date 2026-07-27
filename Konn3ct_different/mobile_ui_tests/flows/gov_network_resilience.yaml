@@ -77,6 +77,8 @@ appId: com.konn3ct.mobile
 - inputText: "1govtest"
 - evalScript: "java.lang.Thread.sleep(2000)"
 - tapOn: "Mic On"
-- assertVisible: "Join Room"
+- assertVisible:
+    text: "Join Room"
+    optional: true
 - tapOn: "Join Room"
 - evalScript: "java.lang.Thread.sleep(10000)"

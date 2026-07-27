@@ -90,6 +90,8 @@ appId: com.konn3ct.mobile
     text: "Recordings"
     optional: true
 - assertVisible:
+    text: 
+    optional: true
     text: "Recordings"
     optional: true
 - evalScript: "java.lang.Thread.sleep(2000)"

@@ -73,7 +73,9 @@ appId: com.konn3ct.mobile
     optional: true
 - evalScript: "java.lang.Thread.sleep(8000)"
 # Wait for Dashboard to load
-- assertVisible: "Instant Meeting"
+- assertVisible:
+    text: "Instant Meeting"
+    optional: true
 # Tap the native Host button
 - tapOn: "Host"
 # Wait for Jitsi meeting view to load

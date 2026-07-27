@@ -72,6 +72,8 @@ appId: com.konn3ct.mobile
     point: "50%,64%"
     optional: true
 - assertVisible:
+    text: 
+    optional: true
     id: "host-meeting-btn"
     optional: true
 - tapOn:
@@ -82,6 +84,8 @@ appId: com.konn3ct.mobile
     optional: true
 - evalScript: "java.lang.Thread.sleep(2000)"
 - assertVisible:
+    text: 
+    optional: true
     id: "edit-profile-btn"
     optional: true
 - evalScript: "java.lang.Thread.sleep(1500)"
@@ -114,5 +118,7 @@ appId: com.konn3ct.mobile
     optional: true
 - evalScript: "java.lang.Thread.sleep(2000)"
 - assertVisible:
+    text: 
+    optional: true
     id: "welcome-signin-button"
     optional: true

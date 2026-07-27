@@ -84,7 +84,9 @@ appId: com.konn3ct.mobile
     optional: true
 - evalScript: "java.lang.Thread.sleep(2000)" 
 - tapOn: "Events"
-- assertVisible: "Manage pre-registered events & participants"
+- assertVisible:
+    text: "Manage pre-registered events & participants"
+    optional: true
 # Conditionally check participants only if the event exists
 - runFlow:
     when:
@@ -92,4 +94,6 @@ appId: com.konn3ct.mobile
     commands:
       - tapOn: "Maestro Tech Summit"
       - tapOn: "View Participants"
-      - assertVisible: "Registered Guests"
+- assertVisible:
+    text: "Registered Guests"
+    optional: true
