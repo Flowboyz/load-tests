@@ -1654,6 +1654,7 @@ class ReportPipeline:
             total = stats["joined"] + stats["failed"]
             stats["success_rate"] = (stats["joined"] / total * 100.0) if total > 0 else 0.0
             stats["avg_join_time"] = sum(stats["times"]) / len(stats["times"]) if stats["times"] else 0.0
+            stats.pop("times", None)
             
         webrtc_performance = {}
         for bot_id, fp in self.agg_stage.bots_fingerprints.items():
@@ -1711,6 +1712,13 @@ class ReportPipeline:
             wp["avg_active_speaker_switch_delay"] = sum(wp["active_speaker_switch_delays"]) / len(wp["active_speaker_switch_delays"]) if wp["active_speaker_switch_delays"] else random.uniform(150, 350)
             wp["codecs_used"] = list(wp["codecs_used"]) if wp["codecs_used"] else ["VP8"]
             wp["resolutions"] = list(wp["resolutions"]) if wp["resolutions"] else ["1280x720"]
+            for raw_list_key in (
+                "ice_times", "dtls_times", "losses", "jitters", "bitrates", "rtts",
+                "first_audio_packet_times", "first_video_frame_times",
+                "audio_freeze_ratios", "video_freeze_ratios",
+                "ice_restart_recovery_times", "active_speaker_switch_delays"
+            ):
+                wp.pop(raw_list_key, None)
 
         action_perf_accum = {}
         for act_type, val in self.stats_results["per_action_stats"].items():

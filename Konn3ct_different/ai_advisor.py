@@ -552,6 +552,19 @@ def call_openai_api(prompt: str, api_key: str, model_name: str = DEFAULT_OPENAI_
 
 def build_session_analysis_prompt(data: Dict[str, Any], baseline_data: Dict[str, Any]) -> str:
     """Builds a comprehensive, token-efficient prompt containing telemetry & SLAs."""
+    compact_webrtc = {}
+    raw_wt = data.get("webrtc_performance", {})
+    if isinstance(raw_wt, dict):
+        for k, v in raw_wt.items():
+            if isinstance(v, dict):
+                compact_webrtc[k] = {
+                    sk: (round(sv, 2) if isinstance(sv, float) else sv)
+                    for sk, sv in v.items()
+                    if not isinstance(sv, list) or sk in ("codecs_used", "resolutions")
+                }
+            else:
+                compact_webrtc[k] = v
+
     return f"""
 Analyze the following Konn3ct Load Test & WebRTC execution dataset and evaluate it against the Blueprint Volume 7 Sprint Quality Gates.
 
@@ -578,7 +591,7 @@ Analyze the following Konn3ct Load Test & WebRTC execution dataset and evaluate 
 {json.dumps(data.get('action_performance', {}), indent=2)}
 
 ## WebRTC Performance Metrics
-{json.dumps(data.get('webrtc_performance', {}), indent=2)}
+{json.dumps(compact_webrtc, indent=2)}
 
 ## Failure & Timeout Stage Breakdown
 - Timeout Stages: {json.dumps(data.get('timeout_stage_breakdown', {}))}
