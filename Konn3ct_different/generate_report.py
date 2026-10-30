@@ -1621,19 +1621,24 @@ class ReportPipeline:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("SELECT ts, bot_id, name, action, error, browser FROM errors")
-        db_errors = [dict(row) for row in cursor]
+        db_errors = [
+            dict(row) for row in cursor
+            if "has no attribute 'closed'" not in str(row["error"] or "")
+        ]
         conn.close()
+
+        join_error_bot_ids = {
+            err.get("bot_id")
+            for err in db_errors
+            if "websocket_connection" in str(err.get("action"))
+        }
         
         for bot_id, fp in self.agg_stage.bots_fingerprints.items():
             browser = fp.get("browser_type", "unknown")
             if browser not in join_performance:
                 join_performance[browser] = {"joined": 0, "failed": 0, "success_rate": 0.0, "avg_join_time": 0.0, "times": []}
                 
-            has_join_error = False
-            for err in db_errors:
-                if err.get("bot_id") == bot_id and "websocket_connection" in str(err.get("action")):
-                    has_join_error = True
-                    break
+            has_join_error = (bot_id in join_error_bot_ids) and (bot_id not in self.agg_stage.bot_join_counts)
                     
             if has_join_error:
                 join_performance[browser]["failed"] += 1

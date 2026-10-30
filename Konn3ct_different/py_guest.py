@@ -1760,8 +1760,9 @@ async def ws_session(
                         )
                     except Exception:
                         pass
-                if ws and not ws.closed:
-                    try:
+                try:
+                    ws_is_closed = getattr(ws, "closed", False) or (getattr(ws, "close_code", None) is not None)
+                    if ws and not ws_is_closed:
                         await ws.send(json.dumps({
                             "type": "leave_meeting",
                             "clientEventId": f"ce_lev_{uuid.uuid4().hex[:8]}",
@@ -1772,8 +1773,8 @@ async def ws_session(
                             "actionType": "leave_meeting"
                         }))
                         await asyncio.sleep(0.1)
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
                 if media_starter_task and not media_starter_task.done():
                     media_starter_task.cancel()
                 if action_task and not action_task.done():
