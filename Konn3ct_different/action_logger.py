@@ -206,3 +206,16 @@ class ActionLogger:
             except asyncio.CancelledError:
                 pass
         await self._flush_buffer()
+
+    def close_sync(self):
+        """Synchronously flushes any remaining buffered log entries when the event loop is closed."""
+        self._closed = True
+        if not self._buffer or not self.log_path:
+            return
+        entries = list(self._buffer)
+        self._buffer.clear()
+        try:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.writelines(entries)
+        except Exception as e:
+            print(f"Error flushing log buffer synchronously: {e}", file=sys.stderr)

@@ -123,6 +123,29 @@ def run_test_process(app, socketio, session_id):
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             py_guest_path = os.path.join(project_root, "py_guest.py")
             
+            is_large_scale = (config.bots > 50) or getattr(config, 'large_room_mode', False) or ("large_room" in (config.test_scenarios or "").lower())
+            force_all_publishers = getattr(config, 'disable_ram_scenario_opt', False) or getattr(config, 'auto_camera', False)
+
+            if force_all_publishers or (not is_large_scale and getattr(config, 'camera_publishers', '') in ('1,2,3,4,5', 'all', '1-10000', '')):
+                cam_pub_arg = "1-10000"
+            else:
+                cam_pub_arg = str(getattr(config, 'camera_publishers', '') or "1,2,3,4,5")
+
+            if force_all_publishers or getattr(config, 'auto_mic', False) or (not is_large_scale and getattr(config, 'mic_publishers', '') in ('1,2,3,4,5', 'all', '1-10000', '')):
+                mic_pub_arg = "1-10000"
+            else:
+                mic_pub_arg = str(getattr(config, 'mic_publishers', '') or "1,2,3,4,5")
+
+            if force_all_publishers or (not is_large_scale and getattr(config, 'viewer_bots', '') in ('6-10000', '6-1000', '')):
+                viewer_bots_arg = ""
+                viewer_mode_arg = "normal_participant"
+            else:
+                raw_viewers = str(getattr(config, 'viewer_bots', '') or "6-10000")
+                if raw_viewers in ("6-1000", "6-10000", ""):
+                    raw_viewers = f"6-{max(10000, config.bots + 1000)}"
+                viewer_bots_arg = raw_viewers
+                viewer_mode_arg = getattr(config, 'viewer_mode', "receive_only") or "receive_only"
+
             cmd = [
                 get_python_executable(project_root), py_guest_path,
                 "--room", config.room,
@@ -156,11 +179,11 @@ def run_test_process(app, socketio, session_id):
                 "--sla-packet-loss", str(getattr(config, 'sla_packet_loss', 2.0)),
                 "--sla-jitter", str(getattr(config, 'sla_jitter', 30.0)),
                 "--cross-confirm-limit", str(999999 if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'cross_confirm_limit', 10)),
-                "--camera-publishers", "1-10000" if (getattr(config, 'disable_ram_scenario_opt', False) or getattr(config, 'auto_camera', False) or getattr(config, 'camera_publishers', '') in ('1,2,3,4,5', 'all', '1-10000', '')) else str(config.camera_publishers),
+                "--camera-publishers", cam_pub_arg,
                 "--screen-share-publishers", "1-10000" if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'screen_share_publishers', "2"),
-                "--mic-publishers", "1-10000" if (getattr(config, 'disable_ram_scenario_opt', False) or getattr(config, 'auto_mic', False) or getattr(config, 'mic_publishers', '') in ('1,2,3,4,5', 'all', '1-10000', '')) else str(config.mic_publishers),
-                "--viewer-bots", "" if (getattr(config, 'disable_ram_scenario_opt', False) or getattr(config, 'auto_camera', False) or getattr(config, 'viewer_bots', '') in ('6-10000', '6-1000', '')) else str(config.viewer_bots),
-                "--viewer-mode", "normal_participant" if (getattr(config, 'disable_ram_scenario_opt', False) or getattr(config, 'auto_camera', False)) else getattr(config, 'viewer_mode', "receive_only"),
+                "--mic-publishers", mic_pub_arg,
+                "--viewer-bots", viewer_bots_arg,
+                "--viewer-mode", viewer_mode_arg,
                 "--refresh-bots", str(getattr(config, 'refresh_bots', 0) or 0)
             ]
             
@@ -253,7 +276,11 @@ def run_test_process(app, socketio, session_id):
                         chunk_cmd[bots_idx + 1] = str(chunk_bots)
                     except ValueError:
                         chunk_cmd.extend(["--bots", str(chunk_bots)])
-                    chunk_cmd.extend(["--start-id", str(start_id)])
+                    try:
+                        start_idx = chunk_cmd.index("--start-id")
+                        chunk_cmd[start_idx + 1] = str(start_id)
+                    except ValueError:
+                        chunk_cmd.extend(["--start-id", str(start_id)])
                     
                     # Calculate startup delay to stagger process chunks sequentially
                     startup_delay = idx * (max_bots_per_proc / batch_val) * stagger_val

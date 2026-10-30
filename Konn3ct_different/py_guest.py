@@ -627,27 +627,28 @@ async def action_loop(
         # Handle external Scenario Triggers
         if scenario_event.is_set():
             scenario_event.clear()
-            camera_on = not camera_on
-            client_event_id = f"ce_cam_{uuid.uuid4().hex[:8]}"
-            sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
-            payload = {
-                "type": "camera_state",
-                "isCameraOn": camera_on,
-                "clientEventId": client_event_id,
-                "sentTimestamp": sent_ts,
-                "senderBotId": f"bot-{bot_id:03d}",
-                "senderOS": fingerprint.get("os_type"),
-                "senderBrowser": fingerprint.get("browser_name"),
-                "senderDeviceType": fingerprint.get("device_type"),
-                "roomId": room_id,
-                "actionType": "camera"
-            }
-            await ws.send(json.dumps(payload))
-            pending.add("camera", camera_on, now, client_event_id)
-            await registry.record_sent(my_user_id, "camera", camera_on, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
-            await logger.log_action(bot_id, name, email, "camera", camera_on, "sent", fingerprint=fingerprint,
-                                    sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
-                                    client_event_id=client_event_id, sent_timestamp=sent_ts)
+            if camera_enabled:
+                camera_on = not camera_on
+                client_event_id = f"ce_cam_{uuid.uuid4().hex[:8]}"
+                sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
+                payload = {
+                    "type": "camera_state",
+                    "isCameraOn": camera_on,
+                    "clientEventId": client_event_id,
+                    "sentTimestamp": sent_ts,
+                    "senderBotId": f"bot-{bot_id:03d}",
+                    "senderOS": fingerprint.get("os_type"),
+                    "senderBrowser": fingerprint.get("browser_name"),
+                    "senderDeviceType": fingerprint.get("device_type"),
+                    "roomId": room_id,
+                    "actionType": "camera"
+                }
+                await ws.send(json.dumps(payload))
+                pending.add("camera", camera_on, now, client_event_id)
+                await registry.record_sent(my_user_id, "camera", camera_on, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                await logger.log_action(bot_id, name, email, "camera", camera_on, "sent", fingerprint=fingerprint,
+                                        sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                        client_event_id=client_event_id, sent_timestamp=sent_ts)
             continue
         # Normal random action intervals
         if now >= next_action_at:
@@ -664,8 +665,10 @@ async def action_loop(
                 if "remove_participant" in scenarios: choices.append("remove_participant")
                 if "lock_meeting" in scenarios: choices.append("lock_meeting")
                 if "recording_state" in scenarios: choices.append("recording_state")
-            choices.append("reaction")
-            choices.append("captions_state")
+            if not is_viewer or "reaction" in scenarios:
+                choices.append("reaction")
+            if not is_viewer or "captions_state" in scenarios:
+                choices.append("captions_state")
             if not is_viewer and role not in ("host", "presenter") and random.random() < 0.04:  # small chance of normal non-viewers leaving early
                 choices.append("leave_meeting")
 
@@ -2314,6 +2317,7 @@ async def main(args):
     # Save metrics summary to file
     summary = metrics.get_summary()
     await logger.record_event("test_finished", summary=summary)
+    await logger.close()
     
     print(f"\n{C['white']}{'═'*70}{C['reset']}")
     print(f"  📊 Test Finished: {stats.summary()}")
@@ -2398,26 +2402,29 @@ if __name__ == "__main__":
     if not args.jwt_secret or args.jwt_secret in ("fallback-secret-key", "my-secret", "default-insecure-key-change-me"):
         args.jwt_secret = os.environ.get("JWT_SECRET") or "super-secret-development-key-change-in-production"
 
-    # Auto-scale parameter overrides for ultra-high bot counts
-    if args.bots >= 5000:
+    # Auto-scale parameter overrides for ultra-high bot counts or lightweight multi-worker chunks
+    if args.bots >= 5000 or args.lightweight:
         if not args.no_cross_confirm:
             args.no_cross_confirm = True
-            print(f"🔧 Auto-scale: Disabled cross-confirmation for {args.bots} bots", flush=True)
+            print(f"🔧 Auto-scale: Disabled cross-confirmation for high-scale run", flush=True)
         if args.cross_confirm_limit > 3:
             args.cross_confirm_limit = 3
             print(f"🔧 Auto-scale: Reduced cross-confirm-limit to 3", flush=True)
         if not args.lightweight:
             args.lightweight = True
             print(f"🔧 Auto-scale: Enabled lightweight viewer mode", flush=True)
-        if args.viewer_bots == "6-1000":
-            args.viewer_bots = "11-100000"
-            print(f"🔧 Auto-scale: Extended viewer-bots range to 11-100000", flush=True)
+        if args.viewer_bots in ("6-1000", "6-10000", ""):
+            args.viewer_bots = "6-100000"
+            print(f"🔧 Auto-scale: Extended viewer-bots range to 6-100000", flush=True)
         if args.action_interval < 60:
             args.action_interval = 120.0
             print(f"🔧 Auto-scale: Increased action-interval to 120s", flush=True)
         if args.chat_interval < 120:
             args.chat_interval = 180.0
             print(f"🔧 Auto-scale: Increased chat-interval to 180s", flush=True)
+        if args.confirm_timeout < 15.0:
+            args.confirm_timeout = 15.0
+            print(f"🔧 Auto-scale: Increased confirm-timeout to 15s for large-room broadcast fanout", flush=True)
         if args.max_retries < 10:
             args.max_retries = 10
             print(f"🔧 Auto-scale: Increased max-retries to 10", flush=True)
@@ -2438,11 +2445,16 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print(f"\n{C['yellow']}🛑  Interrupted — shutting down...{C['reset']}", flush=True)
     finally:
-        # Flush any remaining buffered log entries
-        if logger and hasattr(logger, 'close'):
+        # Flush any remaining buffered log entries synchronously after asyncio.run() closes the loop
+        if logger and hasattr(logger, 'close_sync'):
+            try:
+                logger.close_sync()
+            except Exception:
+                pass
+        elif logger and hasattr(logger, 'close'):
             import asyncio as _aio
             try:
-                _aio.get_event_loop().run_until_complete(logger.close())
+                _aio.run(logger.close())
             except Exception:
                 pass
         if 'args' in locals() and os.path.exists(args.report_log) and "_chunk_" not in args.report_log:

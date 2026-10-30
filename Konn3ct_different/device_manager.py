@@ -266,11 +266,12 @@ class DeviceManager:
         sampled_os_ver = os_version or "10.0"
         
         if device_type == "desktop":
-            laptop = random.choice(LAPTOP_PROFILES)
             if os_type == "macos":
-                laptop = next((p for p in LAPTOP_PROFILES if p["brand"] == "MacBook"), laptop)
+                mac_profiles = [p for p in LAPTOP_PROFILES if p["brand"] == "MacBook"]
+                laptop = random.choice(mac_profiles) if mac_profiles else random.choice(LAPTOP_PROFILES)
             else:
-                laptop = next((p for p in LAPTOP_PROFILES if p["brand"] != "MacBook"), laptop)
+                non_mac_profiles = [p for p in LAPTOP_PROFILES if p["brand"] != "MacBook"]
+                laptop = random.choice(non_mac_profiles) if non_mac_profiles else random.choice(LAPTOP_PROFILES)
                 
             device_model = f"{laptop['brand']} Laptop"
             cpu_class = laptop["cpu"]

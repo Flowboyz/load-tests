@@ -181,7 +181,11 @@ def main():
         # though the actual bot stagger is handled by py_guest.py and the --startup-delay
         time.sleep(0.5)
 
+    stop_requested = False
+
     def terminate_all(signum=None, frame=None):
+        nonlocal stop_requested
+        stop_requested = True
         time_str = datetime.datetime.now().strftime('%H:%M:%S')
         print(f"\n[{time_str}] Received signal {signum}, terminating all workers...")
         for i, p in processes:
@@ -201,9 +205,6 @@ def main():
                     p.kill()
                 except Exception as e:
                     print(f"Failed to kill worker {i}: {e}")
-                    
-        if signum is not None:
-            sys.exit(1)
 
     # Register signal handlers
     signal.signal(signal.SIGINT, terminate_all)
@@ -212,7 +213,7 @@ def main():
 
     # Monitor loop
     try:
-        while True:
+        while not stop_requested:
             alive_count = 0
             for i, p in processes:
                 if p.poll() is None:
@@ -234,33 +235,34 @@ def main():
         # KeyboardInterrupt is also caught by the signal handler, but we pass here to allow exit flow
         pass
     
-    # Merge logs and generate report after all workers exit
+    # Merge logs and generate report after all workers exit (streamed to prevent OOM on 20K+ runs)
     time_str = datetime.datetime.now().strftime('%H:%M:%S')
     print(f"\n[{time_str}] Merging worker logs into {combined_log_path}...")
     
-    all_logs = []
-    for i in range(workers):
-        chunk_log = os.path.join(base_dir, f"report_log_chunk_{i}.jsonl")
-        if os.path.exists(chunk_log):
-            with open(chunk_log, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            data = json.loads(line)
-                            all_logs.append(data)
-                        except json.JSONDecodeError:
-                            pass
-
-    # Sort log events by timestamp to ensure timeline integrity
-    all_logs.sort(key=lambda x: x.get('ts') or x.get('timestamp', ''))
-
-    with open(combined_log_path, 'w', encoding='utf-8') as f:
-        for log_entry in all_logs:
-            f.write(json.dumps(log_entry) + '\n')
+    merged_count = 0
+    wrote_header = False
+    with open(combined_log_path, 'w', encoding='utf-8') as out_f:
+        for i in range(workers):
+            chunk_log = os.path.join(base_dir, f"report_log_chunk_{i}.jsonl")
+            if os.path.exists(chunk_log):
+                try:
+                    with open(chunk_log, 'r', encoding='utf-8') as in_f:
+                        for line in in_f:
+                            stripped = line.strip()
+                            if not stripped:
+                                continue
+                            if '"test_started"' in stripped:
+                                if wrote_header:
+                                    continue
+                                wrote_header = True
+                            out_f.write(stripped + '\n')
+                            merged_count += 1
+                    os.remove(chunk_log)
+                except Exception as e:
+                    print(f"Error merging chunk {chunk_log}: {e}")
             
     time_str = datetime.datetime.now().strftime('%H:%M:%S')
-    print(f"[{time_str}] Successfully merged {len(all_logs)} log events.")
+    print(f"[{time_str}] Successfully merged {merged_count} log events.")
     
     # Run report generator
     if os.path.exists(generate_report_path):
