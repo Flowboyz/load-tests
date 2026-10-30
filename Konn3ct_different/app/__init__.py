@@ -51,6 +51,15 @@ def create_app(db_uri=None):
                 if "ai_recommendations_json" not in columns:
                     cursor.execute("ALTER TABLE test_sessions ADD COLUMN ai_recommendations_json TEXT")
                     print("Self-healing: added ai_recommendations_json column to test_sessions table")
+                if "report_csv_path" not in columns:
+                    cursor.execute("ALTER TABLE test_sessions ADD COLUMN report_csv_path VARCHAR(255)")
+                    print("Self-healing: added report_csv_path column to test_sessions table")
+                if "total_expected_workers" not in columns:
+                    cursor.execute("ALTER TABLE test_sessions ADD COLUMN total_expected_workers INTEGER DEFAULT 1")
+                    print("Self-healing: added total_expected_workers column to test_sessions table")
+                if "uploaded_workers_count" not in columns:
+                    cursor.execute("ALTER TABLE test_sessions ADD COLUMN uploaded_workers_count INTEGER DEFAULT 0")
+                    print("Self-healing: added uploaded_workers_count column to test_sessions table")
                 conn.commit()
 
                 
@@ -59,6 +68,9 @@ def create_app(db_uri=None):
             if cursor.fetchone():
                 cursor.execute("PRAGMA table_info(configurations)")
                 cfg_columns = [col[1] for col in cursor.fetchall()]
+                if "start_id" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN start_id INTEGER DEFAULT 1")
+                    print("Self-healing: added start_id column to configurations table")
                 if "sla_success_rate" not in cfg_columns:
                     cursor.execute("ALTER TABLE configurations ADD COLUMN sla_success_rate REAL DEFAULT 95.0")
                     print("Self-healing: added sla_success_rate column to configurations table")
@@ -71,6 +83,18 @@ def create_app(db_uri=None):
                 if "sla_jitter" not in cfg_columns:
                     cursor.execute("ALTER TABLE configurations ADD COLUMN sla_jitter REAL DEFAULT 30.0")
                     print("Self-healing: added sla_jitter column to configurations table")
+                if "sla_join_latency" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN sla_join_latency REAL DEFAULT 5.0")
+                    print("Self-healing: added sla_join_latency column to configurations table")
+                if "sla_min_fps" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN sla_min_fps REAL DEFAULT 15.0")
+                    print("Self-healing: added sla_min_fps column to configurations table")
+                if "sla_max_disconnects" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN sla_max_disconnects REAL DEFAULT 1.0")
+                    print("Self-healing: added sla_max_disconnects column to configurations table")
+                if "sla_min_bitrate" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN sla_min_bitrate REAL DEFAULT 250.0")
+                    print("Self-healing: added sla_min_bitrate column to configurations table")
                 if "cross_confirm_limit" not in cfg_columns:
                     cursor.execute("ALTER TABLE configurations ADD COLUMN cross_confirm_limit INTEGER DEFAULT 10")
                     print("Self-healing: added cross_confirm_limit column to configurations table")
@@ -107,6 +131,15 @@ def create_app(db_uri=None):
                 if "disable_abnormal_behavior" not in cfg_columns:
                     cursor.execute("ALTER TABLE configurations ADD COLUMN disable_abnormal_behavior BOOLEAN DEFAULT 0")
                     print("Self-healing: added disable_abnormal_behavior column to configurations table")
+                if "large_room_mode" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN large_room_mode BOOLEAN DEFAULT 0")
+                    print("Self-healing: added large_room_mode column to configurations table")
+                if "conversational_audio" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN conversational_audio BOOLEAN DEFAULT 1")
+                    print("Self-healing: added conversational_audio column to configurations table")
+                if "speaker_promotion_storm" not in cfg_columns:
+                    cursor.execute("ALTER TABLE configurations ADD COLUMN speaker_promotion_storm BOOLEAN DEFAULT 0")
+                    print("Self-healing: added speaker_promotion_storm column to configurations table")
                 conn.commit()
                 
             conn.close()
