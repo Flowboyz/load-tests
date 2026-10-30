@@ -69,7 +69,7 @@ class Configuration(db.Model):
     # Endpoint and auth configurations
     frontend = db.Column(db.String(255), default='https://edge.konn3ct.net')
     signal = db.Column(db.String(255), default='konn3ctedge.konn3ct.net')
-    jwt_secret = db.Column(db.String(255), nullable=True)
+    jwt_secret = db.Column(db.String(255), default='super-secret-development-key-change-in-production', nullable=True)
     
     # Bot specific identifiers
     host_bot_id = db.Column(db.Integer, default=1)

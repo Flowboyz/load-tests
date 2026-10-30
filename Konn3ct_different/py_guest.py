@@ -360,10 +360,10 @@ async def get_ws_token(session, frontend_url, room_id, name, email, bot_id, is_m
                 return None
             if session_context is not None and data.get("refreshedSessionToken"):
                 session_context["refreshed_session_token"] = data.get("refreshedSessionToken")
-            ws_token = data.get("token")
+            ws_token = data.get("token") or data.get("sessionToken") or session_token
             return ws_token
     except Exception:
-        return None
+        return session_token
 
 def is_screen_share_supported(fingerprint, frontend_url):
     os_name = fingerprint.get("os_type", "").lower()
@@ -2386,7 +2386,16 @@ if __name__ == "__main__":
     parser.add_argument("--speaker-promotion-storm", action="store_true", default=False, help="Enable dynamic viewer hand-raise storms and host promotion/demotion lifecycle")
     
     args = parser.parse_args()
-    args.jwt_secret = args.jwt_secret or os.environ.get("JWT_SECRET") or None
+    if args.frontend and "edge-test.konn3ct.net" in args.frontend:
+        args.frontend = args.frontend.replace("edge-test.konn3ct.net", "edge.konn3ct.net")
+        print(f"🔧 Auto-corrected offline frontend domain to {args.frontend}", flush=True)
+    if args.signal:
+        if "konn3ctedge-test.konn3ct.net" in args.signal:
+            args.signal = args.signal.replace("konn3ctedge-test.konn3ct.net", "konn3ctedge.konn3ct.net")
+            print(f"🔧 Auto-corrected offline signaling domain to {args.signal}", flush=True)
+        args.signal = args.signal.replace("wss://", "").replace("ws://", "").replace("https://", "").replace("http://", "").split("/")[0]
+    if not args.jwt_secret or args.jwt_secret in ("fallback-secret-key", "my-secret", "default-insecure-key-change-me"):
+        args.jwt_secret = os.environ.get("JWT_SECRET") or "super-secret-development-key-change-in-production"
 
     # Auto-scale parameter overrides for ultra-high bot counts
     if args.bots >= 5000:

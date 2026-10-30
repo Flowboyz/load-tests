@@ -93,36 +93,36 @@ def build_remote_sdp_answer(local_sdp, transport_params, is_recv=False):
     candidates = transport_params.get("iceCandidates", [])
     
     fingerprints = dtls_params.get("fingerprints", [])
-    remote_fingerprint = fingerprints[0].get("value") if fingerprints else ""
-    remote_algo = fingerprints[0].get("algorithm") if fingerprints else "sha-256"
+    fp_obj = next((fp for fp in fingerprints if fp.get("algorithm", "").lower() == "sha-256"), fingerprints[0] if fingerprints else {})
+    remote_fingerprint = fp_obj.get("value", "")
+    remote_algo = fp_obj.get("algorithm", "sha-256")
     
     candidate_lines = []
     for idx, cand in enumerate(candidates):
-        foundation = idx
-        ip = cand.get("ip")
-        port = cand.get("port")
         proto = cand.get("protocol", "udp").lower()
+        if proto != "udp":
+            continue
+        foundation = cand.get("foundation", f"cand-{idx}")
+        ip = cand.get("ip") or cand.get("address")
+        port = cand.get("port")
         typ = cand.get("type", "host")
-        priority = 2130706431 - idx
-        line = f"a=candidate:cand-{foundation} 1 {proto} {priority} {ip} {port} typ {typ}"
+        priority = cand.get("priority", 2130706431 - idx)
+        line = f"a=candidate:{foundation} 1 {proto} {priority} {ip} {port} typ {typ}"
         candidate_lines.append(line)
         
     lines = local_sdp.split("\r\n")
     new_lines = []
-    fingerprint_added = False
     
     for line in lines:
         if line.startswith("a=setup:"):
             new_lines.append("a=setup:passive")
         elif line.startswith("a=fingerprint:"):
-            if not fingerprint_added:
-                new_lines.append(f"a=fingerprint:{remote_algo} {remote_fingerprint}")
-                fingerprint_added = True
+            new_lines.append(f"a=fingerprint:{remote_algo} {remote_fingerprint}")
         elif line.startswith("a=ice-ufrag:"):
             new_lines.append(f"a=ice-ufrag:{ice_params.get('usernameFragment')}")
         elif line.startswith("a=ice-pwd:"):
             new_lines.append(f"a=ice-pwd:{ice_params.get('password')}")
-        elif line.startswith("a=mid:") or line.startswith("m="):
+        elif line.startswith("m="):
             new_lines.append(line)
             for cand_line in candidate_lines:
                 new_lines.append(cand_line)
@@ -138,7 +138,8 @@ def build_remote_sdp_answer(local_sdp, transport_params, is_recv=False):
             new_lines.append(line)
         elif line.startswith("c=IN"):
             if candidates:
-                new_lines.append(f"c=IN IP4 {candidates[0].get('ip')}")
+                first_ip = candidates[0].get("ip") or candidates[0].get("address")
+                new_lines.append(f"c=IN IP4 {first_ip}")
             else:
                 new_lines.append(line)
         else:
@@ -225,6 +226,7 @@ class WebRTCClient:
         self.audio_producer_id = None
         self.screen_producer_id = None
         self.active_consumers = {}  # maps producer_id -> consumer_id
+        self._consume_lock = asyncio.Lock()
         
         # State tracking
         self._ice_state = "new"
@@ -690,54 +692,59 @@ class WebRTCClient:
         if producer_id in self.active_consumers:
             return True
             
-        try:
-            if not self.pc_recv:
-                transport_data = await self.send_request("createWebRtcTransport", "transportCreated", {"direction": "recv"})
-                self.recv_transport_params = transport_data.get("transportParams", {})
-                self.recv_transport_id = self.recv_transport_params.get("id")
-                
-                self.pc_recv = RTCPeerConnection()
-                
-                @self.pc_recv.on("track")
-                def on_track(track):
-                    if self.decode_downlink:
-                        asyncio.create_task(self._consume_incoming_track(track))
-            
-            if not self.router_capabilities or not self.router_capabilities.get("codecs"):
-                self.router_capabilities = DEFAULT_RTP_CAPABILITIES
-            consume_params = {
-                "transportId": self.recv_transport_id,
-                "producerId": producer_id,
-                "rtpCapabilities": self.router_capabilities
-            }
-            consumed_data = await self.send_request("consume", "consumed", consume_params)
-            consumer_id = consumed_data.get("id")
-            
-            if not consumer_id:
+        async with self._consume_lock:
+            if len(self.active_consumers) >= self.max_subscriptions:
                 return False
+            if producer_id in self.active_consumers:
+                return True
+            try:
+                if not self.pc_recv:
+                    transport_data = await self.send_request("createWebRtcTransport", "transportCreated", {"direction": "recv"})
+                    self.recv_transport_params = transport_data.get("transportParams", {})
+                    self.recv_transport_id = self.recv_transport_params.get("id")
+                    
+                    self.pc_recv = RTCPeerConnection()
+                    
+                    @self.pc_recv.on("track")
+                    def on_track(track):
+                        if self.decode_downlink:
+                            asyncio.create_task(self._consume_incoming_track(track))
                 
-            self.pc_recv.addTransceiver(kind, direction="recvonly")
-            
-            offer = await self.pc_recv.createOffer()
-            await self.pc_recv.setLocalDescription(offer)
-            
-            if not self._recv_transport_connected:
-                local_dtls = parse_dtls_fingerprint(self.pc_recv.localDescription.sdp)
-                await self.send_request("connectWebRtcTransport", "transportConnected", {
+                if not self.router_capabilities or not self.router_capabilities.get("codecs"):
+                    self.router_capabilities = DEFAULT_RTP_CAPABILITIES
+                consume_params = {
                     "transportId": self.recv_transport_id,
-                    "dtlsParameters": local_dtls
-                })
-                self._recv_transport_connected = True
+                    "producerId": producer_id,
+                    "rtpCapabilities": self.router_capabilities
+                }
+                consumed_data = await self.send_request("consume", "consumed", consume_params)
+                consumer_id = consumed_data.get("id")
                 
-            remote_sdp = build_remote_sdp_answer(self.pc_recv.localDescription.sdp, self.recv_transport_params, is_recv=True)
-            await self.pc_recv.setRemoteDescription(RTCSessionDescription(sdp=remote_sdp, type="answer"))
-            
-            await self.send_request("resume", "resumed", {"consumerId": consumer_id})
-            
-            self.active_consumers[producer_id] = consumer_id
-            return True
-        except Exception:
-            return False
+                if not consumer_id:
+                    return False
+                    
+                self.pc_recv.addTransceiver(kind, direction="recvonly")
+                
+                offer = await self.pc_recv.createOffer()
+                await self.pc_recv.setLocalDescription(offer)
+                
+                if not self._recv_transport_connected:
+                    local_dtls = parse_dtls_fingerprint(self.pc_recv.localDescription.sdp)
+                    await self.send_request("connectWebRtcTransport", "transportConnected", {
+                        "transportId": self.recv_transport_id,
+                        "dtlsParameters": local_dtls
+                    })
+                    self._recv_transport_connected = True
+                    
+                remote_sdp = build_remote_sdp_answer(self.pc_recv.localDescription.sdp, self.recv_transport_params, is_recv=True)
+                await self.pc_recv.setRemoteDescription(RTCSessionDescription(sdp=remote_sdp, type="answer"))
+                
+                await self.send_request("resume", "resumed", {"consumerId": consumer_id})
+                
+                self.active_consumers[producer_id] = consumer_id
+                return True
+            except Exception:
+                return False
 
     async def remove_consumer(self, producer_id):
         if producer_id not in self.active_consumers:

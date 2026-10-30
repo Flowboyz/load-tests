@@ -140,6 +140,11 @@ def create_app(db_uri=None):
                 if "speaker_promotion_storm" not in cfg_columns:
                     cursor.execute("ALTER TABLE configurations ADD COLUMN speaker_promotion_storm BOOLEAN DEFAULT 0")
                     print("Self-healing: added speaker_promotion_storm column to configurations table")
+
+                # 3. Auto-heal legacy offline domains and stale placeholder JWT secrets in saved presets
+                cursor.execute("UPDATE configurations SET frontend = 'https://edge.konn3ct.net' WHERE frontend LIKE '%edge-test.konn3ct.net%'")
+                cursor.execute("UPDATE configurations SET signal = 'konn3ctedge.konn3ct.net' WHERE signal LIKE '%konn3ctedge-test.konn3ct.net%'")
+                cursor.execute("UPDATE configurations SET jwt_secret = 'super-secret-development-key-change-in-production' WHERE jwt_secret IS NULL OR jwt_secret IN ('', 'fallback-secret-key', 'my-secret', 'default-insecure-key-change-me')")
                 conn.commit()
                 
             conn.close()

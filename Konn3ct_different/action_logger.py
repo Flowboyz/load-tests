@@ -97,7 +97,7 @@ class ActionLogger:
         # Format message based on status
         if status == "sent":
             msg = f"Sent {action_type} → {action_value} (awaiting confirmation…)"
-        elif status == "acknowledged":
+        elif status in ("acknowledged", "confirmed"):
             lat_str = f", ack: {latency_ms:.1f}ms" if latency_ms else ""
             msg = f"{action_type.capitalize()} → {action_value} (✅ acknowledged{lat_str})"
             colour = "green"
