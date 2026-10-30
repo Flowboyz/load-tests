@@ -14,6 +14,14 @@ from app.models import db, TestSession, SessionMetric, Configuration
 RUNNING_SESSIONS = {}
 RUNNING_SESSIONS_LOCK = threading.Lock()
 
+def _normalize_project_root(project_root):
+    if not project_root:
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    norm = os.path.normpath(project_root)
+    if os.path.basename(norm) == "app":
+        return os.path.dirname(norm)
+    return norm
+
 def get_session_dir(session_id, *args):
     """
     Returns the session folder path. Supports:
@@ -21,7 +29,7 @@ def get_session_dir(session_id, *args):
       get_session_dir(project_root, session_id)
     """
     if isinstance(session_id, str) and args:
-        project_root = session_id
+        project_root = _normalize_project_root(session_id)
         actual_session_id = args[0]
     else:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -36,13 +44,21 @@ def get_python_executable(project_root):
     Resolves the python interpreter path. Prefers the virtual environment's python
     to guarantee all dependencies (docx, aiortc, etc.) are available.
     """
+    project_root = _normalize_project_root(project_root)
     if sys.platform == "win32":
-        venv_python = os.path.join(project_root, ".venv", "Scripts", "python.exe")
+        candidates = [
+            os.path.join(project_root, ".venv", "Scripts", "python.exe"),
+            os.path.join(project_root, "venv", "Scripts", "python.exe"),
+        ]
     else:
-        venv_python = os.path.join(project_root, ".venv", "bin", "python")
+        candidates = [
+            os.path.join(project_root, ".venv", "bin", "python"),
+            os.path.join(project_root, "venv", "bin", "python"),
+        ]
         
-    if os.path.exists(venv_python):
-        return venv_python
+    for c in candidates:
+        if os.path.exists(c):
+            return c
     return sys.executable
 
 def run_test_process(app, socketio, session_id):
@@ -373,10 +389,21 @@ def run_test_process(app, socketio, session_id):
 
                         if project_root and report_log and report_docx and has_log_or_chunks:
                             try:
-                                compile_report_log(project_root, report_log, report_docx)
+                                sla_overrides = {}
+                                if session.config:
+                                    sla_overrides['sla_success_rate'] = getattr(session.config, 'sla_success_rate', None)
+                                    sla_overrides['sla_latency'] = getattr(session.config, 'sla_latency', None)
+                                    sla_overrides['sla_packet_loss'] = getattr(session.config, 'sla_packet_loss', None)
+                                    sla_overrides['sla_jitter'] = getattr(session.config, 'sla_jitter', None)
+                                    sla_overrides['sla_join_latency'] = getattr(session.config, 'sla_join_latency', None)
+                                    sla_overrides['sla_min_fps'] = getattr(session.config, 'sla_min_fps', None)
+                                    sla_overrides['sla_max_disconnects'] = getattr(session.config, 'sla_max_disconnects', None)
+                                    sla_overrides['sla_min_bitrate'] = getattr(session.config, 'sla_min_bitrate', None)
+                                compile_report_log(project_root, report_log, report_docx, **sla_overrides)
                                 
                                 # Cache AI verdict and recommendations in DB
-                                temp_json_path = os.path.join(project_root, "_report_data.json")
+                                session_json_path = os.path.join(session_dir, "session_report_data.json") if session_dir else ""
+                                temp_json_path = session_json_path if (session_json_path and os.path.exists(session_json_path)) else os.path.join(project_root, "_report_data.json")
                                 if os.path.exists(temp_json_path):
                                     try:
                                         with open(temp_json_path, "r", encoding="utf-8") as tjf:
@@ -387,10 +414,14 @@ def run_test_process(app, socketio, session_id):
                                                 session.ai_recommendations_json = json.dumps(tdata["ai_advisory"])
                                     except Exception as db_e:
                                         print(f"Note: Could not parse AI report data for DB caching: {db_e}")
+                                if session_dir:
+                                    csv_candidate = os.path.join(session_dir, "session_action_lifecycle.csv")
+                                    if os.path.exists(csv_candidate):
+                                        session.report_csv_path = csv_candidate
                             except Exception as cre:
                                 print(f"Error compiling report log: {cre}")
                                 
-                        # Convert DOCX to PDF using LibreOffice
+                        # Convert DOCX to PDF using LibreOffice / Playwright / Pure-Python fallback
                         if report_docx and session_dir and os.path.exists(report_docx):
                             try:
                                 pdf_path = convert_docx_to_pdf(report_docx, session_dir)
@@ -865,6 +896,7 @@ def compile_report_log(project_root, log_path, docx_path,
     """
     Force executes generate_report.py to compile report.
     """
+    project_root = _normalize_project_root(project_root)
     generate_report_script = os.path.join(project_root, "generate_report.py")
     cmd = [get_python_executable(project_root), generate_report_script, log_path, "--output", docx_path]
     if sla_success_rate is not None:
@@ -904,9 +936,12 @@ def compile_report_log_async(project_root, session_id, socketio):
     Spawns a background thread to compile the report asynchronously and stream
     status updates.
     """
+    import glob
     import threading
     from app.models import TestSession, db
     
+    project_root = _normalize_project_root(project_root)
+
     def worker():
         # Retrieve session from app context
         from app import create_app
@@ -919,32 +954,42 @@ def compile_report_log_async(project_root, session_id, socketio):
             try:
                 socketio.emit('report_compile_status', {'session_id': session_id, 'status': 'merging', 'message': 'Merging worker chunks...'})
                 
-                # 1. Self-healing merger: Combine all uploaded chunk files
+                # 1. Non-destructive self-healing merger: Combine any uploaded chunk files
                 session_dir = get_session_dir(project_root, session_id)
                 merged_log_path = os.path.join(session_dir, "report_log.jsonl")
                 
-                # Scan all chunks
-                chunks = []
-                expected = session.total_expected_workers or 1
-                for i in range(1, expected + 1):
-                    chunk_path = os.path.join(session_dir, f"report_log_chunk_{i}.jsonl")
-                    if os.path.exists(chunk_path):
-                        chunks.append(chunk_path)
+                # Scan all chunks using glob (handles both worker_id 1..N and multi-process start_id 1, 201, 401...)
+                def _chunk_sort_key(p):
+                    base = os.path.basename(p).replace(".jsonl", "")
+                    parts = base.split("_")
+                    try:
+                        return int(parts[-1])
+                    except Exception:
+                        return 0
+
+                chunks = sorted(glob.glob(os.path.join(session_dir, "report_log_chunk_*.jsonl")), key=_chunk_sort_key)
                 
-                # Merge logic
-                with open(merged_log_path, 'w', encoding='utf-8') as outfile:
-                    for chunk_file in chunks:
-                        try:
-                            with open(chunk_file, 'r', encoding='utf-8') as infile:
-                                for line in infile:
-                                    outfile.write(line)
-                        except Exception as e:
-                            print(f"Error merging chunk {chunk_file}: {e}")
-                            
+                # IMPORTANT: Only write/append when chunk files actually exist; NEVER overwrite an existing report_log.jsonl with an empty list!
+                if chunks:
+                    has_existing_main = os.path.exists(merged_log_path) and os.path.getsize(merged_log_path) > 0
+                    mode = 'a' if has_existing_main else 'w'
+                    with open(merged_log_path, mode, encoding='utf-8') as outfile:
+                        for c_idx, chunk_file in enumerate(chunks):
+                            try:
+                                if os.path.getsize(chunk_file) > 0:
+                                    with open(chunk_file, 'r', encoding='utf-8') as infile:
+                                        for l_idx, line in enumerate(infile):
+                                            if (has_existing_main or c_idx > 0) and l_idx == 0 and "test_started" in line:
+                                                continue
+                                            outfile.write(line)
+                                os.remove(chunk_file)
+                            except Exception as e:
+                                print(f"Error merging chunk {chunk_file}: {e}")
+                                
                 socketio.emit('report_compile_status', {'session_id': session_id, 'status': 'compiling', 'message': 'Compiling document report analytics...'})
                 
                 # 2. Compile DOCX report
-                docx_path = os.path.join(session_dir, f"session_{session_id}_report.docx")
+                docx_path = os.path.join(session_dir, "report.docx")
                 
                 sla_overrides = {}
                 if session.config:
@@ -959,6 +1004,27 @@ def compile_report_log_async(project_root, session_id, socketio):
                     
                 compile_report_log(project_root, merged_log_path, docx_path, **sla_overrides)
                 
+                # Cache AI verdict and recommendations in DB
+                session_json_path = os.path.join(session_dir, "session_report_data.json")
+                if os.path.exists(session_json_path):
+                    try:
+                        with open(session_json_path, "r", encoding="utf-8") as tjf:
+                            tdata = json.load(tjf)
+                            session.ai_verdict = tdata.get("qa_verdict")
+                            session.ai_engine_used = tdata.get("engine_attribution", {}).get("engine_name")
+                            if tdata.get("ai_advisory"):
+                                session.ai_recommendations_json = json.dumps(tdata["ai_advisory"])
+                    except Exception as db_e:
+                        print(f"Note: Could not parse AI report data for DB caching: {db_e}")
+
+                pdf_path = convert_docx_to_pdf(docx_path, session_dir)
+                if pdf_path:
+                    session.report_pdf_path = pdf_path
+
+                csv_candidate = os.path.join(session_dir, "session_action_lifecycle.csv")
+                if os.path.exists(csv_candidate):
+                    session.report_csv_path = csv_candidate
+
                 session.report_log_path = merged_log_path
                 session.report_docx_path = docx_path
                 session.status = 'completed'

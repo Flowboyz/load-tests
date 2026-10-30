@@ -260,6 +260,7 @@ def render_markdown_to_pdf(md_path: str, pdf_path: str) -> bool:
     out_dir = os.path.dirname(os.path.abspath(pdf_path))
     os.makedirs(out_dir, exist_ok=True)
 
+    # Attempt 1: Playwright Python SDK
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
@@ -277,9 +278,198 @@ def render_markdown_to_pdf(md_path: str, pdf_path: str) -> bool:
         if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 100:
             return True
     except Exception as e:
-        print(f"Playwright PDF generation failed: {e}")
+        print(f"Playwright PDF generation unavailable ({e}), trying system browser / pure-Python fallback...")
+
+    # Attempt 2: System Chromium / Chrome / Edge CLI (--headless --print-to-pdf)
+    browser_candidates = [
+        shutil.which("google-chrome"),
+        shutil.which("chromium"),
+        shutil.which("chromium-browser"),
+        shutil.which("msedge"),
+        shutil.which("chrome"),
+    ]
+    if sys.platform == "win32":
+        browser_candidates.extend([
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        ])
+    elif sys.platform.startswith("linux"):
+        browser_candidates.extend([
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+            "/snap/bin/chromium",
+        ])
+
+    browser_bin = next((b for b in browser_candidates if b and os.path.exists(b)), None)
+    if browser_bin:
+        temp_html = os.path.join(out_dir, "_temp_report_render.html")
+        try:
+            with open(temp_html, "w", encoding="utf-8") as hf:
+                hf.write(styled_html)
+            cmd = [
+                browser_bin,
+                "--headless",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--no-pdf-header-footer",
+                f"--print-to-pdf={os.path.abspath(pdf_path)}",
+                os.path.abspath(temp_html)
+            ]
+            subprocess.run(cmd, capture_output=True, timeout=30)
+            if os.path.exists(temp_html):
+                os.remove(temp_html)
+            if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 100:
+                return True
+        except Exception as e:
+            if os.path.exists(temp_html):
+                try:
+                    os.remove(temp_html)
+                except Exception:
+                    pass
+            print(f"System browser PDF generation failed: {e}")
+
+    # Attempt 3: Zero-dependency pure-Python PDF 1.4 generator
+    try:
+        if _render_pure_python_pdf(content, pdf_path):
+            return True
+    except Exception as e:
+        print(f"Pure-Python PDF fallback failed: {e}")
         
     return False
+
+
+def _render_pure_python_pdf(markdown_text: str, pdf_path: str) -> bool:
+    """
+    Zero-dependency pure-Python PDF 1.4 writer using built-in Type1 Helvetica fonts.
+    Guarantees a valid, readable multi-page PDF on headless servers without LibreOffice or Chromium.
+    """
+    import re
+    import textwrap
+
+    def clean_pdf_text(s: str) -> str:
+        # Replace non-latin1 characters with readable ASCII equivalents
+        replacements = {
+            "—": "-", "–": "-", "•": "*", "⚡": "[AI]", "📋": "[GATE]", "💡": "[INFO]",
+            "🚨": "[ALERT]", "❌": "[X]", "⚠️": "[!]", "✅": "[OK]", "≥": ">=", "≤": "<="
+        }
+        for k, v in replacements.items():
+            s = s.replace(k, v)
+        s = re.sub(r"\*\*(.*?)\*\*", r"\1", s)
+        s = re.sub(r"\*(.*?)\*", r"\1", s)
+        s = re.sub(r"`(.*?)`", r"\1", s)
+        s = s.encode("latin-1", "replace").decode("latin-1")
+        return s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    lines_out = []
+    for raw_line in markdown_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            lines_out.append(("spacer", ""))
+            continue
+        if line.startswith("# "):
+            lines_out.append(("h1", line[2:].strip()))
+        elif line.startswith("## "):
+            lines_out.append(("h2", line[3:].strip()))
+        elif line.startswith("### ") or line.startswith("#### "):
+            lines_out.append(("h3", line.lstrip("#").strip()))
+        elif line.startswith("|") and ("---" in line or ":---" in line):
+            continue
+        elif line.startswith("|"):
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            row_txt = " | ".join(cells)
+            for wrapped in textwrap.wrap(row_txt, width=92) or [""]:
+                lines_out.append(("table", wrapped))
+        elif line == "---":
+            lines_out.append(("rule", "-" * 85))
+        else:
+            for wrapped in textwrap.wrap(line, width=90) or [""]:
+                lines_out.append(("body", wrapped))
+
+    # Paginate into A4 pages (595 x 842 pt)
+    pages = []
+    curr_ops = []
+    y = 790
+    for style, txt in lines_out:
+        if y < 60:
+            pages.append("\n".join(curr_ops))
+            curr_ops = []
+            y = 790
+        if style == "spacer":
+            y -= 8
+            continue
+        elif style == "h1":
+            y -= 6
+            curr_ops.append(f"BT /F2 15 Tf 45 {y} Td ({clean_pdf_text(txt)}) Tj ET")
+            y -= 20
+        elif style == "h2":
+            y -= 6
+            curr_ops.append(f"BT /F2 12 Tf 45 {y} Td ({clean_pdf_text(txt)}) Tj ET")
+            y -= 16
+        elif style == "h3":
+            y -= 4
+            curr_ops.append(f"BT /F2 10.5 Tf 45 {y} Td ({clean_pdf_text(txt)}) Tj ET")
+            y -= 14
+        elif style == "table":
+            curr_ops.append(f"BT /F1 8.5 Tf 45 {y} Td ({clean_pdf_text(txt)}) Tj ET")
+            y -= 12
+        else:
+            curr_ops.append(f"BT /F1 9.5 Tf 45 {y} Td ({clean_pdf_text(txt)}) Tj ET")
+            y -= 13
+
+    if curr_ops or not pages:
+        pages.append("\n".join(curr_ops))
+
+    objects = []
+    # 1: Catalog, 2: Pages, 3: Font Regular, 4: Font Bold
+    page_obj_ids = []
+    next_id = 5
+    page_entries = []
+    for p_content in pages:
+        p_id = next_id
+        c_id = next_id + 1
+        next_id += 2
+        page_obj_ids.append(p_id)
+        page_entries.append((p_id, c_id, p_content.encode("latin-1")))
+
+    kids_str = " ".join(f"{pid} 0 R" for pid in page_obj_ids)
+    objects.append((1, b"<< /Type /Catalog /Pages 2 0 R >>"))
+    objects.append((2, f"<< /Type /Pages /Kids [{kids_str}] /Count {len(page_obj_ids)} >>".encode("latin-1")))
+    objects.append((3, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"))
+    objects.append((4, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"))
+
+    for p_id, c_id, stream_bytes in page_entries:
+        page_dict = (
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+            f"/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents {c_id} 0 R >>"
+        ).encode("latin-1")
+        content_dict = f"<< /Length {len(stream_bytes)} >>\nstream\n".encode("latin-1") + stream_bytes + b"\nendstream"
+        objects.append((p_id, page_dict))
+        objects.append((c_id, content_dict))
+
+    out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = {}
+    for obj_id, body in objects:
+        offsets[obj_id] = len(out)
+        out.extend(f"{obj_id} 0 obj\n".encode("latin-1"))
+        out.extend(body)
+        out.extend(b"\nendobj\n")
+
+    xref_pos = len(out)
+    total_objs = len(objects) + 1
+    out.extend(f"xref\n0 {total_objs}\n0000000000 65535 f \n".encode("latin-1"))
+    for i in range(1, total_objs):
+        out.extend(f"{offsets[i]:010d} 00000 n \n".encode("latin-1"))
+    out.extend(
+        f"trailer\n<< /Size {total_objs} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode("latin-1")
+    )
+
+    with open(pdf_path, "wb") as pf:
+        pf.write(out)
+
+    return os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 100
 
 
 def convert_report_to_pdf(docx_path: str, out_dir: str, md_path: str = None) -> str:

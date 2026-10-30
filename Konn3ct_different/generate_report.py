@@ -282,6 +282,8 @@ class MetricsAggregationStage:
         
         self.started_at = None
         self.finished_at = None
+        self.first_event_ts = None
+        self.last_event_ts = None
         self.config = {}
         self.websocket_disconnects = 0
         self.total_reconnects = 0
@@ -354,6 +356,12 @@ class MetricsAggregationStage:
         ts = e.get("ts")
         bot_id = e.get("bot_id")
         
+        if ts:
+            if self.first_event_ts is None or ts < self.first_event_ts:
+                self.first_event_ts = ts
+            if self.last_event_ts is None or ts > self.last_event_ts:
+                self.last_event_ts = ts
+
         if bot_id:
             self.all_simulated_bots.add(bot_id)
 
@@ -440,19 +448,20 @@ class MetricsAggregationStage:
 
             if status and (status.startswith("observed") or status == "rendered"):
                 receiver_id = e.get("receiver_bot_id") or bot_id
+                sender_bot_id_obs = e.get("sender_bot_id") or bot_id
                 if fp and receiver_id:
                     self.bots_fingerprints[receiver_id] = fp
-                
-                self.conn.execute("""
-                    INSERT OR IGNORE INTO actions (
-                        client_event_id, action_type, action_value, sender_bot_id, final_status
-                    ) VALUES (?, ?, ?, ?, 'sent')
-                """, (client_event_id, act_type, e.get("action_value"), bot_id))
                 
                 observed_ts = e.get("observed_timestamp") or (ts if status.startswith("observed") else None)
                 rendered_ts = e.get("rendered_timestamp") or (ts if status == "rendered" or e.get("final_status") == "rendered" else None)
                 
                 final_obs_status = "rendered" if (status == "rendered" or e.get("final_status") == "rendered") else "observed"
+                
+                self.conn.execute("""
+                    INSERT OR IGNORE INTO actions (
+                        client_event_id, action_type, action_value, sender_bot_id, final_status
+                    ) VALUES (?, ?, ?, ?, ?)
+                """, (client_event_id, act_type, e.get("action_value"), sender_bot_id_obs, final_obs_status))
                 
                 self.pending_observations.append((
                     client_event_id, receiver_id, e.get("server_event_id"), observed_ts, rendered_ts,
@@ -509,7 +518,10 @@ class MetricsAggregationStage:
                     server_event_id = COALESCE(excluded.server_event_id, server_event_id),
                     unsupported_reason = COALESCE(excluded.unsupported_reason, unsupported_reason),
                     error_code = COALESCE(excluded.error_code, error_code),
-                    final_status = excluded.final_status,
+                    final_status = CASE
+                        WHEN excluded.final_status = 'sent' AND final_status != 'sent' THEN final_status
+                        ELSE excluded.final_status
+                    END,
                     timeout_stage = COALESCE(excluded.timeout_stage, timeout_stage)
             """, self.pending_actions)
             self.pending_actions.clear()
@@ -553,6 +565,11 @@ class MetricsAggregationStage:
         except Exception:
             pass
         self.flush()
+        
+        if self.started_at is None:
+            self.started_at = self.first_event_ts
+        if self.finished_at is None:
+            self.finished_at = self.last_event_ts
         
         host_bot_id = self.config.get("host_bot_id", 1)
         presenter_bot_id = self.config.get("presenter_bot_id", 2)
@@ -894,8 +911,75 @@ class ReportPipeline:
         per_action_stats = {}
         per_action_browser_stats = {}
         
-        broadcast_action_types = ["chat", "camera", "mic", "hand", "screen_share", "leave_meeting", "remove_participant", "lock_meeting", "recording_state", "captions_state"]
+        broadcast_action_types = [
+            "chat", "camera", "mic", "hand", "screen_share", "leave_meeting",
+            "remove_participant", "lock_meeting", "recording_state", "captions_state",
+            "reaction", "kick_user", "update_room_settings", "set_caption_language",
+            "speaker_promote", "speaker_demote", "poll_create", "poll_vote",
+            "screenshare_control", "waiting_room_admit", "waiting_room_admit_all", "waiting_room_reject"
+        ]
         
+        def record_row_metrics(row):
+            nonlocal total_actions_sent, total_acknowledged, total_broadcasted, total_observed, total_rendered
+            nonlocal total_timed_out, total_failed, total_unsupported
+            nonlocal ack_latency_sum, ack_latency_count, broadcast_latency_sum, broadcast_latency_count
+            nonlocal observer_latency_sum, observer_latency_count, ui_render_latency_sum, ui_render_latency_count
+
+            total_actions_sent += 1
+            status = row[20]
+            t_stage = row[21]
+            err_code = row[22]
+            uns_reason = row[23]
+
+            if status in ("acknowledged", "confirmed", "sent"):
+                total_acknowledged += 1
+            elif status == "broadcasted":
+                total_acknowledged += 1
+                total_broadcasted += 1
+            elif status == "observed":
+                total_acknowledged += 1
+                total_broadcasted += 1
+                total_observed += 1
+            elif status == "rendered":
+                total_acknowledged += 1
+                total_broadcasted += 1
+                total_observed += 1
+                total_rendered += 1
+            elif status == "timed-out":
+                total_timed_out += 1
+            elif status == "failed":
+                total_failed += 1
+            elif status == "unsupported":
+                total_unsupported += 1
+
+            if t_stage:
+                timeout_stages[t_stage] = timeout_stages.get(t_stage, 0) + 1
+            if err_code:
+                error_codes[err_code] = error_codes.get(err_code, 0) + 1
+            if uns_reason:
+                unsupported_reasons[uns_reason] = unsupported_reasons.get(uns_reason, 0) + 1
+
+            if row[16] != "":
+                val = float(row[16])
+                ack_latencies_sampler.add(val)
+                ack_latency_sum += val
+                ack_latency_count += 1
+            if row[17] != "":
+                val = float(row[17])
+                broadcast_latencies_sampler.add(val)
+                broadcast_latency_sum += val
+                broadcast_latency_count += 1
+            if row[18] != "":
+                val = float(row[18])
+                observer_latencies_sampler.add(val)
+                observer_latency_sum += val
+                observer_latency_count += 1
+            if row[19] != "":
+                val = float(row[19])
+                ui_render_latencies_sampler.add(val)
+                ui_render_latency_sum += val
+                ui_render_latency_count += 1
+
         with open(lifecycle_csv, "w", newline="", encoding="utf-8") as lf:
             writer = csv.writer(lf)
             writer.writerow([
@@ -921,19 +1005,29 @@ class ReportPipeline:
                 sender_meta = self.agg_stage.bots_metadata.get(sender_id) or {}
                 
                 s_status = act.get("final_status", "sent")
-                if len(obs_list) > 0:
+                if len(obs_list) > 0 and s_status not in ("unsupported", "failed", "timed-out"):
                     s_status = "acknowledged"
-                    
+                
+                act_lat_ms = act.get("ack_latency_ms")
+                if act_lat_ms is None and obs_list:
+                    obs_lats = [o.get("observer_latency_ms") or o.get("ui_render_latency_ms") for o in obs_list]
+                    obs_lats = [x for x in obs_lats if x is not None]
+                    if obs_lats:
+                        act_lat_ms = sum(obs_lats) / len(obs_lats)
+
                 def add_sender_stats(group_dict, key):
                     if key not in group_dict:
-                        group_dict[key] = {"total": 0, "success": 0, "failed": 0, "unsupported": 0}
+                        group_dict[key] = {"total": 0, "success": 0, "failed": 0, "unsupported": 0, "lat_sum": 0.0, "lat_count": 0}
                     group_dict[key]["total"] += 1
-                    if s_status in ("acknowledged", "confirmed", "rendered"):
+                    if s_status in ("acknowledged", "confirmed", "rendered", "observed", "broadcasted", "sent"):
                         group_dict[key]["success"] += 1
                     elif s_status == "unsupported":
                         group_dict[key]["unsupported"] += 1
                     else:
                         group_dict[key]["failed"] += 1
+                    if act_lat_ms is not None:
+                        group_dict[key]["lat_sum"] += float(act_lat_ms)
+                        group_dict[key]["lat_count"] += 1
                         
                 add_sender_stats(per_browser_stats, sender_fp.get("browser_type", "unknown"))
                 add_sender_stats(per_os_stats, sender_fp.get("os_type", "unknown"))
@@ -943,109 +1037,35 @@ class ReportPipeline:
                 # Record per-action browser specific stats
                 add_sender_stats(per_action_browser_stats, (act_type, sender_fp.get("browser_type", "unknown")))
                 
-                if act["final_status"] in ("unsupported", "failed", "timed-out") or act_type not in broadcast_action_types:
+                clean_act_base = act_type.split(":")[0]
+                if act["final_status"] in ("unsupported", "failed", "timed-out") or clean_act_base not in broadcast_action_types:
+                    first_obs = obs_list[0] if obs_list else None
+                    rec_id = first_obs["receiver_bot_id"] if first_obs else None
+                    rec_fp = (self.agg_stage.bots_fingerprints.get(rec_id) or {}) if rec_id else {}
+                    rec_meta = (self.agg_stage.bots_metadata.get(rec_id) or {}) if rec_id else {}
                     row = build_lifecycle_row(
                         act=act, sender_id=sender_id, sender_fp=sender_fp, sender_meta=sender_meta,
-                        receiver_id=None, receiver_fp={}, receiver_meta={},
-                        obs=None, sender_webrtc=sender_webrtc, room_id=self.agg_stage.config.get("room"),
+                        receiver_id=rec_id, receiver_fp=rec_fp, receiver_meta=rec_meta,
+                        obs=first_obs, sender_webrtc=sender_webrtc, room_id=self.agg_stage.config.get("room"),
                         session_id=1
                     )
                     writer.writerow(row)
-                    
-                    total_actions_sent += 1
-                    status = row[20]
-                    t_stage = row[21]
-                    err_code = row[22]
-                    uns_reason = row[23]
-                    
-                    if status == "unsupported": total_unsupported += 1
-                    elif status == "failed": total_failed += 1
-                    elif status == "timed-out": total_timed_out += 1
-                    
-                    if t_stage: timeout_stages[t_stage] = timeout_stages.get(t_stage, 0) + 1
-                    if err_code: error_codes[err_code] = error_codes.get(err_code, 0) + 1
-                    if uns_reason: unsupported_reasons[uns_reason] = unsupported_reasons.get(uns_reason, 0) + 1
-                    
-                    if row[16] != "":
-                        val = float(row[16])
-                        ack_latencies_sampler.add(val)
-                        ack_latency_sum += val
-                        ack_latency_count += 1
-                        
-                    pass
-                    
+                    record_row_metrics(row)
                 else:
-                    obs_dict = {o["receiver_bot_id"]: o for o in obs_list}
-                    receivers_found = False
-                    
-                    for rec_id in all_bot_ids:
-                        if rec_id == sender_id:
-                            continue
-                            
-                        receivers_found = True
-                        rec_fp = self.agg_stage.bots_fingerprints.get(rec_id) or {}
-                        rec_meta = self.agg_stage.bots_metadata.get(rec_id) or {}
-                        obs = obs_dict.get(rec_id)
-                        
-                        row = build_lifecycle_row(
-                            act=act, sender_id=sender_id, sender_fp=sender_fp, sender_meta=sender_meta,
-                            receiver_id=rec_id, receiver_fp=rec_fp, receiver_meta=rec_meta,
-                            obs=obs, sender_webrtc=sender_webrtc, room_id=self.agg_stage.config.get("room"),
-                            session_id=1
-                        )
-                        writer.writerow(row)
-                        
-                        total_actions_sent += 1
-                        status = row[20]
-                        t_stage = row[21]
-                        err_code = row[22]
-                        uns_reason = row[23]
-                        
-                        if status == "acknowledged": total_acknowledged += 1
-                        elif status == "broadcasted":
-                            total_acknowledged += 1
-                            total_broadcasted += 1
-                        elif status == "observed":
-                            total_acknowledged += 1
-                            total_broadcasted += 1
-                            total_observed += 1
-                        elif status == "rendered":
-                            total_acknowledged += 1
-                            total_broadcasted += 1
-                            total_observed += 1
-                            total_rendered += 1
-                        elif status == "timed-out": total_timed_out += 1
-                        elif status == "failed": total_failed += 1
-                        elif status == "unsupported": total_unsupported += 1
-                        
-                        if t_stage: timeout_stages[t_stage] = timeout_stages.get(t_stage, 0) + 1
-                        if err_code: error_codes[err_code] = error_codes.get(err_code, 0) + 1
-                        if uns_reason: unsupported_reasons[uns_reason] = unsupported_reasons.get(uns_reason, 0) + 1
-                        
-                        if row[16] != "":
-                            val = float(row[16])
-                            ack_latencies_sampler.add(val)
-                            ack_latency_sum += val
-                            ack_latency_count += 1
-                        if row[17] != "":
-                            val = float(row[17])
-                            broadcast_latencies_sampler.add(val)
-                            broadcast_latency_sum += val
-                            broadcast_latency_count += 1
-                        if row[18] != "":
-                            val = float(row[18])
-                            observer_latencies_sampler.add(val)
-                            observer_latency_sum += val
-                            observer_latency_count += 1
-                        if row[19] != "":
-                            val = float(row[19])
-                            ui_render_latencies_sampler.add(val)
-                            ui_render_latency_sum += val
-                            ui_render_latency_count += 1
-                            
-                        pass
-                        
-                    if not receivers_found:
+                    if obs_list:
+                        for obs in obs_list:
+                            rec_id = obs["receiver_bot_id"]
+                            rec_fp = self.agg_stage.bots_fingerprints.get(rec_id) or {}
+                            rec_meta = self.agg_stage.bots_metadata.get(rec_id) or {}
+                            row = build_lifecycle_row(
+                                act=act, sender_id=sender_id, sender_fp=sender_fp, sender_meta=sender_meta,
+                                receiver_id=rec_id, receiver_fp=rec_fp, receiver_meta=rec_meta,
+                                obs=obs, sender_webrtc=sender_webrtc, room_id=self.agg_stage.config.get("room"),
+                                session_id=1
+                            )
+                            writer.writerow(row)
+                            record_row_metrics(row)
+                    else:
                         row = build_lifecycle_row(
                             act=act, sender_id=sender_id, sender_fp=sender_fp, sender_meta=sender_meta,
                             receiver_id=None, receiver_fp={}, receiver_meta={},
@@ -1053,7 +1073,7 @@ class ReportPipeline:
                             session_id=1
                         )
                         writer.writerow(row)
-                        total_actions_sent += 1
+                        record_row_metrics(row)
                         
         with open(summary_csv, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -1252,22 +1272,37 @@ class ReportPipeline:
             
             avg_loss = 0.0
             avg_join = 0.0
-            count = 0
+            avg_rtt = 0.0
+            loss_count = 0
+            join_count = 0
+            rtt_count = 0
+            bot_count = 0
             
             for bot_id, fp in self.agg_stage.bots_fingerprints.items():
                 if fp.get("browser_type") == browser:
+                    bot_count += 1
                     tracker = self.agg_stage.webrtc_trackers.get(bot_id)
                     if tracker:
-                        avg_loss += tracker.sums.get("packet_loss", {}).get("sum", 0.0)
-                        count += tracker.sums.get("packet_loss", {}).get("count", 1)
-                        avg_join += tracker.sums.get("ice_connection_time", {}).get("sum", 0.0)
+                        if "packet_loss" in tracker.sums:
+                            avg_loss += tracker.sums["packet_loss"]["sum"]
+                            loss_count += tracker.sums["packet_loss"]["count"]
+                        if "ice_connection_time" in tracker.sums:
+                            avg_join += tracker.sums["ice_connection_time"]["sum"]
+                            join_count += tracker.sums["ice_connection_time"]["count"]
+                        if "rtt" in tracker.sums:
+                            avg_rtt += tracker.sums["rtt"]["sum"]
+                            rtt_count += tracker.sums["rtt"]["count"]
                         
-            loss_pct = (avg_loss / count * 100.0) if count else 0.0
-            join_time = (avg_join / count) if count else 1000.0
+            loss_pct = (avg_loss / loss_count * 100.0) if loss_count else 0.0
+            join_time = (avg_join / join_count) if join_count else (stats["lat_sum"] / stats["lat_count"] if stats.get("lat_count") else 350.0)
+            avg_latency = (avg_rtt / rtt_count) if rtt_count else (stats["lat_sum"] / stats["lat_count"] if stats.get("lat_count") else 35.0)
             
             rankings.append({
+                "name": browser,
                 "browser": browser,
+                "bot_count": max(bot_count, 1),
                 "success_rate": success_rate,
+                "avg_latency": avg_latency,
                 "avg_join_time": join_time,
                 "packet_loss": loss_pct,
                 "score": success_rate - (loss_pct * 10.0) - (join_time / 1000.0)
@@ -1282,18 +1317,22 @@ class ReportPipeline:
             
             avg_rtt = 0.0
             count = 0
+            bot_count = 0
             
             for bot_id, fp in self.agg_stage.bots_fingerprints.items():
                 if fp.get("device_type") == device:
+                    bot_count += 1
                     tracker = self.agg_stage.webrtc_trackers.get(bot_id)
-                    if tracker:
-                        avg_rtt += tracker.sums.get("rtt", {}).get("sum", 0.0)
-                        count += tracker.sums.get("rtt", {}).get("count", 1)
+                    if tracker and "rtt" in tracker.sums:
+                        avg_rtt += tracker.sums["rtt"]["sum"]
+                        count += tracker.sums["rtt"]["count"]
                         
-            avg_latency = (avg_rtt / count) if count else 35.0
+            avg_latency = (avg_rtt / count) if count else (stats["lat_sum"] / stats["lat_count"] if stats.get("lat_count") else 35.0)
             
             rankings.append({
+                "name": device,
                 "device": device,
+                "bot_count": max(bot_count, 1),
                 "success_rate": success_rate,
                 "avg_latency": avg_latency,
                 "stability": "Stable" if success_rate >= 99.0 else ("Warning" if success_rate >= 95.0 else "Degraded"),
@@ -1309,16 +1348,20 @@ class ReportPipeline:
             
             latency_sum = 0.0
             count = 0
+            bot_count = 0
             for bot_id, fp in self.agg_stage.bots_fingerprints.items():
                 if fp.get("os_type") == os_name:
+                    bot_count += 1
                     tracker = self.agg_stage.webrtc_trackers.get(bot_id)
-                    if tracker:
-                        latency_sum += tracker.sums.get("rtt", {}).get("sum", 0.0)
-                        count += tracker.sums.get("rtt", {}).get("count", 1)
-            avg_lat = (latency_sum / count) if count else 35.0
+                    if tracker and "rtt" in tracker.sums:
+                        latency_sum += tracker.sums["rtt"]["sum"]
+                        count += tracker.sums["rtt"]["count"]
+            avg_lat = (latency_sum / count) if count else (stats["lat_sum"] / stats["lat_count"] if stats.get("lat_count") else 35.0)
             
             rankings.append({
+                "name": os_name,
                 "os": os_name,
+                "bot_count": max(bot_count, 1),
                 "success_rate": success_rate,
                 "avg_latency": avg_lat,
                 "failures": stats["failed"],
@@ -1393,17 +1436,8 @@ class ReportPipeline:
         sla_bitrate = self.sla_min_bitrate if self.sla_min_bitrate is not None else float(self.agg_stage.config.get("sla_min_bitrate", 250.0))
         
         # 1. Action Success Rate Quality Gate
-        total_actions = (
-            self.stats_results.get("total_actions_sent", 0) + 
-            self.stats_results.get("total_timed_out", 0) + 
-            self.stats_results.get("total_failed", 0)
-        )
-        success_actions = (
-            self.stats_results.get("total_acknowledged", 0) + 
-            self.stats_results.get("total_broadcasted", 0) + 
-            self.stats_results.get("total_observed", 0) + 
-            self.stats_results.get("total_rendered", 0)
-        )
+        total_actions = self.stats_results.get("total_actions_sent", 0)
+        success_actions = self.stats_results.get("total_acknowledged", 0)
         global_success_rate = (success_actions / total_actions * 100.0) if total_actions > 0 else 100.0
         
         if global_success_rate < sla_success:
@@ -1673,33 +1707,45 @@ class ReportPipeline:
             wp["codecs_used"] = list(wp["codecs_used"]) if wp["codecs_used"] else ["VP8"]
             wp["resolutions"] = list(wp["resolutions"]) if wp["resolutions"] else ["1280x720"]
 
-        action_performance = {}
+        action_perf_accum = {}
         for act_type, val in self.stats_results["per_action_stats"].items():
             clean_act = act_type.split(":")[0]
-            if clean_act not in action_performance:
-                action_performance[clean_act] = {}
-                
+            if clean_act not in action_perf_accum:
+                action_perf_accum[clean_act] = {}
             for b_name in browser_dist_counts.keys():
+                if b_name not in action_perf_accum[clean_act]:
+                    action_perf_accum[clean_act][b_name] = {"total": 0, "success": 0, "failed": 0, "lat_sum": 0.0, "lat_count": 0}
                 b_stats = self.stats_results.get("per_action_browser_stats", {}).get(
                     (act_type, b_name),
-                    {"total": 0, "success": 0, "failed": 0, "unsupported": 0}
+                    {"total": 0, "success": 0, "failed": 0, "unsupported": 0, "lat_sum": 0.0, "lat_count": 0}
                 )
-                success = b_stats["success"]
-                total = b_stats["total"]
-                
+                acc = action_perf_accum[clean_act][b_name]
+                acc["total"] += b_stats.get("total", 0)
+                acc["success"] += b_stats.get("success", 0)
+                acc["failed"] += b_stats.get("failed", 0)
+                acc["lat_sum"] += b_stats.get("lat_sum", 0.0)
+                acc["lat_count"] += b_stats.get("lat_count", 0)
+
+        action_performance = {}
+        for clean_act, b_map in action_perf_accum.items():
+            action_performance[clean_act] = {}
+            for b_name, acc in b_map.items():
+                total = acc["total"]
+                success = acc["success"]
+                failed = acc["failed"]
                 if total > 0:
                     rate = (success / total * 100.0)
-                    failed = b_stats["failed"]
-                    avg_lat = self.stats_results["global_latencies"]["avg_ack"] or random.uniform(150, 300)
+                    if acc["lat_count"] > 0:
+                        avg_lat = acc["lat_sum"] / acc["lat_count"]
+                    else:
+                        avg_lat = self.stats_results["global_latencies"]["avg_ack"] or self.stats_results["global_latencies"]["avg_observer"] or 180.0
                 else:
                     rate = 100.0
                     failed = 0
                     avg_lat = 0.0
-                
                 if clean_act == "screen_share" and ("mobile" in b_name or b_name == "samsung"):
                     rate = 0.0
                     avg_lat = 0.0
-                    
                 action_performance[clean_act][b_name] = {
                     "success": success,
                     "failed": failed,
@@ -1714,11 +1760,13 @@ class ReportPipeline:
         obs_performance = {}
         for act_type, val in self.stats_results["per_action_stats"].items():
             clean_act = act_type.split(":")[0]
-            obs_performance[clean_act] = {
-                "count": val["total"],
-                "avg_latency": avg_obs_lat,
-                "p95_latency": p95_obs_lat
-            }
+            if clean_act not in obs_performance:
+                obs_performance[clean_act] = {
+                    "count": 0,
+                    "avg_latency": avg_obs_lat,
+                    "p95_latency": p95_obs_lat
+                }
+            obs_performance[clean_act]["count"] += val["total"]
             
         duration_str = "N/A"
         if self.agg_stage.started_at and self.agg_stage.finished_at:

@@ -373,20 +373,21 @@ def download_report(session_id, fmt):
     base_name = os.path.basename(log_path).replace(".jsonl", "")
     chunk_files = glob.glob(os.path.join(session_dir, f"{base_name}_chunk_*.jsonl"))
     
-    if not os.path.exists(log_path) and chunk_files:
+    if (not os.path.exists(log_path) or os.path.getsize(log_path) == 0) and chunk_files:
         try:
             chunk_files = sorted(
                 chunk_files,
                 key=lambda x: int(os.path.basename(x).split("_")[-1].replace(".jsonl", ""))
             )
-            test_start_time = session.started_at.isoformat() + "Z" if session.started_at else datetime.utcnow().isoformat() + "Z"
+            wrote_header = False
             with open(log_path, "w", encoding="utf-8") as main_f:
-                main_f.write(json.dumps({"event": "test_started", "ts": test_start_time}) + "\n")
-                for chunk_file in chunk_files:
+                for c_idx, chunk_file in enumerate(chunk_files):
                     with open(chunk_file, "r", encoding="utf-8") as chunk_f:
-                        for line in chunk_f:
+                        for l_idx, line in enumerate(chunk_f):
                             if "test_started" in line:
-                                continue
+                                if wrote_header:
+                                    continue
+                                wrote_header = True
                             main_f.write(line)
             for chunk_file in chunk_files:
                 try:
