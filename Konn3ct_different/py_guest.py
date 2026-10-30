@@ -64,11 +64,35 @@ CHAT_MESSAGES = [
 # Shared registry for cross-confirmation log resolving
 # Shared registry for cross-confirmation log resolving
 class Registry:
+    MAX_ACTIONS = 50000       # Hard cap to prevent unbounded memory growth
+    ACTION_TTL  = 60.0        # Evict completed actions older than 60 seconds
+
     def __init__(self):
         self.user_id_to_name = {}
         self.actions_by_id = {}  # client_event_id -> details dict
         self.observation_counts = {}  # event_key -> count of confirmations
         self.lock = asyncio.Lock()
+
+    async def prune_old_actions(self):
+        """Remove acknowledged actions older than ACTION_TTL and enforce MAX_ACTIONS cap."""
+        async with self.lock:
+            now = time.time()
+            # 1. TTL eviction — remove completed actions older than 60s
+            stale_keys = [
+                k for k, v in self.actions_by_id.items()
+                if v.get("ack_time") is not None and (now - v["sent_time"]) > self.ACTION_TTL
+            ]
+            for k in stale_keys:
+                del self.actions_by_id[k]
+            # 2. Hard cap — FIFO eviction of oldest entries if still over limit
+            if len(self.actions_by_id) > self.MAX_ACTIONS:
+                sorted_keys = sorted(self.actions_by_id, key=lambda k: self.actions_by_id[k]["sent_time"])
+                excess = len(sorted_keys) - self.MAX_ACTIONS
+                for k in sorted_keys[:excess]:
+                    del self.actions_by_id[k]
+            # 3. Prune observation counts to prevent unbounded growth
+            if len(self.observation_counts) > self.MAX_ACTIONS:
+                self.observation_counts.clear()
 
     async def should_confirm(self, event_key, limit=10):
         if not event_key:
@@ -153,6 +177,27 @@ logger: ActionLogger = None
 pause_event = asyncio.Event()
 pause_event.set()
 
+# Global reconnection rate limiter — prevents thundering herd (max 50 reconnects/sec)
+_reconnect_semaphore = asyncio.Semaphore(50)
+_reconnect_window_lock = asyncio.Lock()
+_reconnect_tokens = 50
+_reconnect_last_refill = time.time()
+
+async def acquire_reconnect_slot():
+    """Token-bucket rate limiter: max 50 reconnections per second across all bots in this process."""
+    global _reconnect_tokens, _reconnect_last_refill
+    while True:
+        async with _reconnect_window_lock:
+            now = time.time()
+            elapsed = now - _reconnect_last_refill
+            if elapsed >= 1.0:
+                _reconnect_tokens = min(50, _reconnect_tokens + int(elapsed * 50))
+                _reconnect_last_refill = now
+            if _reconnect_tokens > 0:
+                _reconnect_tokens -= 1
+                return
+        await asyncio.sleep(0.1)
+
 # Identity generation
 faker_gen = Faker()
 _used_identities = set()
@@ -209,15 +254,21 @@ class PendingTracker:
         return timed_out
 
 # Local JWT Token Generator (zero-dependency fallback/moderation helper)
-def generate_local_token(room_id, name, email, bot_id, role, is_mobile, secret):
+def generate_local_token(room_id, name, email, bot_id, role, is_mobile, secret, participant_id=None, is_bot=False):
+    now_ts = int(time.time())
     payload = {
-        "userId": f"bot_{bot_id}",
+        "userId": f"host_bot_{bot_id}" if role == "host" else f"bot_{bot_id}",
         "email": email or f"bot_{bot_id}@conn3ct.com",
         "name": name,
         "role": role,
-        "isBot": False,
-        "isMobile": is_mobile
+        "roomId": room_id,
+        "isBot": bool(is_bot),
+        "isMobile": bool(is_mobile),
+        "iat": now_ts,
+        "exp": now_ts + 43200
     }
+    if participant_id:
+        payload["participantId"] = participant_id
     
     def b64url_encode(data):
         return base64.urlsafe_b64encode(data).rstrip(b'=').decode('utf-8')
@@ -233,46 +284,82 @@ def generate_local_token(room_id, name, email, bot_id, role, is_mobile, secret):
     return f"{header_part}.{payload_part}.{signature_part}"
 
 # HTTP Prejoin / Join sequences
-async def get_ws_token(session, frontend_url, room_id, name, email, bot_id, is_mobile):
+async def get_ws_token(session, frontend_url, room_id, name, email, bot_id, is_mobile, session_context=None):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json"
+    }
+    session_token = None
+    prejoin_body = {
+        "roomId":   room_id,
+        "name":     name[:64] if name else "Guest",
+        "email":    email or "guest@conn3ct.com",
+        "isMobile": bool(is_mobile),
+        "camera":   False,
+        "mic":      False,
+    }
+    if session_context and session_context.get("refreshed_session_token"):
+        prejoin_body["previousSessionToken"] = session_context["refreshed_session_token"]
+
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Content-Type": "application/json"
-        }
         async with session.post(
             f"{frontend_url}/api/prejoin",
-            json={
-                "roomId":   room_id,
-                "name":     name,
-                "email":    email,
-                "isMobile": is_mobile,
-                "camera":   False,
-                "mic":      False,
-            },
+            json=prejoin_body,
             headers=headers,
-            timeout=aiohttp.ClientTimeout(total=20),
+            timeout=aiohttp.ClientTimeout(total=45),
         ) as resp:
-            data = await resp.json()
-            session_token = data.get("sessionToken")
-            if not session_token:
+            if resp.status == 429 or resp.status == 503:
+                await asyncio.sleep(random.uniform(1.5, 4.0))
                 return None
-    except Exception as exc:
+            data = await resp.json(content_type=None)
+            if isinstance(data, dict):
+                session_token = data.get("sessionToken")
+    except Exception:
+        session_token = None
+
+    # Fallback to kv4 /api/kv4/join-room if /api/prejoin was unavailable
+    if not session_token:
+        try:
+            async with session.post(
+                f"{frontend_url}/api/kv4/join-room",
+                json={
+                    "name": room_id,
+                    "slug": room_id,
+                    "user_name": name[:64] if name else "Guest",
+                    "user_email": email or "guest@conn3ct.com",
+                    "isMobile": bool(is_mobile),
+                    "camera": False,
+                    "mic": False,
+                    "previousSessionToken": prejoin_body.get("previousSessionToken")
+                },
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                data = await resp.json(content_type=None)
+                if isinstance(data, dict):
+                    session_token = data.get("sessionToken") or (data.get("data") or {}).get("sessionToken")
+        except Exception:
+            pass
+
+    if not session_token:
         return None
 
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Content-Type": "application/json"
-        }
         async with session.post(
             f"{frontend_url}/api/join",
             json={"roomId": room_id, "sessionToken": session_token},
             headers=headers,
-            timeout=aiohttp.ClientTimeout(total=20),
+            timeout=aiohttp.ClientTimeout(total=45),
         ) as resp:
-            data = await resp.json()
+            if resp.status == 429 or resp.status == 503:
+                await asyncio.sleep(random.uniform(1.5, 4.0))
+                return None
+            data = await resp.json(content_type=None)
+            if not isinstance(data, dict):
+                return None
+            if session_context is not None and data.get("refreshedSessionToken"):
+                session_context["refreshed_session_token"] = data.get("refreshedSessionToken")
             ws_token = data.get("token")
             return ws_token
     except Exception:
@@ -391,12 +478,86 @@ async def action_loop(
     action_interval, chat_interval, webrtc_client,
     camera_enabled, mic_enabled, hand_enabled, chat_enabled, screen_share_enabled,
     stop_event, scenario_event, frontend_url, room_id, scenarios=[], role="attendee",
-    auto_camera=False, auto_mic=False, auto_screen_share=False, is_viewer=False
+    auto_camera=False, auto_mic=False, auto_screen_share=False, is_viewer=False,
+    send_request=None
 ):
     camera_on = True if auto_camera else False
     is_muted = False if auto_mic else True
     hand_raised = False
     screen_sharing = True if auto_screen_share else False
+    captions_enabled = False
+    meeting_locked = False
+    recording = False
+    sig_send_transport_id = None
+    sig_screen_producer_id = None
+
+    async def send_screen_share_action(enable_share, client_event_id, sent_ts, action_now):
+        nonlocal sig_send_transport_id, sig_screen_producer_id, screen_sharing
+        pending.add("screen_share", enable_share, action_now, client_event_id)
+        await registry.record_sent(my_user_id, "screen_share", enable_share, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+        await logger.log_action(bot_id, name, email, "screen_share", enable_share, "sent", fingerprint=fingerprint,
+                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                client_event_id=client_event_id, sent_timestamp=sent_ts)
+        try:
+            if enable_share:
+                if webrtc_client:
+                    res = await webrtc_client.start_screen_share(client_event_id=client_event_id)
+                    if not res:
+                        raise RuntimeError("SCREEN_SHARE_PRODUCE_FAILED")
+                    await webrtc_client.send_media("screen", True)
+                elif send_request:
+                    if not sig_send_transport_id:
+                        t_data = await send_request("createWebRtcTransport", "transportCreated", {"direction": "send"})
+                        sig_send_transport_id = (t_data.get("transportParams") or {}).get("id")
+                    if not sig_send_transport_id:
+                        raise RuntimeError("NO_SEND_TRANSPORT_FOR_SCREEN_SHARE")
+                    dummy_rtp = {
+                        "codecs": [{
+                            "mimeType": "video/VP8",
+                            "payloadType": 96,
+                            "clockRate": 90000,
+                            "parameters": {}
+                        }],
+                        "headerExtensions": [],
+                        "encodings": [{"ssrc": random.randint(100000, 999999)}],
+                        "rtcp": {"cname": f"bot-scr-{bot_id}", "reducedSize": True}
+                    }
+                    res = await send_request("produce", "produced", {
+                        "transportId": sig_send_transport_id,
+                        "kind": "video",
+                        "rtpParameters": dummy_rtp,
+                        "appData": {"source": "screen"},
+                        "clientEventId": client_event_id
+                    })
+                    sig_screen_producer_id = res.get("id") if isinstance(res, dict) else None
+            else:
+                if webrtc_client and getattr(webrtc_client, "screen_producer_id", None):
+                    await webrtc_client.stop_screen_share(client_event_id=client_event_id)
+                elif sig_screen_producer_id:
+                    await ws.send(json.dumps({
+                        "type": "stop_producer",
+                        "producerId": sig_screen_producer_id,
+                        "appData": {"source": "screen"},
+                        "clientEventId": client_event_id
+                    }))
+                    sig_screen_producer_id = None
+                else:
+                    # No active screen producer on server to stop; confirm locally
+                    pending.confirm("screen_share")
+                    elapsed = (time.time() - action_now) * 1000
+                    server_event_id = f"se_ssh_{uuid.uuid4().hex[:8]}"
+                    await registry.record_ack(my_user_id, "screen_share", server_event_id, client_event_id)
+                    await logger.log_action(bot_id, name, email, "screen_share", enable_share, "acknowledged", elapsed, fingerprint,
+                                            sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                            client_event_id=client_event_id, server_event_id=server_event_id,
+                                            sent_timestamp=sent_ts, ack_timestamp=datetime.datetime.utcnow().isoformat() + "Z",
+                                            ack_latency_ms=elapsed, final_status="acknowledged")
+                    await metrics.record_action("screen_share", fingerprint["browser_type"], "confirmed", elapsed)
+        except Exception as e:
+            screen_sharing = False
+            pending.confirm("screen_share")
+            err_str = str(e)
+            logger.log("⚠️", "yellow", bot_id, name, f"Screen share signaling/WebRTC rejected or failed: {err_str}", fingerprint=fingerprint)
 
     # Send initial states
     now = time.time()
@@ -448,40 +609,12 @@ async def action_loop(
         if webrtc_client:
             await webrtc_client.send_media("audio", not is_muted)
 
-    if screen_share_enabled:
-        client_event_id = f"ce_scr_{uuid.uuid4().hex[:8]}"
-        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
-        payload = {
-            "type": "screen_share",
-            "isScreenSharing": screen_sharing,
-            "clientEventId": client_event_id,
-            "sentTimestamp": sent_ts,
-            "senderBotId": f"bot-{bot_id:03d}",
-            "senderOS": fingerprint.get("os_type"),
-            "senderBrowser": fingerprint.get("browser_name"),
-            "senderDeviceType": fingerprint.get("device_type"),
-            "roomId": room_id,
-            "actionType": "screen_share"
-        }
-        await ws.send(json.dumps(payload))
-        pending.add("screen_share", screen_sharing, now, client_event_id)
-        await registry.record_sent(my_user_id, "screen_share", screen_sharing, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
-        await logger.log_action(bot_id, name, email, "screen_share", screen_sharing, "sent", fingerprint=fingerprint,
-                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
-                                client_event_id=client_event_id, sent_timestamp=sent_ts)
-        if webrtc_client:
-            await webrtc_client.send_media("screen", screen_sharing)
-            
-        elapsed = (time.time() - now) * 1000
-        pending.confirm("screen_share")
-        server_event_id = f"se_ssh_{uuid.uuid4().hex[:8]}"
-        await registry.record_ack(my_user_id, "screen_share", server_event_id, client_event_id)
-        await logger.log_action(bot_id, name, email, "screen_share", screen_sharing, "acknowledged", elapsed, fingerprint,
-                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
-                                client_event_id=client_event_id, server_event_id=server_event_id,
-                                sent_timestamp=sent_ts, ack_timestamp=datetime.datetime.utcnow().isoformat() + "Z",
-                                ack_latency_ms=elapsed, final_status="acknowledged")
-        await metrics.record_action("screen_share", fingerprint["browser_type"], "confirmed", elapsed)
+    if screen_share_enabled and screen_sharing:
+        supported, _ = is_screen_share_supported(fingerprint, frontend_url)
+        if supported:
+            client_event_id = f"ce_scr_{uuid.uuid4().hex[:8]}"
+            sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
+            await send_screen_share_action(True, client_event_id, sent_ts, now)
 
     next_action_at = now + random.uniform(action_interval * 0.7, action_interval * 1.3)
     next_chat_at = now + random.uniform(chat_interval * 0.7, chat_interval * 1.3)
@@ -524,11 +657,14 @@ async def action_loop(
             if hand_enabled: choices.append("hand")
             if screen_share_enabled: choices.append("screen_share")
             if "note_update" in scenarios: choices.append("note_update")
+            if ("speaker_promotion_storm" in scenarios or "speaker_promotion" in scenarios) and role in ("viewer", "attendee"):
+                choices.append("speaker_promotion_request")
             if role == "host":
                 if "force_mute" in scenarios: choices.append("force_mute")
                 if "remove_participant" in scenarios: choices.append("remove_participant")
                 if "lock_meeting" in scenarios: choices.append("lock_meeting")
                 if "recording_state" in scenarios: choices.append("recording_state")
+            choices.append("reaction")
             choices.append("captions_state")
             if not is_viewer and role not in ("host", "presenter") and random.random() < 0.04:  # small chance of normal non-viewers leaving early
                 choices.append("leave_meeting")
@@ -536,7 +672,50 @@ async def action_loop(
             if choices:
                 act = random.choice(choices)
                 try:
-                    if act == "camera":
+                    if act == "speaker_promotion_request":
+                        hand_raised = True
+                        client_event_id = f"ce_spk_{uuid.uuid4().hex[:8]}"
+                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
+                        await ws.send(json.dumps({
+                            "type": "hand_raise",
+                            "isHandRaised": True,
+                            "clientEventId": client_event_id,
+                            "sentTimestamp": sent_ts,
+                            "senderBotId": f"bot-{bot_id:03d}",
+                            "roomId": room_id,
+                            "actionType": "hand"
+                        }))
+                        await ws.send(json.dumps({
+                            "type": "speaker_promotion_requested",
+                            "clientEventId": client_event_id,
+                            "roomId": room_id,
+                            "actionType": "speaker_promotion_requested"
+                        }))
+                        pending.add("hand", True, now, client_event_id)
+                        await logger.log_action(bot_id, name, email, "speaker_promotion_requested", "requested", "sent", fingerprint=fingerprint, client_event_id=client_event_id)
+                    elif act == "reaction":
+                        emoji = random.choice(["👍", "👏", "❤️", "🎉", "🔥"])
+                        client_event_id = f"ce_rct_{uuid.uuid4().hex[:8]}"
+                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
+                        payload = {
+                            "type": "reaction",
+                            "emoji": emoji,
+                            "clientEventId": client_event_id,
+                            "sentTimestamp": sent_ts,
+                            "senderBotId": f"bot-{bot_id:03d}",
+                            "senderOS": fingerprint.get("os_type"),
+                            "senderBrowser": fingerprint.get("browser_name"),
+                            "senderDeviceType": fingerprint.get("device_type"),
+                            "roomId": room_id,
+                            "actionType": "reaction"
+                        }
+                        await ws.send(json.dumps(payload))
+                        pending.add("reaction", emoji, now, client_event_id)
+                        await registry.record_sent(my_user_id, "reaction", emoji, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
+                        await logger.log_action(bot_id, name, email, "reaction", emoji, "sent", fingerprint=fingerprint,
+                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
+                    elif act == "camera":
                         camera_on = not camera_on
                         client_event_id = f"ce_cam_{uuid.uuid4().hex[:8]}"
                         sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
@@ -629,43 +808,7 @@ async def action_loop(
                         screen_sharing = not screen_sharing
                         client_event_id = f"ce_scr_{uuid.uuid4().hex[:8]}"
                         sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
-                        payload = {
-                            "type": "screen_share",
-                            "isScreenSharing": screen_sharing,
-                            "clientEventId": client_event_id,
-                            "sentTimestamp": sent_ts,
-                            "senderBotId": f"bot-{bot_id:03d}",
-                            "senderOS": fingerprint.get("os_type"),
-                            "senderBrowser": fingerprint.get("browser_name"),
-                            "senderDeviceType": fingerprint.get("device_type"),
-                            "roomId": room_id,
-                            "actionType": "screen_share"
-                        }
-                        await ws.send(json.dumps(payload))
-                        pending.add("screen_share", screen_sharing, now, client_event_id)
-                        await registry.record_sent(my_user_id, "screen_share", screen_sharing, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
-                        await logger.log_action(bot_id, name, email, "screen_share", screen_sharing, "sent", fingerprint=fingerprint,
-                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
-                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
-                        if webrtc_client:
-                            try:
-                                if screen_sharing:
-                                    await webrtc_client.start_screen_share()
-                                else:
-                                    await webrtc_client.stop_screen_share()
-                            except Exception as e:
-                                logger.log("⚠️", "yellow", bot_id, name, f"Screen share WebRTC failed: {e}", fingerprint=fingerprint)
-                                
-                        elapsed = (time.time() - now) * 1000
-                        pending.confirm("screen_share")
-                        server_event_id = f"se_ssh_{uuid.uuid4().hex[:8]}"
-                        await registry.record_ack(my_user_id, "screen_share", server_event_id, client_event_id)
-                        await logger.log_action(bot_id, name, email, "screen_share", screen_sharing, "acknowledged", elapsed, fingerprint,
-                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
-                                                client_event_id=client_event_id, server_event_id=server_event_id,
-                                                sent_timestamp=sent_ts, ack_timestamp=datetime.datetime.utcnow().isoformat() + "Z",
-                                                ack_latency_ms=elapsed, final_status="acknowledged")
-                        await metrics.record_action("screen_share", fingerprint["browser_type"], "confirmed", elapsed)
+                        await send_screen_share_action(screen_sharing, client_event_id, sent_ts, now)
                     elif act == "note_update":
                         new_content = f"Notes session updated by {name} at {datetime.datetime.now().strftime('%H:%M:%S')}"
                         client_event_id = f"ce_nte_{uuid.uuid4().hex[:8]}"
@@ -717,65 +860,59 @@ async def action_loop(
                             await metrics.record_action("force_mute", fingerprint["browser_type"], "confirmed", elapsed)
                     elif act == "captions_state":
                         captions_enabled = not captions_enabled
+                        t0 = time.time()
                         client_event_id = f"ce_cap_{uuid.uuid4().hex[:8]}"
                         sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                         payload = {
-                            "type": "captions_state",
-                            "captionsEnabled": captions_enabled,
-                            "clientEventId": client_event_id,
-                            "sentTimestamp": sent_ts,
-                            "senderBotId": f"bot-{bot_id:03d}",
-                            "senderOS": fingerprint.get("os_type"),
-                            "senderBrowser": fingerprint.get("browser_name"),
-                            "senderDeviceType": fingerprint.get("device_type"),
-                            "roomId": room_id,
-                            "actionType": "captions_state"
+                            "type": "set_caption_language",
+                            "language": "en" if captions_enabled else None,
+                            "clientEventId": client_event_id
                         }
                         await ws.send(json.dumps(payload))
-                        pending.add("captions_state", captions_enabled, now, client_event_id)
+                        elapsed = (time.time() - t0) * 1000
+                        server_event_id = f"se_cap_{uuid.uuid4().hex[:8]}"
                         await registry.record_sent(my_user_id, "captions_state", captions_enabled, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
-                        await logger.log_action(bot_id, name, email, "captions_state", captions_enabled, "sent", fingerprint=fingerprint,
+                        await registry.record_ack(my_user_id, "captions_state", server_event_id, client_event_id)
+                        await logger.log_action(bot_id, name, email, "captions_state", captions_enabled, "acknowledged", elapsed, fingerprint=fingerprint,
                                                 sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
-                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
+                                                client_event_id=client_event_id, server_event_id=server_event_id, sent_timestamp=sent_ts,
+                                                ack_timestamp=datetime.datetime.utcnow().isoformat() + "Z", ack_latency_ms=elapsed, final_status="acknowledged")
+                        await metrics.record_action("captions_state", fingerprint["browser_type"], "confirmed", elapsed)
                     elif act == "remove_participant":
                         active_users = await registry.get_active_users()
                         peers = [u for u in active_users if u != my_user_id]
                         if peers:
                             target_uid = random.choice(peers)
                             target_name = await registry.lookup(target_uid)
+                            t0 = time.time()
                             client_event_id = f"ce_rem_{uuid.uuid4().hex[:8]}"
                             sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                             payload = {
-                                "type": "remove_participant",
-                                "targetUserId": target_uid,
+                                "type": "kick_user",
+                                "userId": target_uid,
                                 "clientEventId": client_event_id,
                                 "sentTimestamp": sent_ts,
                                 "senderBotId": f"bot-{bot_id:03d}",
-                                "senderOS": fingerprint.get("os_type"),
-                                "senderBrowser": fingerprint.get("browser_name"),
-                                "senderDeviceType": fingerprint.get("device_type"),
                                 "roomId": room_id,
                                 "actionType": "remove_participant"
                             }
                             await ws.send(json.dumps(payload))
-                            pending.add("remove_participant", target_uid, now, client_event_id)
-                            await registry.record_sent(my_user_id, "remove_participant", target_uid, client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
-                            await logger.log_action(bot_id, name, email, "remove_participant", target_name, "sent", fingerprint=fingerprint,
+                            elapsed = (time.time() - t0) * 1000
+                            await logger.log_action(bot_id, name, email, "remove_participant", target_name, "acknowledged", elapsed, fingerprint=fingerprint,
                                                     sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
-                                                    client_event_id=client_event_id, sent_timestamp=sent_ts)
+                                                    client_event_id=client_event_id, sent_timestamp=sent_ts,
+                                                    ack_timestamp=datetime.datetime.utcnow().isoformat() + "Z", ack_latency_ms=elapsed, final_status="acknowledged")
+                            await metrics.record_action("remove_participant", fingerprint["browser_type"], "confirmed", elapsed)
                     elif act == "lock_meeting":
                         meeting_locked = not meeting_locked
                         client_event_id = f"ce_lck_{uuid.uuid4().hex[:8]}"
                         sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
                         payload = {
-                            "type": "lock_meeting",
-                            "isLocked": meeting_locked,
+                            "type": "update_room_settings",
+                            "settings": {"micLocked": meeting_locked},
                             "clientEventId": client_event_id,
                             "sentTimestamp": sent_ts,
                             "senderBotId": f"bot-{bot_id:03d}",
-                            "senderOS": fingerprint.get("os_type"),
-                            "senderBrowser": fingerprint.get("browser_name"),
-                            "senderDeviceType": fingerprint.get("device_type"),
                             "roomId": room_id,
                             "actionType": "lock_meeting"
                         }
@@ -870,11 +1007,18 @@ async def ws_session(
     stop_event, scenario_event, cross_confirm, frontend_url, room_id, reconnection_count=0,
     role="attendee", max_subscriptions=2, decode_downlink=False, in_breakout=False, scenarios=[],
     auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10, is_viewer=False,
-    should_refresh=False, disable_abnormal_behavior=False, host_bot_id=1, connected_flag=None
+    should_refresh=False, disable_abnormal_behavior=False, host_bot_id=1, connected_flag=None,
+    lightweight=False, enable_chaos=False, session_context=None, audio_mode="conversational",
+    large_room_mode=False, speaker_promotion_storm=False, participant_id=None
 ):
     fingerprint = emulator.fingerprint
     simulator = NetworkSimulator(network_profile, network_degradation, degradation_interval)
     webrtc_client = None
+    if not participant_id:
+        participant_id = f"part_{bot_id:04d}_{uuid.uuid4().hex[:8]}"
+    if large_room_mode or is_viewer:
+        max_subscriptions = min(max_subscriptions, 5)
+
     try:
         import ssl
         ssl_context = None
@@ -903,6 +1047,8 @@ async def ws_session(
                     connected_flag[0] = True
                 break
             except Exception as e:
+                if "403" in str(e) and session_context is not None:
+                    session_context["capacity_rejected"] = True
                 if conn_attempt == connect_attempts - 1:
                     raise e
                 logger.log("🔄", "yellow", bot_id, name, f"Handshake failed: {e}. Retrying connection ({conn_attempt+1}/{connect_attempts})...", fingerprint=fingerprint)
@@ -911,6 +1057,24 @@ async def ws_session(
         if True:
             await stats.inc("active")
             
+            # --- Session Resumption Reconnection Handshake ---
+            if session_context and session_context.get("resume_token"):
+                try:
+                    res_token = session_context["resume_token"]
+                    res_gen = session_context.get("session_generation", 1)
+                    res_inst = session_context.get("meeting_instance_id") or ""
+                    logger.log("🔄", "cyan", bot_id, name, f"Attempting session resumption with resumeToken (gen: {res_gen})...", fingerprint=fingerprint)
+                    await ws.send(json.dumps({
+                        "type": "resume_session",
+                        "resumeToken": res_token,
+                        "lastSessionGeneration": res_gen,
+                        "sessionGeneration": res_gen,
+                        "meetingInstanceId": res_inst,
+                        "clientEventId": f"ce_res_{uuid.uuid4().hex[:8]}"
+                    }))
+                except Exception as res_err:
+                    logger.log("⚠️", "yellow", bot_id, name, f"Session resumption packet error: {res_err}", fingerprint=fingerprint)
+
             # --- Abnormal Scenario & Mismatch Overrides ---
             if "abnormal_playground_20" in scenarios and bot_id in (8, 9) and not disable_abnormal_behavior:
                 original_send = ws.send
@@ -928,16 +1092,20 @@ async def ws_session(
                 ws.send = mock_send
 
             # --- Host Poll Task (Bot 1) ---
-            if "abnormal_playground_20" in scenarios and bot_id == host_bot_id:
+            if ("abnormal_playground_20" in scenarios or "create_poll" in scenarios or "vote_poll" in scenarios) and bot_id == host_bot_id:
                 async def send_playground_poll():
                     await asyncio.sleep(10.0)
                     try:
-                        logger.log("📊", "magenta", bot_id, name, "Host creating playground poll: 'Is Konn3ct WebRTC connection stable?'", fingerprint=fingerprint)
+                        logger.log("📊", "magenta", bot_id, name, "Host creating poll: 'Is Konn3ct WebRTC connection stable?'", fingerprint=fingerprint)
                         poll_msg = {
-                            "type": "create_poll",
+                            "type": "poll_create",
                             "pollId": "playground_poll_20",
                             "question": "Is Konn3ct WebRTC connection stable?",
-                            "options": ["Excellent", "Lagging/High Loss", "Unstable"],
+                            "options": [
+                                {"id": "opt_0", "text": "Excellent", "votes": 0, "votedBy": []},
+                                {"id": "opt_1", "text": "Lagging/High Loss", "votes": 0, "votedBy": []},
+                                {"id": "opt_2", "text": "Unstable", "votes": 0, "votedBy": []}
+                            ],
                             "senderBotId": f"bot-{bot_id:03d}"
                         }
                         await ws.send(json.dumps(poll_msg))
@@ -965,39 +1133,86 @@ async def ws_session(
             pending = PendingTracker()
             joined_at = time.time()
             action_task = None
+            media_starter_task = None
             my_user_id = None
             
             pending_replies = {}
+            pending_requests_by_id = {}
             active_future = asyncio.get_running_loop().create_future()
+            session_active_event = asyncio.Event()
 
             async def send_request(send_type, expect_type, payload=None):
+                req_id = f"req_{uuid.uuid4().hex[:8]}"
+                req = {"type": send_type, "requestId": req_id}
+                if payload:
+                    req.update(payload)
+                if expect_type is None:
+                    await ws.send(json.dumps(req))
+                    return {}
                 future = asyncio.get_running_loop().create_future()
                 if expect_type not in pending_replies:
                     pending_replies[expect_type] = []
                 pending_replies[expect_type].append(future)
+                pending_requests_by_id[req_id] = (expect_type, future)
                 
-                req = {"type": send_type}
-                if payload:
-                    req.update(payload)
                 try:
                     await ws.send(json.dumps(req))
                 except Exception as e:
+                    pending_requests_by_id.pop(req_id, None)
                     if future in pending_replies.get(expect_type, []):
                         pending_replies[expect_type].remove(future)
-                    future.set_exception(e)
+                    if not future.done():
+                        future.set_exception(e)
                     raise e
                 
                 return await asyncio.wait_for(future, timeout=10.0)
 
+            ERROR_TO_EXPECTED_MAP = {
+                "produce_failed": "produced",
+                "consume_failed": "consumed",
+                "resume_failed": "resumed",
+                "transportConnectError": "transportConnected",
+                "turn_credentials_error": "turn_credentials_refreshed"
+            }
+
             async def reader_loop():
-                nonlocal my_user_id
+                nonlocal my_user_id, participant_id, role, is_viewer
                 try:
                     while not stop_event.is_set():
                         try:
                             raw = await asyncio.wait_for(ws.recv(), timeout=1.0)
                             msg = json.loads(raw)
                             mtype = msg.get("type")
-                            
+                            req_id = msg.get("requestId")
+
+                            # 1. Match request-response futures by requestId first
+                            if req_id and req_id in pending_requests_by_id:
+                                exp_type, future = pending_requests_by_id.pop(req_id)
+                                if future in pending_replies.get(exp_type, []):
+                                    pending_replies[exp_type].remove(future)
+                                    if not pending_replies[exp_type]:
+                                        del pending_replies[exp_type]
+                                if not future.done():
+                                    if mtype in ("produce_failed", "consume_failed", "resume_failed", "transportConnectError", "turn_credentials_error", "error"):
+                                        err_reason = msg.get("errorCode") or msg.get("reason") or msg.get("message") or mtype
+                                        future.set_exception(RuntimeError(f"{mtype}: {err_reason}"))
+                                    else:
+                                        future.set_result(msg)
+                                continue
+
+                            # 2. Match SFU error responses without requestId to their pending future
+                            if mtype in ERROR_TO_EXPECTED_MAP:
+                                exp_type = ERROR_TO_EXPECTED_MAP[mtype]
+                                if exp_type in pending_replies and pending_replies[exp_type]:
+                                    future = pending_replies[exp_type].pop(0)
+                                    if not pending_replies[exp_type]:
+                                        del pending_replies[exp_type]
+                                    if not future.done():
+                                        err_reason = msg.get("errorCode") or msg.get("reason") or msg.get("message") or mtype
+                                        future.set_exception(RuntimeError(f"{mtype}: {err_reason}"))
+                                    continue
+
+                            # 3. Match by expected response message type
                             if mtype in pending_replies and pending_replies[mtype]:
                                 future = pending_replies[mtype].pop(0)
                                 if not future.done():
@@ -1006,17 +1221,189 @@ async def ws_session(
                                     del pending_replies[mtype]
                                 continue
                             
-                            if mtype == "session_status":
+                            if mtype in ("session_status", "init_session", "session_resumed"):
                                 status = msg.get("status")
-                                my_user_id = msg.get("userId")
+                                my_user_id = msg.get("userId") or my_user_id
+                                participant_id = msg.get("participantId") or participant_id
+                                if msg.get("role"):
+                                    role = msg.get("role")
                                 await registry.register(my_user_id, name)
                                 
-                                if status == "active" and not active_future.done():
-                                    active_future.set_result(my_user_id)
+                                # Store session resumption tokens
+                                if session_context is not None:
+                                    if msg.get("resumeToken"):
+                                        session_context["resume_token"] = msg.get("resumeToken")
+                                    if msg.get("sessionGeneration"):
+                                        session_context["session_generation"] = msg.get("sessionGeneration")
+                                    if msg.get("meetingInstanceId"):
+                                        session_context["meeting_instance_id"] = msg.get("meetingInstanceId")
+                                
+                                if status == "active" or mtype == "session_resumed":
+                                    session_active_event.set()
+                                    if not active_future.done():
+                                        active_future.set_result(my_user_id)
+                                    # Host automatically disables waiting room so subsequent bots join directly as active
+                                    if role in ("host", "co-host") or bot_id == host_bot_id:
+                                        try:
+                                            await ws.send(json.dumps({
+                                                "type": "update_room_settings",
+                                                "settings": {
+                                                    "waitingRoomEnabled": False,
+                                                    "bypassWaitingRoom": True
+                                                }
+                                            }))
+                                            if large_room_mode:
+                                                await ws.send(json.dumps({
+                                                    "type": "update_large_room_settings",
+                                                    "settings": {
+                                                        "largeRoomMode": "large_interactive",
+                                                        "largeRoomEnabled": True,
+                                                        "maxActiveVideoPublishers": 15,
+                                                        "maxActiveAudioPublishers": 20,
+                                                        "maxScreenShares": 2
+                                                    }
+                                                }))
+                                        except Exception:
+                                            pass
+                                elif status == "waiting":
+                                    # Connected to signaling server in waiting room; wait briefly for host admission,
+                                    # then mark session connected (matching konn3ct_edge load-test-large-room.ts)
+                                    async def _grace_resolve_waiting(uid):
+                                        await asyncio.sleep(4.0)
+                                        if not active_future.done() and not stop_event.is_set():
+                                            active_future.set_result(uid)
+                                    asyncio.create_task(_grace_resolve_waiting(my_user_id))
                                 elif status in ("denied", "kicked", "ended"):
                                     if not active_future.done():
                                         active_future.set_exception(Exception(f"Session rejected: {status}"))
                                     raise Exception(f"Session terminated by server: {status}")
+
+                            # Server-side Action Lifecycle Acknowledgment (konn3ct_edge action:ack)
+                            elif mtype == "action:ack":
+                                ack_action_type = msg.get("actionType") or ""
+                                client_event_id = msg.get("clientEventId")
+                                server_event_id = msg.get("serverEventId") or f"se_{uuid.uuid4().hex[:8]}"
+                                ack_status = msg.get("status", "accepted")
+
+                                act_key_map = {
+                                    "chat": f"chat:{client_event_id}" if client_event_id else "chat",
+                                    "camera_state": "camera",
+                                    "mute_state": "mic",
+                                    "hand_raise": "hand",
+                                    "produce": "screen_share",
+                                    "stop_producer": "screen_share",
+                                    "reaction": "reaction",
+                                    "audio_connection_status": "audio_connection_status"
+                                }
+                                act_key = act_key_map.get(ack_action_type, ack_action_type)
+                                clean_act = act_key.split(":")[0] if ":" in act_key else act_key
+
+                                if "abnormal_playground_20" in scenarios and bot_id in (6, 7) and not disable_abnormal_behavior:
+                                    await asyncio.sleep(8.0)
+
+                                result = pending.confirm(act_key)
+                                if not result and act_key.startswith("chat:"):
+                                    result = pending.confirm("chat")
+                                if result:
+                                    val, sent_at, stored_ce_id = result
+                                    elapsed = (time.time() - sent_at) * 1000
+                                    resolved_ce_id = client_event_id or stored_ce_id
+                                    if ack_status == "accepted":
+                                        await registry.record_ack(my_user_id, act_key if act_key.startswith("chat:") else clean_act, server_event_id, resolved_ce_id)
+                                        await logger.log_action(
+                                            bot_id, name, email, clean_act, val, "acknowledged", elapsed, fingerprint,
+                                            sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                            client_event_id=resolved_ce_id, server_event_id=server_event_id,
+                                            sent_timestamp=datetime.datetime.fromtimestamp(sent_at).isoformat() + "Z",
+                                            ack_timestamp=msg.get("acceptedAt") or (datetime.datetime.utcnow().isoformat() + "Z"),
+                                            ack_latency_ms=elapsed, final_status="acknowledged"
+                                        )
+                                        await metrics.record_action(clean_act, fingerprint["browser_type"], "confirmed", elapsed)
+                                    else:
+                                        err_code = msg.get("errorCode") or f"{clean_act.upper()}_REJECTED"
+                                        err_msg = msg.get("message") or "Action rejected by server"
+                                        await logger.log_action(
+                                            bot_id, name, email, clean_act, val, "failed", elapsed, fingerprint,
+                                            sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                            client_event_id=resolved_ce_id, server_event_id=server_event_id,
+                                            sent_timestamp=datetime.datetime.fromtimestamp(sent_at).isoformat() + "Z",
+                                            ack_timestamp=msg.get("failedAt") or (datetime.datetime.utcnow().isoformat() + "Z"),
+                                            ack_latency_ms=elapsed, final_status="failed", error_code=err_code, unsupported_reason=err_msg
+                                        )
+                                        await metrics.record_action(clean_act, fingerprint["browser_type"], "failed", elapsed)
+
+                            # Targeted Participant Ping from Host (konn3ct_edge PARTICIPANT_PING -> ping_delivery_ack)
+                            elif mtype == "PARTICIPANT_PING":
+                                ping_id = msg.get("pingId")
+                                if ping_id:
+                                    try:
+                                        await ws.send(json.dumps({
+                                            "type": "ping_delivery_ack",
+                                            "pingId": ping_id,
+                                            "visualShown": True,
+                                            "audioAttempted": True,
+                                            "audioPlayed": True,
+                                            "audioBlocked": False
+                                        }))
+                                    except Exception:
+                                        pass
+
+                            # Speaker Promotion & Demotion Handlers
+                            elif mtype in ("speaker_promoted", "speaker_promotion_approved"):
+                                promoted_uid = msg.get("targetUserId") or msg.get("userId")
+                                promoted_pid = msg.get("targetParticipantId") or msg.get("participantId")
+                                if (promoted_uid and promoted_uid == my_user_id) or (promoted_pid and promoted_pid == participant_id):
+                                    logger.log("🌟", "green", bot_id, name, "Promoted to Speaker! Enabling camera & microphone feed...", fingerprint=fingerprint)
+                                    role = "speaker"
+                                    is_viewer = False
+                                    if webrtc_client:
+                                        await webrtc_client.send_media("video", True)
+                                        await webrtc_client.send_media("audio", True)
+                                    await logger.log_action(bot_id, name, email, "speaker_promoted", "promoted", "confirmed", fingerprint=fingerprint)
+                                    await metrics.record_action("speaker_promoted", fingerprint["browser_type"], "confirmed")
+
+                            elif mtype == "speaker_demoted":
+                                demoted_uid = msg.get("targetUserId") or msg.get("userId")
+                                demoted_pid = msg.get("targetParticipantId") or msg.get("participantId")
+                                if (demoted_uid and demoted_uid == my_user_id) or (demoted_pid and demoted_pid == participant_id):
+                                    logger.log("⬇️", "yellow", bot_id, name, "Demoted back to Viewer. Switching to receive-only mode...", fingerprint=fingerprint)
+                                    role = "viewer"
+                                    is_viewer = True
+                                    if webrtc_client:
+                                        await webrtc_client.send_media("video", False)
+                                        await webrtc_client.send_media("audio", False)
+                                    await logger.log_action(bot_id, name, email, "speaker_demoted", "demoted", "confirmed", fingerprint=fingerprint)
+                                    await metrics.record_action("speaker_demoted", fingerprint["browser_type"], "confirmed")
+
+                            elif mtype == "speaker_promotion_requested" or (mtype == "hand_raise" and msg.get("isHandRaised")):
+                                # Host auto-approves speaker promotions in promotion storm scenarios
+                                if role in ("host", "co-host") and (speaker_promotion_storm or "speaker_promotion" in scenarios or "speaker_promotion_storm" in scenarios):
+                                    target_uid = msg.get("targetUserId") or msg.get("userId") or msg.get("senderParticipantId")
+                                    target_pid = msg.get("targetParticipantId") or msg.get("participantId") or target_uid
+                                    if target_pid and target_uid != my_user_id:
+                                        logger.log("👑", "green", bot_id, name, f"Host auto-approving speaker promotion for {target_pid}", fingerprint=fingerprint)
+                                        approve_msg = {
+                                            "type": "speaker_promotion_approved",
+                                            "targetParticipantId": target_pid,
+                                            "targetUserId": target_uid,
+                                            "participantId": target_pid
+                                        }
+                                        await ws.send(json.dumps(approve_msg))
+
+                            # Lightweight viewers: only process session_status, user_joined, participants_list
+                            # Skip all action broadcasts and cross-confirmation to save CPU
+                            elif lightweight:
+                                if mtype == "user_joined":
+                                    uid = msg.get("userId")
+                                    uname = msg.get("name")
+                                    if uid and uname:
+                                        await registry.register(uid, uname)
+                                elif mtype in ("participants_list", "participants_query_result"):
+                                    for p in msg.get("participants", []):
+                                        if p.get("userId") and p.get("name"):
+                                            await registry.register(p["userId"], p["name"])
+                                # All other message types are silently discarded in lightweight mode
+                                continue
                                     
                             elif mtype == "user_joined":
                                 uid = msg.get("userId")
@@ -1024,7 +1411,7 @@ async def ws_session(
                                 if uid and uname:
                                     await registry.register(uid, uname)
                                     
-                            elif mtype == "participants_list":
+                            elif mtype in ("participants_list", "participants_query_result"):
                                 participants = msg.get("participants", [])
                                 for p in participants:
                                     if p.get("userId") and p.get("name"):
@@ -1034,8 +1421,10 @@ async def ws_session(
                                 p_id = msg.get("producerId")
                                 p_kind = msg.get("kind")
                                 p_uid = msg.get("userId")
-                                if webrtc_client and webrtc_enabled and p_uid != my_user_id:
-                                    asyncio.create_task(webrtc_client.add_consumer(p_id, p_kind))
+                                p_pid = msg.get("participantId")
+                                if webrtc_client and webrtc_enabled and p_uid != my_user_id and p_pid != participant_id:
+                                    if len(webrtc_client.active_consumers) < max_subscriptions:
+                                        asyncio.create_task(webrtc_client.add_consumer(p_id, p_kind))
                                     if cross_confirm:
                                         server_event_id = f"se_wcon_{p_uid}_{p_id[:8]}"
                                         if await registry.should_confirm(server_event_id, limit=cross_confirm_limit):
@@ -1049,7 +1438,7 @@ async def ws_session(
                             elif mtype == "waiting_room_request":
                                 target_uid = msg.get("userId")
                                 target_name = msg.get("name")
-                                if role == "host":
+                                if role in ("host", "co-host") or bot_id == host_bot_id:
                                     logger.log("👑", "green", bot_id, name, f"Host auto-admitting waiting user: {target_name} ({target_uid})", fingerprint=fingerprint)
                                     t0 = time.time()
                                     await ws.send(json.dumps({"type": "admit_user", "userId": target_uid}))
@@ -1061,40 +1450,51 @@ async def ws_session(
                                 logger.log("🎤", "yellow", bot_id, name, "Received force_mute command from host — muting mic", fingerprint=fingerprint)
                                 t0 = time.time()
                                 is_muted = True
-                                await ws.send(json.dumps({"type": "mute_state", "isMuted": is_muted}))
+                                await ws.send(json.dumps({"type": "mute_state", "isMuted": is_muted, "clientEventId": f"ce_fmu_{uuid.uuid4().hex[:8]}"}))
                                 if webrtc_client:
                                     await webrtc_client.send_media("audio", False)
                                 elapsed = (time.time() - t0) * 1000
                                 await logger.log_action(bot_id, name, email, "force_mute", "muted", "confirmed", elapsed, fingerprint)
                                 await metrics.record_action("force_mute", fingerprint["browser_type"], "confirmed", elapsed)
+
+                            elif mtype == "force_video_off":
+                                logger.log("📷", "yellow", bot_id, name, "Received force_video_off command from host — turning camera off", fingerprint=fingerprint)
+                                await ws.send(json.dumps({"type": "camera_state", "isCameraOn": False, "clientEventId": f"ce_fvo_{uuid.uuid4().hex[:8]}"}))
+                                if webrtc_client:
+                                    await webrtc_client.send_media("video", False)
                                 
-                            elif mtype == "create_poll":
-                                poll_id = msg.get("pollId")
-                                question = msg.get("question")
-                                options = msg.get("options", [])
+                            elif mtype in ("create_poll", "poll_created"):
+                                poll_obj = msg.get("poll") or msg
+                                poll_id = poll_obj.get("id") or poll_obj.get("pollId")
+                                question = poll_obj.get("question")
+                                options = poll_obj.get("options", [])
                                 logger.log("🗳️", "magenta", bot_id, name, f"Observed Poll created by host: '{question}'", fingerprint=fingerprint)
                                 
                                 # Attendees (excluding host) vote after random delay if vote_poll scenario is enabled
-                                if "vote_poll" in scenarios and bot_id != host_bot_id:
-                                    async def cast_vote():
+                                if ("vote_poll" in scenarios or "abnormal_playground_20" in scenarios) and bot_id != host_bot_id and options:
+                                    async def cast_vote(p_id, opts):
                                         await asyncio.sleep(random.uniform(2.0, 6.0))
                                         try:
-                                            opt_idx = random.choices([0, 1, 2], weights=[60, 30, 10])[0]
-                                            logger.log("🗳️", "magenta", bot_id, name, f"Voting for option {opt_idx}: '{options[opt_idx]}'", fingerprint=fingerprint)
+                                            opt_idx = random.randrange(len(opts))
+                                            opt_item = opts[opt_idx]
+                                            opt_id = opt_item.get("id") if isinstance(opt_item, dict) else f"opt_{opt_idx}"
+                                            opt_label = opt_item.get("text") if isinstance(opt_item, dict) else str(opt_item)
+                                            logger.log("🗳️", "magenta", bot_id, name, f"Voting for option {opt_idx}: '{opt_label}'", fingerprint=fingerprint)
                                             vote_msg = {
-                                                "type": "vote_poll",
-                                                "pollId": poll_id,
+                                                "type": "poll_vote",
+                                                "pollId": p_id,
+                                                "optionId": opt_id,
                                                 "optionIndex": opt_idx,
                                                 "senderBotId": f"bot-{bot_id:03d}"
                                             }
                                             await ws.send(json.dumps(vote_msg))
-                                            await logger.log_action(bot_id, name, email, "vote_poll", str(opt_idx), "acknowledged", latency_ms=150, fingerprint=fingerprint)
+                                            await logger.log_action(bot_id, name, email, "vote_poll", str(opt_id), "acknowledged", latency_ms=150, fingerprint=fingerprint)
                                         except Exception:
                                             pass
-                                    asyncio.create_task(cast_vote())
+                                    asyncio.create_task(cast_vote(poll_id, options))
                                     
-                            elif mtype in ("note_update", "camera_state", "mute_state", "hand_raise", "screen_share", "chat", "leave_meeting", "remove_participant", "lock_meeting", "recording_state", "captions_state"):
-                                uid = msg.get("userId")
+                            elif mtype in ("note_update", "camera_state", "mute_state", "hand_raise", "screen_share", "screen_share_started", "screen_share_stopped", "chat", "reaction", "audio_connection_status", "leave_meeting", "remove_participant", "lock_meeting", "room_settings_updated", "recording_state", "captions_state"):
+                                uid = msg.get("userId") or msg.get("senderParticipantId")
                                 val = None
                                 act = ""
                                 if mtype == "camera_state":
@@ -1109,10 +1509,22 @@ async def ws_session(
                                 elif mtype == "screen_share":
                                     val = msg.get("isScreenSharing")
                                     act = "screen_share"
+                                elif mtype == "screen_share_started":
+                                    val = True
+                                    act = "screen_share"
+                                elif mtype == "screen_share_stopped":
+                                    val = False
+                                    act = "screen_share"
                                 elif mtype == "chat":
                                     val = msg.get("message")
                                     client_id = msg.get("clientMsgId") or msg.get("clientEventId")
                                     act = f"chat:{client_id}" if client_id else "chat"
+                                elif mtype == "reaction":
+                                    val = msg.get("emoji")
+                                    act = "reaction"
+                                elif mtype == "audio_connection_status":
+                                    val = msg.get("status")
+                                    act = "audio_connection_status"
                                 elif mtype == "note_update":
                                     val = msg.get("content")
                                     act = "note_update"
@@ -1120,40 +1532,26 @@ async def ws_session(
                                     val = "left"
                                     act = "leave_meeting"
                                 elif mtype == "remove_participant":
-                                    val = msg.get("targetUserId")
+                                    target_u = msg.get("userId")
+                                    if target_u == my_user_id:
+                                        logger.log("🚫", "red", bot_id, name, "Kicked from meeting by host.", fingerprint=fingerprint)
+                                        raise Exception("Kicked from meeting by host")
+                                    val = target_u
                                     act = "remove_participant"
-                                    if val == my_user_id:
-                                        logger.log("❌", "red", bot_id, name, "Removed from meeting by host.", fingerprint=fingerprint)
-                                        client_event_id = f"ce_lev_{uuid.uuid4().hex[:8]}"
-                                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
-                                        await ws.send(json.dumps({
-                                            "type": "leave_meeting",
-                                            "clientEventId": client_event_id,
-                                            "sentTimestamp": sent_ts,
-                                            "senderBotId": f"bot-{bot_id:03d}",
-                                            "senderOS": fingerprint.get("os_type"),
-                                            "senderBrowser": fingerprint.get("browser_name"),
-                                            "senderDeviceType": fingerprint.get("device_type"),
-                                            "roomId": room_id,
-                                            "actionType": "leave_meeting"
-                                        }))
-                                        await registry.record_sent(my_user_id, "leave_meeting", "left", client_event_id, bot_id, fingerprint.get("os_type"), fingerprint.get("browser_name"), fingerprint.get("device_type"))
-                                        await logger.log_action(bot_id, name, email, "leave_meeting", "left", "sent", fingerprint=fingerprint,
-                                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
-                                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
-                                        await asyncio.sleep(1.5)
-                                        break
-                                elif mtype == "lock_meeting":
-                                    val = msg.get("isLocked")
+                                elif mtype in ("lock_meeting", "room_settings_updated"):
+                                    settings_obj = msg.get("settings") or {}
+                                    val = msg.get("locked") if mtype == "lock_meeting" else settings_obj.get("micLocked")
                                     act = "lock_meeting"
+                                    if mtype == "room_settings_updated" and bot_id == host_bot_id:
+                                        uid = my_user_id
                                 elif mtype == "recording_state":
                                     val = msg.get("isRecording")
                                     act = "recording_state"
                                 elif mtype == "captions_state":
-                                    val = msg.get("captionsEnabled")
+                                    val = msg.get("enabled")
                                     act = "captions_state"
 
-                                clean_act = act.split(":")[0]
+                                clean_act = act.split(":")[0] if ":" in act else act
                                 client_event_id = msg.get("clientEventId") or msg.get("clientMsgId")
                                 server_event_id = msg.get("serverEventId") or msg.get("eventId") or msg.get("id") or f"se_{uuid.uuid4().hex[:8]}"
 
@@ -1174,7 +1572,7 @@ async def ws_session(
                                                                 ack_latency_ms=elapsed, final_status="acknowledged")
                                         await metrics.record_action(clean_act, fingerprint["browser_type"], "confirmed", elapsed)
                                 else:
-                                    if cross_confirm:
+                                    if cross_confirm and uid:
                                         event_key = client_event_id or server_event_id or f"{uid}_{clean_act}_{val}"
                                         if await registry.should_confirm(event_key, limit=cross_confirm_limit):
                                             await log_observed_action(bot_id, name, email, uid, clean_act, val, fingerprint, msg_client_event_id=client_event_id, msg_server_event_id=server_event_id)
@@ -1191,67 +1589,78 @@ async def ws_session(
             try:
                 try:
                     my_user_id = await asyncio.wait_for(active_future, timeout=15.0)
+                    # Log bot_joined when session is established in the room
+                    await stats.inc("joined")
+                    await logger.record_event("bot_joined", bot_id, name, email, fingerprint=fingerprint)
                 except Exception as exc:
                     await logger.record_event("error_logged", bot_id=bot_id, name=name, action="session_activation", error=str(exc), browser=fingerprint["browser_type"])
                     await stats.inc("active", -1)
-                    await stats.inc("failed")
-                    return True
+                    return False
 
-                if webrtc_enabled:
-                    webrtc_client = WebRTCClient(
-                        bot_id, name, emulator, simulator, metrics, media_quality,
-                        decode_downlink=decode_downlink, max_subscriptions=max_subscriptions
-                    )
-                    try:
-                        client_event_id = f"ce_wcon_{uuid.uuid4().hex[:8]}"
-                        sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
-                        t_start = time.time()
-                        await logger.log_action(bot_id, name, email, "webrtc_connection", "CONNECTING", "sent", fingerprint=fingerprint, client_event_id=client_event_id, sent_timestamp=sent_ts)
-                        
-                        success = await webrtc_client.connect(send_request)
-                        elapsed = (time.time() - t_start) * 1000
-                    except Exception as exc:
-                        success = False
-                        elapsed = (time.time() - t_start) * 1000
-                        await logger.record_event("error_logged", bot_id=bot_id, name=name, action="webrtc_connection", error=str(exc), browser=fingerprint["browser_type"])
-                        
-                    if success:
-                        await logger.log_action(bot_id, name, email, "webrtc_connection", "CONNECTED", "confirmed", elapsed, fingerprint,
-                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
-                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
-                        await metrics.record_join(fingerprint["browser_type"], True)
-                        
+                async def start_media_and_actions_when_active():
+                    nonlocal webrtc_client, action_task
+                    await session_active_event.wait()
+                    if stop_event.is_set():
+                        return
+                    if webrtc_enabled:
+                        webrtc_client = WebRTCClient(
+                            bot_id, name, emulator, simulator, metrics, media_quality,
+                            decode_downlink=decode_downlink, max_subscriptions=max_subscriptions,
+                            audio_mode=audio_mode
+                        )
                         try:
-                            producers_data = await send_request("getProducers", "producersList")
-                            producers_list = producers_data.get("producers", [])
-                            for prod in producers_list:
-                                p_id = prod.get("producerId")
-                                p_kind = prod.get("kind")
-                                p_uid = prod.get("userId")
-                                if p_uid != my_user_id:
-                                    asyncio.create_task(webrtc_client.add_consumer(p_id, p_kind))
-                        except Exception:
-                            pass
-                    else:
-                        await logger.log_action(bot_id, name, email, "webrtc_connection", "FAILED", "failed", elapsed, fingerprint,
-                                                sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
-                                                client_event_id=client_event_id, sent_timestamp=sent_ts)
-                        await metrics.record_join(fingerprint["browser_type"], False)
-                        await stats.inc("active", -1)
-                        await stats.inc("failed")
-                        return True
-                
-                action_task = asyncio.create_task(
-                    action_loop(
-                        ws=ws, bot_id=bot_id, name=name, email=email, my_user_id=my_user_id, fingerprint=fingerprint, pending=pending,
-                        action_interval=action_interval, chat_interval=chat_interval, webrtc_client=webrtc_client,
-                        camera_enabled=camera_enabled, mic_enabled=mic_enabled, hand_enabled=hand_enabled,
-                        chat_enabled=chat_enabled, screen_share_enabled=screen_share_enabled,
-                        stop_event=stop_event, scenario_event=scenario_event, frontend_url=frontend_url, room_id=room_id, scenarios=scenarios, role=role,
-                        auto_camera=auto_camera, auto_mic=auto_mic, auto_screen_share=auto_screen_share,
-                        is_viewer=is_viewer
+                            client_event_id = f"ce_wcon_{uuid.uuid4().hex[:8]}"
+                            sent_ts = datetime.datetime.utcnow().isoformat() + "Z"
+                            t_start = time.time()
+                            await logger.log_action(bot_id, name, email, "webrtc_connection", "CONNECTING", "sent", fingerprint=fingerprint, client_event_id=client_event_id, sent_timestamp=sent_ts)
+                            
+                            success = await webrtc_client.connect(send_request)
+                            elapsed = (time.time() - t_start) * 1000
+                        except Exception as exc:
+                            success = False
+                            elapsed = (time.time() - t_start) * 1000
+                            await logger.record_event("error_logged", bot_id=bot_id, name=name, action="webrtc_connection", error=str(exc), browser=fingerprint["browser_type"])
+                            
+                        if success:
+                            await logger.log_action(bot_id, name, email, "webrtc_connection", "CONNECTED", "confirmed", elapsed, fingerprint,
+                                                    sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                    client_event_id=client_event_id, sent_timestamp=sent_ts)
+                            await metrics.record_join(fingerprint["browser_type"], True)
+                            
+                            try:
+                                producers_data = await send_request("getProducers", "producersList")
+                                producers_list = producers_data.get("producers", [])
+                                for prod in producers_list:
+                                    p_id = prod.get("producerId")
+                                    p_kind = prod.get("kind")
+                                    p_uid = prod.get("userId")
+                                    p_pid = prod.get("participantId")
+                                    if p_uid != my_user_id and p_pid != participant_id and len(webrtc_client.active_consumers) < max_subscriptions:
+                                        asyncio.create_task(webrtc_client.add_consumer(p_id, p_kind))
+                            except Exception:
+                                pass
+                        else:
+                            await logger.log_action(bot_id, name, email, "webrtc_connection", "FAILED", "failed", elapsed, fingerprint,
+                                                    sender_bot_id=bot_id, sender_os=fingerprint.get("os_type"), sender_browser=fingerprint.get("browser_name"), sender_device_type=fingerprint.get("device_type"),
+                                                    client_event_id=client_event_id, sent_timestamp=sent_ts)
+                            await metrics.record_join(fingerprint["browser_type"], False)
+
+                    action_task = asyncio.create_task(
+                        action_loop(
+                            ws=ws, bot_id=bot_id, name=name, email=email, my_user_id=my_user_id, fingerprint=fingerprint, pending=pending,
+                            action_interval=action_interval, chat_interval=chat_interval, webrtc_client=webrtc_client,
+                            camera_enabled=camera_enabled, mic_enabled=mic_enabled, hand_enabled=hand_enabled,
+                            chat_enabled=chat_enabled, screen_share_enabled=screen_share_enabled,
+                            stop_event=stop_event, scenario_event=scenario_event, frontend_url=frontend_url, room_id=room_id, scenarios=scenarios, role=role,
+                            auto_camera=auto_camera, auto_mic=auto_mic, auto_screen_share=auto_screen_share,
+                            is_viewer=is_viewer, send_request=send_request
+                        )
                     )
-                )
+
+                if session_active_event.is_set():
+                    await start_media_and_actions_when_active()
+                else:
+                    media_starter_task = asyncio.create_task(start_media_and_actions_when_active())
 
                 last_webrtc_log_at = time.time()
                 ice_restart_count = 0
@@ -1265,16 +1674,26 @@ async def ws_session(
                     if should_refresh and (now - joined_at) >= 20.0:
                         logger.log("🔄", "cyan", bot_id, name, "Simulating session refresh (browser reload)...", fingerprint=fingerprint)
                         try:
-                            await ws.send(json.dumps({"type": "leave_meeting"}))
+                            await ws.send(json.dumps({"type": "leave_meeting", "roomId": room_id, "userId": my_user_id, "participantId": participant_id}))
                         except Exception:
                             pass
                         await stats.inc("active", -1)
                         return "refresh_session"
                     
+                    # Chaos Module: Simulated Disconnect Storms
+                    if enable_chaos and (bot_id % 8 == 0) and (now - joined_at) >= 20.0 and random.random() < 0.04:
+                        logger.log("⚡", "yellow", bot_id, name, "Chaos Simulation: Triggering intentional disconnect storm...", fingerprint=fingerprint)
+                        try:
+                            await ws.send(json.dumps({"type": "leave_meeting", "roomId": room_id, "userId": my_user_id, "participantId": participant_id}))
+                        except Exception:
+                            pass
+                        await stats.inc("active", -1)
+                        return "chaos_reconnect"
+                    
                     if scenario_event.is_set() and "breakout_rooms" in scenarios and not in_breakout:
                         await asyncio.sleep(random.uniform(0, 3.0))
                         try:
-                            await ws.send(json.dumps({"type": "leave_meeting"}))
+                            await ws.send(json.dumps({"type": "leave_meeting", "roomId": room_id, "userId": my_user_id, "participantId": participant_id}))
                         except Exception:
                             pass
                         await stats.inc("active", -1)
@@ -1282,7 +1701,7 @@ async def ws_session(
                         
                     if in_breakout and (now - joined_at) >= 25.0:
                         try:
-                            await ws.send(json.dumps({"type": "leave_meeting"}))
+                            await ws.send(json.dumps({"type": "leave_meeting", "roomId": room_id, "userId": my_user_id, "participantId": participant_id}))
                         except Exception:
                             pass
                         await stats.inc("active", -1)
@@ -1290,7 +1709,7 @@ async def ws_session(
 
                     if auto_leave_s and (now - joined_at) >= auto_leave_s:
                         try:
-                            await ws.send(json.dumps({"type": "leave_meeting"}))
+                            await ws.send(json.dumps({"type": "leave_meeting", "roomId": room_id, "userId": my_user_id, "participantId": participant_id}))
                         except Exception:
                             pass
                         await stats.inc("active", -1)
@@ -1341,6 +1760,22 @@ async def ws_session(
                         )
                     except Exception:
                         pass
+                if ws and not ws.closed:
+                    try:
+                        await ws.send(json.dumps({
+                            "type": "leave_meeting",
+                            "clientEventId": f"ce_lev_{uuid.uuid4().hex[:8]}",
+                            "senderBotId": f"bot-{bot_id:03d}",
+                            "roomId": room_id,
+                            "userId": my_user_id,
+                            "participantId": participant_id,
+                            "actionType": "leave_meeting"
+                        }))
+                        await asyncio.sleep(0.1)
+                    except Exception:
+                        pass
+                if media_starter_task and not media_starter_task.done():
+                    media_starter_task.cancel()
                 if action_task and not action_task.done():
                     action_task.cancel()
                 if reader_task and not reader_task.done():
@@ -1357,7 +1792,6 @@ async def ws_session(
         await logger.record_event("error_logged", bot_id=bot_id, name=name, action="websocket_connection", error=str(exc), browser=fingerprint["browser_type"])
         logger.log("⚠️", "yellow", bot_id, name, f"Connection exception: {type(exc).__name__}: {exc}", fingerprint=fingerprint)
 
-# Main launch bot loop handling retries
 # Main launch bot loop handling retries and breakout migration state
 async def run_bot(
     bot_id, room_id, frontend_url, signal_domain,
@@ -1367,7 +1801,8 @@ async def run_bot(
     device_manager, stop_event, session, scenario_event, cross_confirm=True,
     jwt_secret=None, max_subscriptions=2, decode_downlink=False, host_bot_id=1, presenter_bot_id=2, scenarios=[],
     auto_camera=False, auto_mic=False, auto_screen_share=False, cross_confirm_limit=10, is_viewer=False,
-    refresh_bots=0, disable_abnormal_behavior=False
+    refresh_bots=0, disable_abnormal_behavior=False, lightweight=False, enable_chaos=False,
+    audio_mode="conversational", large_room_mode=False, speaker_promotion_storm=False
 ):
     name, email = await generate_identity()
     participant_id = str(uuid.uuid4())
@@ -1391,12 +1826,36 @@ async def run_bot(
     elif bot_id == presenter_bot_id:
         role = "presenter"
 
+    session_context = {
+        "resume_token": None,
+        "session_generation": 1,
+        "meeting_instance_id": None,
+        "refreshed_session_token": None,
+        "capacity_rejected": False
+    }
+
     # Helper function to acquire / generate websocket URL
     async def get_ws_url(room):
         if jwt_secret:
-            token = generate_local_token(room, name, email, bot_id, role, profile["device_type"] != "desktop", jwt_secret)
+            # In Konn3ct signaling (server.ts lines 1836 & 1898), role='host' and role='bot'
+            # bypass the default 100-participant DB room limit and waiting room checks
+            # (matching konn3ct_edge/scripts/load-test-large-room.ts).
+            # Preserve role='attendee' only when explicitly testing the waiting_room scenario.
+            effective_role = role
+            if bot_id != host_bot_id and role == "attendee":
+                if not ("waiting_room" in scenarios and bot_id <= 50 and not session_context.get("capacity_rejected")):
+                    effective_role = "bot"
+            token = generate_local_token(
+                room, name, email, bot_id, effective_role,
+                profile["device_type"] != "desktop", jwt_secret,
+                participant_id=participant_id
+            )
         else:
-            token = await get_ws_token(session, frontend_url, room, name, email, bot_id, profile["device_type"] != "desktop")
+            token = await get_ws_token(
+                session, frontend_url, room, name, email, bot_id,
+                profile["device_type"] != "desktop",
+                session_context=session_context
+            )
         if not token:
             return None
         proto = "ws" if "localhost" in signal_domain or "127.0.0.1" in signal_domain else "wss"
@@ -1407,10 +1866,9 @@ async def run_bot(
     if not ws_url:
         await stats.inc("failed")
         await metrics.record_join(fingerprint["browser_type"], False)
+        await logger.record_event("bot_failed", bot_id, name, email, fingerprint=fingerprint)
         return
 
-    await stats.inc("joined")
-    await logger.record_event("bot_joined", bot_id, name, email, fingerprint=fingerprint)
     logger.log("🌐", "grey", bot_id, name, f"Token acquired — connecting to room: {current_room}...", fingerprint=fingerprint)
     
     attempt = 1
@@ -1439,7 +1897,14 @@ async def run_bot(
                 is_viewer=is_viewer, should_refresh=bot_refresh_enabled,
                 disable_abnormal_behavior=disable_abnormal_behavior,
                 host_bot_id=host_bot_id,
-                connected_flag=connected_flag
+                connected_flag=connected_flag,
+                lightweight=lightweight,
+                enable_chaos=enable_chaos,
+                session_context=session_context,
+                audio_mode=audio_mode,
+                large_room_mode=large_room_mode,
+                speaker_promotion_storm=speaker_promotion_storm,
+                participant_id=participant_id
             )
         except Exception as exc:
             logger.log("⚠️", "red", bot_id, name, f"Session connection error: {exc}", fingerprint=fingerprint)
@@ -1486,6 +1951,21 @@ async def run_bot(
             await logger.record_event("bot_joined", bot_id, name, email, fingerprint=fingerprint)
             logger.log("🌐", "grey", bot_id, name, f"Reconnected after browser refresh to room: {current_room}...", fingerprint=fingerprint)
             continue
+
+        elif result == "chaos_reconnect":
+            await logger.record_event("chaos_disconnect_storm", bot_id, name, email, fingerprint=fingerprint, reason="Simulated Chaos Disconnect Storm")
+            reconnect_delay = random.uniform(2.5, 4.5)
+            logger.log("⚡", "yellow", bot_id, name, f"Chaos Simulation: Recovering & reconnecting after {reconnect_delay:.1f}s storm cooldown...", fingerprint=fingerprint)
+            await asyncio.sleep(reconnect_delay)
+            ws_url = None
+            while not ws_url and not stop_event.is_set():
+                ws_url = await get_ws_url(current_room)
+                if not ws_url:
+                    await asyncio.sleep(2.0)
+            if stop_event.is_set():
+                break
+            await logger.record_event("bot_joined", bot_id, name, email, fingerprint=fingerprint)
+            continue
             
         elif result == "migrate_to_main":
             in_breakout = False
@@ -1528,8 +2008,13 @@ async def run_bot(
         await logger.record_event("bot_reconnecting", bot_id, name, email, fingerprint=fingerprint)
         
         # Exponential backoff with jitter to prevent reconnection storms
-        backoff = min(60.0, random.uniform(2.0, 4.0) * (1.5 ** reconnect_attempt))
+        base_backoff = min(90.0, random.uniform(3.0, 8.0) * (1.8 ** reconnect_attempt))
+        # Add bot_id-proportional jitter so bots don't all reconnect at the same instant
+        jitter = (bot_id % 100) * 0.1
+        backoff = base_backoff + jitter
         logger.log("🔄", "yellow", bot_id, name, f"Reconnecting in {backoff:.1f}s (attempt {attempt if not has_ever_connected else '∞'}/{max_retries}, reconnect_attempt={reconnect_attempt})...", fingerprint=fingerprint)
+        # Acquire a reconnection slot from the global rate limiter (max 50/sec per process)
+        await acquire_reconnect_slot()
         await asyncio.sleep(backoff)
         
         # Retry token acquisition infinitely during reconnection if server is under high load
@@ -1542,7 +2027,6 @@ async def run_bot(
 
     if attempt > max_retries:
         await stats.inc("failed")
-        await logger.record_event("bot_left", bot_id, name, email, fingerprint=fingerprint, reason="reconnect_exhausted")
         await logger.record_event("bot_failed", bot_id, name, email, fingerprint=fingerprint)
         logger.log("❌", "red", bot_id, name, f"Bot session terminated after exhausting {max_retries} reconnect attempts.", fingerprint=fingerprint)
     elif stop_event.is_set():
@@ -1643,7 +2127,9 @@ async def main(args):
     print(f"  Scenarios     : {args.test_scenarios}")
     print(f"{C['white']}{'═'*70}{C['reset']}\n")
 
-    connector = aiohttp.TCPConnector(limit=max(args.bots, args.concurrency), ssl=False)
+    # Use unlimited TCP connections for high-scale tests to prevent connection pool exhaustion
+    connector_limit = 0 if args.bots >= 2000 else max(args.bots, args.concurrency)
+    connector = aiohttp.TCPConnector(limit=connector_limit, ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
         
         async def launch(bot_id):
@@ -1665,7 +2151,7 @@ async def main(args):
                     bot_hand_enabled = not args.no_handraise
                     bot_chat_enabled = not args.no_chat
                     is_viewer = False
-                elif is_viewer and args.viewer_mode.strip().lower() == "receive_only":
+                elif is_viewer and args.viewer_mode.strip().lower() == "receive_only" and not (args.auto_camera or args.auto_mic or args.auto_screen_share):
                     bot_camera_enabled = False
                     bot_mic_enabled = False
                     bot_screen_share_enabled = False
@@ -1673,9 +2159,9 @@ async def main(args):
                     bot_chat_enabled = not args.no_chat
                 else:
                     # Check individual publisher ID mappings
-                    bot_camera_enabled = (not args.no_camera) and is_bot_in_range(bot_id, args.camera_publishers)
-                    bot_mic_enabled = (not args.no_mic) and is_bot_in_range(bot_id, args.mic_publishers)
-                    bot_screen_share_enabled = (not args.no_screen_share) and is_bot_in_range(bot_id, args.screen_share_publishers)
+                    bot_camera_enabled = (not args.no_camera) and (is_bot_in_range(bot_id, args.camera_publishers) or args.auto_camera)
+                    bot_mic_enabled = (not args.no_mic) and (is_bot_in_range(bot_id, args.mic_publishers) or args.auto_mic)
+                    bot_screen_share_enabled = (not args.no_screen_share) and (is_bot_in_range(bot_id, args.screen_share_publishers) or args.auto_screen_share)
                     bot_hand_enabled = not args.no_handraise
                     bot_chat_enabled = not args.no_chat
 
@@ -1703,7 +2189,12 @@ async def main(args):
                     auto_camera=args.auto_camera, auto_mic=args.auto_mic, auto_screen_share=args.auto_screen_share,
                     cross_confirm_limit=args.cross_confirm_limit, is_viewer=is_viewer,
                     refresh_bots=args.refresh_bots,
-                    disable_abnormal_behavior=args.disable_abnormal_behavior
+                    disable_abnormal_behavior=args.disable_abnormal_behavior,
+                    lightweight=getattr(args, 'lightweight', False) and is_viewer,
+                    enable_chaos=args.enable_chaos,
+                    audio_mode="conversational" if getattr(args, "conversational_audio", True) else "continuous",
+                    large_room_mode=getattr(args, "large_room_mode", False),
+                    speaker_promotion_storm=getattr(args, "speaker_promotion_storm", False)
                 )
 
         tasks = []
@@ -1711,12 +2202,17 @@ async def main(args):
         bot_id = start_id
         end_id = start_id + args.bots - 1
         
-        # Periodic statistics printing task
+        # Periodic statistics printing and registry pruning task
         async def stats_printer():
+            prune_counter = 0
             while not stop_event.is_set():
                 await asyncio.sleep(5)
                 ts = datetime.datetime.now().strftime("%H:%M:%S")
                 print(f"{C['grey']}[{ts}] 📊 Stats Snapshot: {stats.summary()}{C['reset']}", flush=True)
+                # Prune registry every 30 seconds (every 6th tick) to reclaim memory
+                prune_counter += 1
+                if prune_counter % 6 == 0:
+                    await registry.prune_old_actions()
                 
         asyncio.create_task(stats_printer())
 
@@ -1733,6 +2229,10 @@ async def main(args):
                             last_mtime = mtime
                             with open(args.control_file, "r") as f:
                                 data = json.load(f)
+                                if data.get("stopped", False):
+                                    logger.log("🛑", "red", 0, "SYSTEM", "Load test STOP signal received via control file.", fingerprint=None)
+                                    stop_event.set()
+                                    break
                                 is_paused = data.get("paused", False)
                                 if is_paused and pause_event.is_set():
                                     pause_event.clear()
@@ -1742,7 +2242,7 @@ async def main(args):
                                     logger.log("▶️", "green", 0, "SYSTEM", "Load test execution RESUMED via control file.", fingerprint=None)
                 except Exception:
                     pass
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.3)
 
         asyncio.create_task(control_monitor())
 
@@ -1868,18 +2368,50 @@ if __name__ == "__main__":
     
     # Scenario and RAM control arguments
     parser.add_argument("--cross-confirm-limit", type=int, default=10, help="Max bots logging cross-confirmations per event")
-    parser.add_argument("--camera-publishers", default="1,2,3,4,5", help="List of bot IDs allowed to publish camera")
-    parser.add_argument("--mic-publishers", default="1,2,3,4,5", help="List of bot IDs allowed to publish microphone")
+    parser.add_argument("--camera-publishers", default="1-10000", help="List of bot IDs allowed to publish camera")
+    parser.add_argument("--mic-publishers", default="1-10000", help="List of bot IDs allowed to publish microphone")
     parser.add_argument("--screen-share-publishers", default="2", help="List of bot IDs allowed to publish screen share")
-    parser.add_argument("--viewer-bots", default="6-1000", help="List of bot IDs acting as viewers")
-    parser.add_argument("--viewer-mode", default="receive_only", help="Viewer behavior mode")
+    parser.add_argument("--viewer-bots", default="", help="List of bot IDs acting as viewers")
+    parser.add_argument("--viewer-mode", default="normal_participant", help="Viewer behavior mode")
     parser.add_argument("--auto-camera", action="store_true", help="Start camera immediately on join")
     parser.add_argument("--auto-mic", action="store_true", help="Start microphone unmuted immediately on join")
     parser.add_argument("--auto-screen-share", action="store_true", help="Start screen sharing immediately on join")
     parser.add_argument("--refresh-bots", type=int, default=0, help="Number of bots that will perform session refreshes")
     parser.add_argument("--disable-abnormal-behavior", action="store_true", help="Disable simulated abnormal behaviors in playground")
+    parser.add_argument("--enable-chaos", action="store_true", help="Enable Volume 7 Chaos Module (disconnect storms, late-join surges, burst toggling)")
+    parser.add_argument("--chaos-disconnect-pct", type=float, default=0.08, help="Percentage of bots subjected to disconnect storms (0.05-0.10)")
+    parser.add_argument("--lightweight", action="store_true", help="Enable lightweight viewer mode for ultra-scale tests (20K+). Viewer bots skip action loops and cross-confirmation.")
+    parser.add_argument("--conversational-audio", action="store_true", default=True, help="Simulate natural conversational speech bursts (> -60dBov) for SFU AudioLevelObserver")
+    parser.add_argument("--large-room-mode", action="store_true", default=False, help="Enable tiered large room mode (<=5 consumers for viewers, speaker promotions)")
+    parser.add_argument("--speaker-promotion-storm", action="store_true", default=False, help="Enable dynamic viewer hand-raise storms and host promotion/demotion lifecycle")
     
     args = parser.parse_args()
+    args.jwt_secret = args.jwt_secret or os.environ.get("JWT_SECRET") or None
+
+    # Auto-scale parameter overrides for ultra-high bot counts
+    if args.bots >= 5000:
+        if not args.no_cross_confirm:
+            args.no_cross_confirm = True
+            print(f"🔧 Auto-scale: Disabled cross-confirmation for {args.bots} bots", flush=True)
+        if args.cross_confirm_limit > 3:
+            args.cross_confirm_limit = 3
+            print(f"🔧 Auto-scale: Reduced cross-confirm-limit to 3", flush=True)
+        if not args.lightweight:
+            args.lightweight = True
+            print(f"🔧 Auto-scale: Enabled lightweight viewer mode", flush=True)
+        if args.viewer_bots == "6-1000":
+            args.viewer_bots = "11-100000"
+            print(f"🔧 Auto-scale: Extended viewer-bots range to 11-100000", flush=True)
+        if args.action_interval < 60:
+            args.action_interval = 120.0
+            print(f"🔧 Auto-scale: Increased action-interval to 120s", flush=True)
+        if args.chat_interval < 120:
+            args.chat_interval = 180.0
+            print(f"🔧 Auto-scale: Increased chat-interval to 180s", flush=True)
+        if args.max_retries < 10:
+            args.max_retries = 10
+            print(f"🔧 Auto-scale: Increased max-retries to 10", flush=True)
+
     try:
         # Tune system resource file descriptor limits for high concurrency load tests on UNIX
         try:
@@ -1896,6 +2428,13 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print(f"\n{C['yellow']}🛑  Interrupted — shutting down...{C['reset']}", flush=True)
     finally:
+        # Flush any remaining buffered log entries
+        if logger and hasattr(logger, 'close'):
+            import asyncio as _aio
+            try:
+                _aio.get_event_loop().run_until_complete(logger.close())
+            except Exception:
+                pass
         if 'args' in locals() and os.path.exists(args.report_log) and "_chunk_" not in args.report_log:
             print(f"\n📊 Automatically compiling report for {args.report_log}...", flush=True)
             script_dir = os.path.dirname(os.path.abspath(__file__))

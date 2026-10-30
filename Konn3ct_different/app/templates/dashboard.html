@@ -239,6 +239,368 @@
     background-color: var(--accent) !important;
     color: white !important;
 }
+
+/* Volume 7 AI Governance & Decision Gate Styles */
+.ai-gating-card {
+    background: var(--bg-card, #151d30);
+    border: 1px solid var(--border-color, #232e48);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.gating-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.gating-verdict-badge {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.verdict-pass { background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid #10B981; }
+.verdict-hold { background: rgba(245, 158, 11, 0.15); color: #F59E0B; border: 1px solid #F59E0B; }
+.verdict-fail { background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid #EF4444; }
+.verdict-escalate { background: rgba(185, 28, 28, 0.25); color: #FCA5A5; border: 1px solid #B91C1C; }
+
+.ai-attribution-pill {
+    background: rgba(96, 165, 250, 0.12);
+    color: #60A5FA;
+    border: 1px solid rgba(96, 165, 250, 0.3);
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* Living Certification Matrix Styles */
+.matrix-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+    margin-top: 10px;
+}
+.matrix-tier-card {
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--border-color, #232e48);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.matrix-tier-card.tier-1 { border-left: 4px solid #10B981; }
+.matrix-tier-card.tier-2 { border-left: 4px solid #F59E0B; }
+.matrix-tier-card.tier-3 { border-left: 4px solid #6366F1; }
+.matrix-tier-card.tier-4 { border-left: 4px solid #EF4444; }
+
+.tier-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.matrix-badge {
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+}
+.badge-certified { background: #065F46; color: #A7F3D0; }
+.badge-risk { background: #92400E; color: #FDE68A; }
+.badge-monitoring { background: #3730A3; color: #C7D2FE; }
+.badge-unsupported { background: #991B1B; color: #FECACA; }
+
+/* Custom Modal Styles */
+.custom-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    backdrop-filter: blur(4px);
+}
+.custom-modal-dialog {
+    background: var(--bg-card, #151d30);
+    border: 1px solid var(--border-color, #232e48);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 780px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+    overflow: hidden;
+}
+.custom-modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color, #232e48);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.2);
+}
+.custom-modal-header h3 {
+    margin: 0;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.custom-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.custom-modal-footer {
+    padding: 14px 20px;
+    border-top: 1px solid var(--border-color, #232e48);
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    background: rgba(0, 0, 0, 0.15);
+}
+
+/* Comparison scorecard styling */
+.comparison-scorecard {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 16px;
+    align-items: center;
+    background: rgba(0,0,0,0.2);
+    border: 1px solid var(--border-color, #232e48);
+    border-radius: 10px;
+    padding: 16px;
+}
+.session-summary-box {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.session-summary-box .title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.session-summary-box .meta {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+.delta-arrow {
+    font-size: 20px;
+    color: var(--accent);
+}
+.delta-pill-improved {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10B981;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.delta-pill-regressed {
+    background: rgba(239, 68, 68, 0.15);
+    color: #EF4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* User Guide Styles */
+.floating-guide-btn {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background-color: var(--success);
+    color: white;
+    border: none;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+    cursor: pointer;
+    z-index: 999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 26px;
+    transition: all 0.3s ease;
+    animation: guidePulse 2s infinite;
+}
+.floating-guide-btn:hover {
+    transform: scale(1.1);
+    background-color: #059669;
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.6);
+}
+
+@keyframes guidePulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+    }
+    70% {
+        box-shadow: 0 0 0 15px rgba(16, 185, 129, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    }
+}
+
+.guide-drawer {
+    position: fixed;
+    right: -420px;
+    top: 0;
+    width: 400px;
+    height: 100vh;
+    background-color: var(--card-bg, #151d30);
+    border-left: 1px solid var(--border-color, #232e48);
+    z-index: 2000;
+    box-shadow: -5px 0 25px rgba(0, 0, 0, 0.4);
+    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.guide-drawer.active {
+    right: 0;
+}
+.drawer-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--border-color, #232e48);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: rgba(0, 0, 0, 0.2);
+}
+.drawer-header h3 {
+    margin: 0;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.close-drawer-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 28px;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+.close-drawer-btn:hover {
+    color: var(--error);
+}
+.drawer-body {
+    padding: 20px;
+    flex: 1;
+    overflow-y: auto;
+}
+.drawer-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    z-index: 1999;
+    backdrop-filter: blur(3px);
+    transition: opacity 0.3s ease;
+}
+
+.guide-accordion-item {
+    margin-bottom: 12px;
+    border: 1px solid var(--border-color, #232e48);
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: rgba(0, 0, 0, 0.1);
+}
+.guide-accordion-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    cursor: pointer;
+    background-color: rgba(0, 0, 0, 0.2);
+    transition: background-color 0.2s;
+    user-select: none;
+}
+.guide-accordion-header:hover {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+.guide-accordion-title {
+    font-weight: 600;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.guide-accordion-header .toggle-icon {
+    font-size: 11px;
+    transition: transform 0.25s ease;
+    color: var(--text-secondary);
+}
+.guide-accordion-item.active .toggle-icon {
+    transform: rotate(180deg);
+}
+.guide-accordion-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out, padding 0.3s ease;
+    padding: 0 18px;
+    background-color: rgba(0, 0, 0, 0.1);
+}
+.guide-accordion-item.active .guide-accordion-content {
+    max-height: 1500px;
+    padding: 16px 18px;
+    border-top: 1px solid var(--border-color, #232e48);
+}
+.guide-topic-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 14px;
+    font-style: italic;
+    border-left: 2.5px solid var(--success);
+    padding-left: 8px;
+    line-height: 1.4;
+}
+.guide-feature-item {
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+.guide-feature-item:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+.guide-feature-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent, #60a5fa);
+    margin-bottom: 3px;
+}
+.guide-feature-explain {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
 </style>
 <div class="dashboard-wrapper">
     <!-- Sidebar Navigation -->
@@ -253,7 +615,10 @@
             <a href="#" class="menu-item" data-tab="templates"><i class="fa-solid fa-folder-open"></i> <span>Saved Presets</span></a>
             <a href="#" class="menu-item" data-tab="history"><i class="fa-solid fa-history"></i> <span>Test History</span></a>
             <a href="#" class="menu-item" data-tab="mobile-test"><i class="fa-solid fa-mobile-screen-button"></i> <span>Mobile UI Test</span></a>
+            <a href="#" class="menu-item" data-tab="web-test"><i class="fa-solid fa-laptop-code"></i> <span>Test Web</span></a>
             <a href="#" class="menu-item" data-tab="1gov-app"><i class="fa-solid fa-building-flag"></i> <span>1gov App</span></a>
+            <a href="#" class="menu-item" data-tab="user-guide"><i class="fa-solid fa-circle-question"></i> <span>User Guide</span></a>
+            <a href="#" class="menu-item" id="openAiSettingsBtn"><i class="fa-solid fa-brain" style="color: #60a5fa;"></i> <span>AI Governance</span></a>
         </nav>
         <div class="sidebar-footer">
             <div class="user-profile">
@@ -379,37 +744,102 @@
                                 <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
                                     <div style="display: flex; gap: 8px; align-items: center;">
                                         <label for="liveSlaSuccessRate" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Success Rate (%):</label>
-                                        <input type="number" id="liveSlaSuccessRate" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="95.0" min="0" max="100" step="0.5">
+                                        <input type="number" id="liveSlaSuccessRate" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="95.0" min="0" max="100" step="any">
                                     </div>
                                     <div style="display: flex; gap: 8px; align-items: center;">
                                         <label for="liveSlaLatency" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Latency (ms):</label>
-                                        <input type="number" id="liveSlaLatency" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="500" min="1">
+                                        <input type="number" id="liveSlaLatency" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="500" min="0" step="any">
                                     </div>
                                     <div style="display: flex; gap: 8px; align-items: center;">
                                         <label for="liveSlaPacketLoss" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Packet Loss (%):</label>
-                                        <input type="number" id="liveSlaPacketLoss" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="2.0" min="0" max="100" step="0.1">
+                                        <input type="number" id="liveSlaPacketLoss" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="2.0" min="0" max="100" step="any">
                                     </div>
                                     <div style="display: flex; gap: 8px; align-items: center;">
                                         <label for="liveSlaJitter" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Jitter (ms):</label>
-                                        <input type="number" id="liveSlaJitter" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="30" min="1">
+                                        <input type="number" id="liveSlaJitter" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="30" min="0" step="any">
                                     </div>
                                     <div style="display: flex; gap: 8px; align-items: center;">
                                         <label for="liveSlaJoinLatency" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Join Latency (s):</label>
-                                        <input type="number" id="liveSlaJoinLatency" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="5.0" min="0.1" step="0.1">
+                                        <input type="number" id="liveSlaJoinLatency" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="5.0" min="0" step="any">
                                     </div>
                                     <div style="display: flex; gap: 8px; align-items: center;">
                                         <label for="liveSlaMinFps" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Min Video FPS:</label>
-                                        <input type="number" id="liveSlaMinFps" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="15.0" min="1" step="0.5">
+                                        <input type="number" id="liveSlaMinFps" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="15.0" min="0" step="any">
                                     </div>
                                     <div style="display: flex; gap: 8px; align-items: center;">
                                         <label for="liveSlaMaxDisconnects" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Max Disconnects (%):</label>
-                                        <input type="number" id="liveSlaMaxDisconnects" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="1.0" min="0" max="100" step="0.1">
+                                        <input type="number" id="liveSlaMaxDisconnects" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="1.0" min="0" max="100" step="any">
                                     </div>
                                     <div style="display: flex; gap: 8px; align-items: center;">
                                         <label for="liveSlaMinBitrate" style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Min Bitrate (kbps):</label>
-                                        <input type="number" id="liveSlaMinBitrate" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="250.0" min="1" step="10">
+                                        <input type="number" id="liveSlaMinBitrate" style="width: 70px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 12px;" value="250.0" min="0" step="any">
                                     </div>
                                     <button class="btn btn-sm btn-primary" id="btnUpdateLiveSla" style="padding: 6px 12px; font-size: 12px;"><i class="fa-solid fa-save"></i> Save SLAs</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Volume 7 Production Go/No-Go Decision Gate & AI Advisory Card -->
+                    <div class="ai-gating-card" id="aiGatingCard">
+                        <div class="gating-header">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <i class="fa-solid fa-shield-halved" style="font-size: 22px; color: var(--accent);"></i>
+                                <div>
+                                    <div style="font-size: 15px; font-weight: 700; color: var(--text-primary);">Volume 7 Production Go/No-Go Decision Gate</div>
+                                    <div style="font-size: 11px; color: var(--text-secondary);">Automated Blueprint QA release blocker gating evaluation</div>
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span class="ai-attribution-pill" id="liveAiAttributionBadge"><i class="fa-solid fa-microchip"></i> AI Engine: Evaluating...</span>
+                                <div id="liveGoNoGoBadge" class="gating-verdict-badge verdict-pass"><i class="fa-solid fa-circle-check"></i> PASS (GO)</div>
+                            </div>
+                        </div>
+                        <div id="liveAiGatingSummary" style="font-size: 12px; line-height: 1.5; color: var(--text-secondary); background: rgba(0,0,0,0.15); padding: 10px 14px; border-radius: 6px; border-left: 3px solid var(--accent);">
+                            Live telemetry currently satisfies quality gates. Final formal advisory and multi-disciplinary recommendations compile upon session completion.
+                        </div>
+                    </div>
+
+                    <!-- Living Platform Certification Matrix Widget -->
+                    <div class="card" style="margin-top: 16px; padding: 16px 20px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <i class="fa-solid fa-layer-group" style="font-size: 18px; color: #10B981;"></i>
+                                <span style="font-size: 14px; font-weight: 700; color: var(--text-primary);">Living Platform Certification Matrix Grid</span>
+                            </div>
+                            <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10B981; font-size: 11px;">Volume 7 Multi-Tier Grid</span>
+                        </div>
+                        <div class="matrix-grid">
+                            <div class="matrix-tier-card tier-1">
+                                <div class="tier-title"><span style="color: #10B981;">Tier 1: Certified</span> <span class="matrix-badge badge-certified">Zero Blockers</span></div>
+                                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">
+                                    <strong>Browsers:</strong> Chrome 120+, Edge 120+<br>
+                                    <strong>OS:</strong> macOS 14+, Windows 11/10 Desktop<br>
+                                    <strong>Network:</strong> Ethernet, Fast 5G/Wi-Fi
+                                </div>
+                            </div>
+                            <div class="matrix-tier-card tier-2">
+                                <div class="tier-title"><span style="color: #F59E0B;">Tier 2: Supported w/ Risk</span> <span class="matrix-badge badge-risk">Non-Blocking</span></div>
+                                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">
+                                    <strong>Browsers:</strong> Firefox 120+, Safari 17+, Android Chrome<br>
+                                    <strong>OS:</strong> Android 13/14, iOS 17 (Web)<br>
+                                    <strong>Network:</strong> Standard Wi-Fi, 4G LTE
+                                </div>
+                            </div>
+                            <div class="matrix-tier-card tier-3">
+                                <div class="tier-title"><span style="color: #6366F1;">Tier 3: Monitoring Only</span> <span class="matrix-badge badge-monitoring">Degraded</span></div>
+                                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">
+                                    <strong>Browsers:</strong> Safari Mobile, Opera, Brave<br>
+                                    <strong>OS:</strong> Linux (Ubuntu 22.04+)<br>
+                                    <strong>Network:</strong> 3G Throttle, High Jitter (>50ms)
+                                </div>
+                            </div>
+                            <div class="matrix-tier-card tier-4">
+                                <div class="tier-title"><span style="color: #EF4444;">Tier 4: Unsupported</span> <span class="matrix-badge badge-unsupported">Blocked</span></div>
+                                <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.4;">
+                                    <strong>Browsers:</strong> IE 11, Legacy Edge (<79), UC Browser<br>
+                                    <strong>OS:</strong> Windows 7/XP, Android <8.0<br>
+                                    <strong>Network:</strong> 2G / Severe Drop (>15% Loss)
                                 </div>
                             </div>
                         </div>
@@ -665,7 +1095,7 @@
                                 <div class="form-row">
                                     <div class="form-group col-4">
                                         <label for="formBots">Total Bots</label>
-                                        <input type="number" id="formBots" value="50" min="1" max="10000">
+                                        <input type="number" id="formBots" value="50" min="1" max="100000">
                                     </div>
                                     <div class="form-group col-4">
                                         <label for="formBatch">Batch Size</label>
@@ -751,12 +1181,17 @@
                                         <label for="scenarioPresetSelect">Scenario Preset Templates</label>
                                         <select id="scenarioPresetSelect">
                                             <option value="camera_toggle,mic_toggle,hand_raise,chat">Standard Interaction (Cam, Mic, Chat, Handraise)</option>
+                                            <option value="large_room,speaker_promotion_storm">👑 Large Room / Webinar (1k+ Viewers & Speaker Promotions)</option>
+                                            <option value="chaos,camera_toggle,mic_toggle">⚡ Chaos Disconnect Storms & Session Resumption</option>
                                             <option value="abnormal_playground_20">20-Bot Abnormal Playground (Mic, Poll, Votes, Anomalies)</option>
                                             <option value="breakout_rooms">Breakout Rooms Scenario (Split/Rejoin)</option>
                                         </select>
                                     </div>
                                 </div>
                                 <div class="form-row checkbox-grid" style="margin-top: 5px; margin-bottom: 10px; grid-template-columns: 1fr;">
+                                    <div class="checkbox-item"><input type="checkbox" id="formLargeRoomMode"><label for="formLargeRoomMode" style="font-weight: 600; color: #3b82f6;">🏛️ Enable Tiered Large Room Mode (&le;5 consumers per viewer)</label></div>
+                                    <div class="checkbox-item"><input type="checkbox" id="formConversationalAudio" checked><label for="formConversationalAudio" style="font-weight: 600; color: #10b981;">🎙️ Enable Natural Conversational Speech Bursts (AudioLevelObserver &gt; -60dBov)</label></div>
+                                    <div class="checkbox-item"><input type="checkbox" id="formSpeakerPromotionStorm"><label for="formSpeakerPromotionStorm" style="font-weight: 600; color: #8b5cf6;">🌟 Enable Dynamic Speaker Promotion & Demotion Storms</label></div>
                                     <div class="checkbox-item"><input type="checkbox" id="formDisableAbnormalBehavior"><label for="formDisableAbnormalBehavior" style="font-weight: bold; color: #f39c12;">⚠️ Disable Abnormal Simulated Anomalies in Playground Scenario</label></div>
                                 </div>
                                 <div class="form-row">
@@ -809,11 +1244,11 @@
                                 <div class="form-row">
                                     <div class="form-group col-6">
                                         <label for="formCameraPublishers">Camera Publisher Bot IDs</label>
-                                        <input type="text" id="formCameraPublishers" value="1,2,3,4,5" placeholder="e.g. 1,2,3-5">
+                                        <input type="text" id="formCameraPublishers" value="1-10000" placeholder="e.g. 1-10000 or 1,2,3-5">
                                     </div>
                                     <div class="form-group col-6">
                                         <label for="formMicPublishers">Mic Publisher Bot IDs</label>
-                                        <input type="text" id="formMicPublishers" value="1,2,3,4,5" placeholder="e.g. 1,2,3-5">
+                                        <input type="text" id="formMicPublishers" value="1-10000" placeholder="e.g. 1-10000 or 1,2,3-5">
                                     </div>
                                 </div>
                                 <div class="form-row">
@@ -823,7 +1258,7 @@
                                     </div>
                                     <div class="form-group col-6">
                                         <label for="formViewerBotIds">Viewer Bot IDs (Ranges)</label>
-                                        <input type="text" id="formViewerBotIds" value="6-10000" placeholder="e.g. 6-10000">
+                                        <input type="text" id="formViewerBotIds" value="" placeholder="e.g. 6-10000 (leave empty for all publishers)">
                                     </div>
                                 </div>
                                 <div class="form-row checkbox-grid">
@@ -833,45 +1268,63 @@
                                 </div>
                             </div>
                             <div class="form-section">
-                                <div class="section-title"><i class="fa-solid fa-clipboard-check"></i> SLA Thresholds & Quality Gates</div>
+                                <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span><i class="fa-solid fa-clipboard-check"></i> SLA Thresholds & Quality Gates</span>
+                                    <span class="badge" style="background: rgba(96, 165, 250, 0.15); color: #60a5fa; font-size: 11px;">Volume 7 Governance</span>
+                                </div>
+                                <div class="form-row" style="margin-bottom: 12px;">
+                                    <div class="form-group col-12">
+                                        <label for="formSlaPresetProfile">Preconfigured SLA Profile Preset</label>
+                                        <select id="formSlaPresetProfile" style="background-color: var(--bg-card, #1f2937); color: var(--text-primary); border: 1px solid var(--accent); font-weight: 600;">
+                                            <option value="production_99">🛡️ Strict Production Release Gate (99% Pass / <300ms / <0.5% Loss)</option>
+                                            <option value="staging_95" selected>⚖️ Standard Staging QA Gate (95% Pass / <500ms / <2.0% Loss)</option>
+                                            <option value="stress_90">⚡ Stress Load Gate (90% Pass / <800ms / <5.0% Loss)</option>
+                                            <option value="mobile_85">📱 Mobile Low-Bandwidth Profile (85% Pass / <1200ms / <8.0% Loss)</option>
+                                            <option value="custom">🛠️ Custom SLA Profile (User Defined)</option>
+                                        </select>
+                                        <div id="slaPresetDescription" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; font-style: italic;">
+                                            Standard QA criteria for staging verification before release qualification.
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="form-row">
                                     <div class="form-group col-6">
                                         <label for="formSlaSuccessRate">Target Action Success Rate (%)</label>
-                                        <input type="number" id="formSlaSuccessRate" value="95.0" min="0" max="100" step="0.5">
+                                        <input type="number" id="formSlaSuccessRate" value="95.0" min="0" max="100" step="any">
                                     </div>
                                     <div class="form-group col-6">
                                         <label for="formSlaLatency">Max Avg Latency / RTT (ms)</label>
-                                        <input type="number" id="formSlaLatency" value="500.0" min="1">
+                                        <input type="number" id="formSlaLatency" value="500.0" min="0" step="any">
                                     </div>
                                 </div>
                                 <div class="form-row">
                                      <div class="form-group col-6">
                                          <label for="formSlaPacketLoss">Max Packet Loss (%)</label>
-                                         <input type="number" id="formSlaPacketLoss" value="2.0" min="0" max="100" step="0.1">
+                                         <input type="number" id="formSlaPacketLoss" value="2.0" min="0" max="100" step="any">
                                      </div>
                                      <div class="form-group col-6">
                                          <label for="formSlaJitter">Max Jitter (ms)</label>
-                                         <input type="number" id="formSlaJitter" value="30.0" min="1">
+                                         <input type="number" id="formSlaJitter" value="30.0" min="0" step="any">
                                      </div>
                                  </div>
                                  <div class="form-row">
                                      <div class="form-group col-6">
                                          <label for="formSlaJoinLatency">Max Bot Join Latency (s)</label>
-                                         <input type="number" id="formSlaJoinLatency" value="5.0" min="0.1" step="0.1">
+                                         <input type="number" id="formSlaJoinLatency" value="5.0" min="0" step="any">
                                      </div>
                                      <div class="form-group col-6">
                                          <label for="formSlaMinFps">Min Stream Video FPS</label>
-                                         <input type="number" id="formSlaMinFps" value="15.0" min="1" step="0.5">
+                                         <input type="number" id="formSlaMinFps" value="15.0" min="0" step="any">
                                      </div>
                                  </div>
                                  <div class="form-row">
                                      <div class="form-group col-6">
                                          <label for="formSlaMaxDisconnects">Max Disconnect Rate (%)</label>
-                                         <input type="number" id="formSlaMaxDisconnects" value="1.0" min="0" max="100" step="0.1">
+                                         <input type="number" id="formSlaMaxDisconnects" value="1.0" min="0" max="100" step="any">
                                      </div>
                                      <div class="form-group col-6">
                                          <label for="formSlaMinBitrate">Min Stream Bitrate (kbps)</label>
-                                         <input type="number" id="formSlaMinBitrate" value="250.0" min="1" step="10">
+                                         <input type="number" id="formSlaMinBitrate" value="250.0" min="0" step="any">
                                      </div>
                                  </div>
                             </div>
@@ -1031,16 +1484,27 @@
             <!-- TAB 4: Test Session History -->
             <section class="tab-pane" id="tab-history">
                 <div class="card">
-                    <div class="card-header">
-                        <h3>Historical Load Test Runs</h3>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                        <div>
+                            <h3 style="display: flex; align-items: center; gap: 8px;"><i class="fa-solid fa-history text-cyan"></i> Historical Load Test Runs</h3>
+                            <p style="font-size: 11px; color: var(--text-secondary); margin: 2px 0 0 0;">Select two test sessions using the checkboxes to generate a comparative regression scorecard.</p>
+                        </div>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <span id="selectedHistoryCount" class="badge" style="background: rgba(96, 165, 250, 0.15); color: #60a5fa; font-size: 11px; padding: 5px 10px;">0 Selected</span>
+                            <button type="button" class="btn btn-sm btn-primary" id="btnCompareSessions" disabled style="display: flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 12px;">
+                                <i class="fa-solid fa-code-compare"></i> Compare with AI
+                            </button>
+                        </div>
                     </div>
                     <div class="table-responsive">
                         <table class="data-table">
                             <thead>
                                 <tr>
+                                    <th style="width: 35px; text-align: center;"><input type="checkbox" id="selectAllHistoryCheckbox" title="Select All"></th>
                                     <th>Session ID</th>
                                     <th>Name</th>
                                     <th>Status</th>
+                                    <th>Volume 7 Gate</th>
                                     <th>Started At</th>
                                     <th>Duration</th>
                                     <th>Logs / Reports</th>
@@ -1048,7 +1512,7 @@
                                 </tr>
                             </thead>
                             <tbody id="historyTableBody">
-                                <tr><td colspan="7" class="text-center">Loading test logs history...</td></tr>
+                                <tr><td colspan="9" class="text-center">Loading test logs history...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1238,9 +1702,136 @@
                 </div>
             </section>
 
+            <!-- TAB 5B: Web E2E Test Suite (Test Web) -->
+            <section class="tab-pane" id="tab-web-test">
+                <div class="config-grid" style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px;">
+                    <!-- Left: Configuration & Run -->
+                    <div class="form-column">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-laptop-code text-cyan"></i> Playwright Test Configuration</h3>
+                            </div>
+                            <div style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+                                <div class="form-group">
+                                    <label for="webTargetUrl">Target Frontend URL *</label>
+                                    <input type="text" id="webTargetUrl" value="https://dashboard.konn3ct.ng/" placeholder="e.g. https://dashboard.konn3ct.ng/" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="webRoomSlug">Room Slug (ID) *</label>
+                                    <input type="text" id="webRoomSlug" value="playwright-test-room" placeholder="e.g. playwright-test-room" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4; outline: none;" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="webAccountType">User Authentication Option *</label>
+                                    <select id="webAccountType" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4; outline: none;">
+                                        <option value="manual" selected>Specify Test Account Credentials</option>
+                                        <option value="auto">Auto-Generate Temp Test Account</option>
+                                    </select>
+                                </div>
+                                <div class="form-row" id="webCredentialsRow" style="display: flex; gap: 16px;">
+                                    <div class="form-group col-6" style="flex: 1; min-width: 120px;">
+                                        <label for="webEmail">Account Email *</label>
+                                        <input type="email" id="webEmail" value="flowboyzamy@gmail.com" placeholder="email@konn3ct.test" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4; outline: none;">
+                                    </div>
+                                    <div class="form-group col-6" style="flex: 1; min-width: 120px;">
+                                        <label for="webPassword">Account Password *</label>
+                                        <input type="password" id="webPassword" value="Samedo3333@" placeholder="••••••••" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4; outline: none;">
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label>E2E Features to Test</label>
+                                    <div class="checkbox-grid" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); height: 180px;">
+                                        <label class="checkbox-item"><input type="checkbox" class="web-feature-chk" value="signup"> Account Registration (Sign Up)</label>
+                                        <label class="checkbox-item"><input type="checkbox" class="web-feature-chk" value="login" checked> Authentication (Sign In)</label>
+                                        <label class="checkbox-item"><input type="checkbox" class="web-feature-chk" value="dashboard" checked> Dashboard & Room Create</label>
+                                        <label class="checkbox-item"><input type="checkbox" class="web-feature-chk" value="join" checked> Join Meeting Room</label>
+                                        <label class="checkbox-item"><input type="checkbox" class="web-feature-chk" value="mic" checked> Toggle Microphone (Mic)</label>
+                                        <label class="checkbox-item"><input type="checkbox" class="web-feature-chk" value="cam" checked> Toggle Camera (Video)</label>
+                                        <label class="checkbox-item"><input type="checkbox" class="web-feature-chk" value="screenshare" checked> Toggle Screen Sharing</label>
+                                        <label class="checkbox-item"><input type="checkbox" class="web-feature-chk" value="chat" checked> Chat Panel & Messaging</label>
+                                        <label class="checkbox-item"><input type="checkbox" class="web-feature-chk" value="handraise" checked> Handraise Interactions</label>
+                                        <label class="checkbox-item"><input type="checkbox" class="web-feature-chk" value="panels" checked> Participants / Settings Panels</label>
+                                        <label class="checkbox-item"><input type="checkbox" class="web-feature-chk" value="leave" checked> Leave Meeting & Exit</label>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label class="checkbox-item" style="font-weight: 600;">
+                                        <input type="checkbox" id="webHeadedMode"> Launch Headed Browser (Visible on Host Desktop)
+                                    </label>
+                                </div>
+                                
+                                <div style="margin-top: 10px; display: flex; gap: 8px;">
+                                    <button type="button" class="btn btn-primary" id="btnRunWebUiTest" style="flex: 3; padding: 12px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                        <i class="fa-solid fa-play"></i> Run Web E2E Test
+                                    </button>
+                                    <button type="button" class="btn btn-danger" id="btnStopWebUiTest" style="flex: 1; padding: 12px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;" disabled>
+                                        <i class="fa-solid fa-stop"></i> Stop
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Compiled Reports Panel -->
+                        <div class="card" style="margin-top: 24px;">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <h3><i class="fa-solid fa-file-invoice text-emerald"></i> Compiled Web Reports</h3>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnRefreshWebReports" style="padding: 4px 10px; font-size: 11px;"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                            </div>
+                            <div style="padding: 16px; font-size: 13px; max-height: 250px; overflow-y: auto;">
+                                <table class="table" style="width: 100%; border-collapse: collapse; text-align: left;" id="tblWebReports">
+                                    <thead>
+                                        <tr style="border-bottom: 1px solid var(--border-color); color: var(--text-muted);">
+                                            <th style="padding: 8px;">Report Name</th>
+                                            <th style="padding: 8px;">Size</th>
+                                            <th style="padding: 8px; text-align: right;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="webReportsList">
+                                        <tr><td colspan="3" class="text-center" style="padding: 12px; color: var(--text-muted);">No reports generated yet. Run a test!</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Viewport & Live Console -->
+                    <div class="form-column">
+                        <!-- Viewport Preview -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h3><i class="fa-solid fa-desktop text-cyan"></i> Live Viewport Stream</h3>
+                            </div>
+                            <div style="padding: 16px; display: flex; align-items: center; justify-content: center; background: #080b11;">
+                                <div id="webLiveStreamContainer" style="width: 100%; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; position: relative; border-radius: 8px; border: 1px solid var(--border-color); overflow: hidden; background-color: #030712;">
+                                    <img id="webLiveViewport" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: none;" src="" alt="Live E2E Viewport">
+                                    <div id="webViewportPlaceholder" style="text-align: center; color: var(--text-muted);">
+                                        <i class="fa-solid fa-video-slash" style="font-size: 40px; margin-bottom: 12px; display: block;"></i>
+                                        <span>Live browser feed is currently offline.<br>Start a web test run to stream viewport frame buffer.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Live Console Card -->
+                        <div class="card" style="margin-top: 24px;">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <h3><i class="fa-solid fa-terminal text-green"></i> Playwright Execution Console</h3>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnClearWebConsole" style="padding: 4px 10px; font-size: 11px;">Clear</button>
+                            </div>
+                            <div style="padding: 16px;">
+                                <div id="webConsoleTerminal" class="console-terminal" style="height: 250px;">
+                                    <div class="console-placeholder">Waiting for Playwright test execution to start...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- TAB 6: 1gov App UI Test Automation -->
             <section class="tab-pane" id="tab-1gov-app">
-                <div class="config-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                <div class="config-grid" style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px;">
                     <!-- Left: Configuration & Run -->
                     <div class="form-column">
                         <div class="card">
@@ -1418,11 +2009,40 @@
                             </div>
                         </div>
                     </div>
+            </section>
+
+            <!-- TAB 7: Interactive User Guide -->
+            <section class="tab-pane" id="tab-user-guide">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fa-solid fa-book-open text-emerald"></i> Interactive Platform User Guide</h2>
+                        <p style="color: var(--text-secondary); margin-top: 4px;">Learn what every button, input box, and setting on this dashboard does in simple, non-technical terms.</p>
+                    </div>
+                    <div style="padding: 24px;" id="guidePageAccordionContainer">
+                        <!-- Collapsible Guide Accordion loaded via JS -->
+                    </div>
                 </div>
             </section>
         </div>
     </main>
 </div>
+
+<!-- Floating User Guide Action Button -->
+<button id="btnFloatingGuide" class="floating-guide-btn" title="Open User Guide Quick-view">
+    <i class="fa-solid fa-circle-question"></i>
+</button>
+
+<!-- Slide-out Guide Drawer -->
+<div id="guideDrawer" class="guide-drawer">
+    <div class="drawer-header">
+        <h3><i class="fa-solid fa-book-open text-emerald"></i> User Guide Quick-view</h3>
+        <button id="btnCloseDrawer" class="close-drawer-btn">&times;</button>
+    </div>
+    <div class="drawer-body" id="guideDrawerBody">
+        <!-- Collapsible Guide Accordion loaded via JS -->
+    </div>
+</div>
+<div id="drawerOverlay" class="drawer-overlay" style="display: none;"></div>
 
 <!-- Report Conversion Progress Modal -->
 <div id="reportProgressModal" class="progress-modal-overlay" style="display: none;">
@@ -1441,9 +2061,93 @@
         </div>
     </div>
 </div>
+
+<!-- AI Governance & Model Settings Modal -->
+<div id="aiSettingsModal" class="custom-modal-overlay" style="display: none;">
+    <div class="custom-modal-dialog">
+        <div class="custom-modal-header">
+            <h3><i class="fa-solid fa-brain" style="color: #60a5fa;"></i> AI Governance & Dual-Model Advisory Settings</h3>
+            <button type="button" class="close-drawer-btn" id="btnCloseAiSettingsModal">&times;</button>
+        </div>
+        <div class="custom-modal-body">
+            <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5; background: rgba(96, 165, 250, 0.08); padding: 12px; border-radius: 8px; border-left: 3px solid #60a5fa;">
+                <strong>Volume 7 Dual-Model Orchestration:</strong> Post-run logs are analyzed by the primary AI engine. If unavailable or rate-limited, the engine automatically falls back to the secondary model, and gracefully to deterministic rule-based analysis so report generation never fails.
+            </div>
+            
+            <div class="form-row" style="display: flex; gap: 16px;">
+                <div class="form-group col-6" style="flex: 1;">
+                    <label for="aiPrimaryModelSelect" style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Primary Analysis Model *</label>
+                    <select id="aiPrimaryModelSelect" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e293b; color: #fff;">
+                        <option value="openai">OpenAI GPT (gpt-4o-mini / gpt-4o)</option>
+                        <option value="gemini">Google Gemini (gemini-2.5-flash / pro)</option>
+                        <option value="deterministic">Deterministic Rule-Based Engine (Offline)</option>
+                    </select>
+                </div>
+                <div class="form-group col-6" style="flex: 1;">
+                    <label for="aiFallbackModelSelect" style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Automatic Fallback Model</label>
+                    <select id="aiFallbackModelSelect" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e293b; color: #fff;">
+                        <option value="gemini">Google Gemini (gemini-2.5-flash)</option>
+                        <option value="openai">OpenAI GPT (gpt-4o-mini)</option>
+                        <option value="deterministic" selected>Deterministic Rule-Based Engine (Offline)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="inputOpenAiApiKey" style="font-size: 12px; font-weight: 600; color: var(--text-primary); display: flex; justify-content: space-between;">
+                    <span>OpenAI API Key (sk-...)</span>
+                    <span id="openAiKeyStatus" class="badge" style="font-size: 10px;">Checking...</span>
+                </label>
+                <div style="display: flex; gap: 8px; margin-top: 4px;">
+                    <input type="password" id="inputOpenAiApiKey" placeholder="sk-proj-..." style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4;">
+                    <button type="button" class="btn btn-sm btn-secondary" id="btnToggleOpenAiKeyVisibility"><i class="fa-solid fa-eye"></i></button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="inputGeminiApiKey" style="font-size: 12px; font-weight: 600; color: var(--text-primary); display: flex; justify-content: space-between;">
+                    <span>Google Gemini API Key (AIzaSy...)</span>
+                    <span id="geminiKeyStatus" class="badge" style="font-size: 10px;">Checking...</span>
+                </label>
+                <div style="display: flex; gap: 8px; margin-top: 4px;">
+                    <input type="password" id="inputGeminiApiKey" placeholder="AIzaSy..." style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); background: #1e1e1e; color: #d4d4d4;">
+                    <button type="button" class="btn btn-sm btn-secondary" id="btnToggleGeminiKeyVisibility"><i class="fa-solid fa-eye"></i></button>
+                </div>
+            </div>
+
+            <div class="form-group checkbox-group" style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="chkEnableAiAnalysis" checked>
+                <label for="chkEnableAiAnalysis" style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Enable Automatic AI Developer Advisory on Report Compilation</label>
+            </div>
+
+            <div id="aiDiagnosticsResult" style="display: none; padding: 10px 14px; border-radius: 6px; font-size: 12px;"></div>
+        </div>
+        <div class="custom-modal-footer">
+            <button type="button" class="btn btn-outline-secondary" id="btnTestAiConnection" style="margin-right: auto;"><i class="fa-solid fa-bolt"></i> Test Model Connectivity</button>
+            <button type="button" class="btn btn-secondary" id="btnCancelAiSettings">Cancel</button>
+            <button type="button" class="btn btn-primary" id="btnSaveAiSettings"><i class="fa-solid fa-save"></i> Save Settings</button>
+        </div>
+    </div>
+</div>
+
+<!-- Session Comparison & Progression Modal -->
+<div id="sessionComparisonModal" class="custom-modal-overlay" style="display: none;">
+    <div class="custom-modal-dialog" style="max-width: 880px;">
+        <div class="custom-modal-header">
+            <h3><i class="fa-solid fa-code-compare" style="color: #10b981;"></i> Volume 7 AI Session Comparison & Progression</h3>
+            <button type="button" class="close-drawer-btn" id="btnCloseComparisonModal">&times;</button>
+        </div>
+        <div class="custom-modal-body" id="comparisonModalBody">
+            <div class="text-center" style="padding: 40px;"><i class="fa-solid fa-spinner fa-spin" style="font-size: 24px;"></i><br><br>Analyzing progression deltas with AI...</div>
+        </div>
+        <div class="custom-modal-footer">
+            <button type="button" class="btn btn-secondary" id="btnCloseComparisonBtn">Close</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
-<script src="{{ url_for('static', filename='js/dashboard.js') }}?v=1.4"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}?v=1.5"></script>
 {% endblock %}

@@ -21,6 +21,7 @@ _report_data.json
 .DS_Store
 .env
 .env.local
+ai_config.json
 
 # SQLite Database
 konn3ct.db
@@ -28,6 +29,8 @@ konn3ct.db
 
 # Generated load test session directories
 sessions/
+web_reports/
+scratch/
 
 # Generated PDF reports
 *.pdf

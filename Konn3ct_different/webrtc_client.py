@@ -109,12 +109,15 @@ def build_remote_sdp_answer(local_sdp, transport_params, is_recv=False):
         
     lines = local_sdp.split("\r\n")
     new_lines = []
+    fingerprint_added = False
     
     for line in lines:
         if line.startswith("a=setup:"):
             new_lines.append("a=setup:passive")
         elif line.startswith("a=fingerprint:"):
-            new_lines.append(f"a=fingerprint:{remote_algo} {remote_fingerprint}")
+            if not fingerprint_added:
+                new_lines.append(f"a=fingerprint:{remote_algo} {remote_fingerprint}")
+                fingerprint_added = True
         elif line.startswith("a=ice-ufrag:"):
             new_lines.append(f"a=ice-ufrag:{ice_params.get('usernameFragment')}")
         elif line.startswith("a=ice-pwd:"):
@@ -144,8 +147,56 @@ def build_remote_sdp_answer(local_sdp, transport_params, is_recv=False):
     return "\r\n".join(new_lines)
 
 
+DEFAULT_RTP_CAPABILITIES = {
+    "codecs": [
+        {
+            "kind": "audio",
+            "mimeType": "audio/opus",
+            "preferredPayloadType": 111,
+            "clockRate": 48000,
+            "channels": 2,
+            "parameters": {"minptime": 10, "useinbandfec": 1},
+            "rtcpFeedback": [{"type": "transport-cc", "parameter": ""}]
+        },
+        {
+            "kind": "video",
+            "mimeType": "video/VP8",
+            "preferredPayloadType": 96,
+            "clockRate": 90000,
+            "parameters": {},
+            "rtcpFeedback": [
+                {"type": "nack", "parameter": ""},
+                {"type": "nack", "parameter": "pli"},
+                {"type": "ccm", "parameter": "fir"},
+                {"type": "goog-remb", "parameter": ""},
+                {"type": "transport-cc", "parameter": ""}
+            ]
+        },
+        {
+            "kind": "video",
+            "mimeType": "video/H264",
+            "preferredPayloadType": 102,
+            "clockRate": 90000,
+            "parameters": {
+                "packetization-mode": 1,
+                "profile-level-id": "42e01f",
+                "level-asymmetry-allowed": 1
+            },
+            "rtcpFeedback": [
+                {"type": "nack", "parameter": ""},
+                {"type": "nack", "parameter": "pli"},
+                {"type": "ccm", "parameter": "fir"},
+                {"type": "goog-remb", "parameter": ""},
+                {"type": "transport-cc", "parameter": ""}
+            ]
+        }
+    ],
+    "headerExtensions": []
+}
+
+
 class WebRTCClient:
-    def __init__(self, bot_id, bot_name, emulator, simulator, metrics, quality="medium", decode_downlink=False, max_subscriptions=2):
+    def __init__(self, bot_id, bot_name, emulator, simulator, metrics, quality="medium", decode_downlink=False, max_subscriptions=2, audio_mode="conversational"):
         self.bot_id = bot_id
         self.bot_name = bot_name
         self.emulator = emulator
@@ -154,6 +205,7 @@ class WebRTCClient:
         self.quality = quality
         self.decode_downlink = decode_downlink
         self.max_subscriptions = max_subscriptions
+        self.audio_mode = audio_mode
         
         self.pc_send = None
         self.pc_recv = None
@@ -162,9 +214,16 @@ class WebRTCClient:
         
         self.send_request = None
         self.router_capabilities = {}
+        self.send_transport_params = {}
+        self.send_transport_id = None
         self.recv_transport_params = {}
         self.recv_transport_id = None
         self._recv_transport_connected = False
+        self.turn_credentials = None
+        self.ice_servers = []
+        self.video_producer_id = None
+        self.audio_producer_id = None
+        self.screen_producer_id = None
         self.active_consumers = {}  # maps producer_id -> consumer_id
         
         # State tracking
@@ -208,12 +267,19 @@ class WebRTCClient:
             try:
                 # 1. Get Router Capabilities
                 router_caps = await send_request("getRouterRtpCapabilities", "routerCapabilities")
-                self.router_capabilities = router_caps.get("routerCapabilities", {})
+                caps = router_caps.get("rtpCapabilities") or router_caps.get("routerCapabilities") or {}
+                if not caps.get("codecs"):
+                    caps = DEFAULT_RTP_CAPABILITIES
+                self.router_capabilities = caps
                 
                 # 2. Create Send Transport on Server
                 transport_data = await send_request("createWebRtcTransport", "transportCreated", {"direction": "send"})
                 transport_params = transport_data.get("transportParams", {})
                 transport_id = transport_params.get("id")
+                self.send_transport_params = transport_params
+                self.send_transport_id = transport_id
+                self.turn_credentials = transport_data.get("turnCredentials")
+                self.ice_servers = transport_params.get("iceServers", [])
                 
                 # 3. Create Local PeerConnection
                 self.pc_send = RTCPeerConnection()
@@ -235,7 +301,7 @@ class WebRTCClient:
                 
                 # Create and Add Synthetic Video & Audio Tracks
                 self.video_track = MediaGenerator.create_video_track(self.bot_id, self.bot_name, self.quality)
-                self.audio_track = MediaGenerator.create_audio_track()
+                self.audio_track = MediaGenerator.create_audio_track(bot_id=self.bot_id, mode=self.audio_mode)
                 
                 self.pc_send.addTrack(self.video_track)
                 self.pc_send.addTrack(self.audio_track)
@@ -253,22 +319,32 @@ class WebRTCClient:
                     "dtlsParameters": local_dtls
                 })
                 
-                # 5. Produce video and audio on server
+                # 5. Produce video and audio on server (handle large-room publish limits gracefully)
                 video_params = parse_rtp_parameters(local_sdp, "video")
-                await send_request("produce", "produced", {
-                    "transportId": transport_id,
-                    "kind": "video",
-                    "rtpParameters": video_params,
-                    "appData": {"source": "camera"}
-                })
+                try:
+                    vid_res = await send_request("produce", "produced", {
+                        "transportId": transport_id,
+                        "kind": "video",
+                        "rtpParameters": video_params,
+                        "appData": {"source": "camera"}
+                    })
+                    if isinstance(vid_res, dict):
+                        self.video_producer_id = vid_res.get("id")
+                except Exception:
+                    pass
                 
                 audio_params = parse_rtp_parameters(local_sdp, "audio")
-                await send_request("produce", "produced", {
-                    "transportId": transport_id,
-                    "kind": "audio",
-                    "rtpParameters": audio_params,
-                    "appData": {"source": "mic"}
-                })
+                try:
+                    aud_res = await send_request("produce", "produced", {
+                        "transportId": transport_id,
+                        "kind": "audio",
+                        "rtpParameters": audio_params,
+                        "appData": {"source": "mic"}
+                    })
+                    if isinstance(aud_res, dict):
+                        self.audio_producer_id = aud_res.get("id")
+                except Exception:
+                    pass
                 
                 # 6. Set Remote Description (SDP Answer) to trigger ICE/DTLS handshake
                 remote_sdp = build_remote_sdp_answer(local_sdp, transport_params)
@@ -627,6 +703,8 @@ class WebRTCClient:
                     if self.decode_downlink:
                         asyncio.create_task(self._consume_incoming_track(track))
             
+            if not self.router_capabilities or not self.router_capabilities.get("codecs"):
+                self.router_capabilities = DEFAULT_RTP_CAPABILITIES
             consume_params = {
                 "transportId": self.recv_transport_id,
                 "producerId": producer_id,
@@ -673,7 +751,41 @@ class WebRTCClient:
                 pass
         return False
 
-    async def start_screen_share(self):
+    async def set_consumer_adaptation(self, consumer_id, spatial_layer=None, temporal_layer=None, priority=None, paused_by_network=None):
+        """Sends consumer layer adaptation request to SFU (matching konn3ct_edge set_consumer_adaptation)."""
+        if not self.send_request:
+            return False
+        changes = [{
+            "consumerId": consumer_id,
+            "spatialLayer": spatial_layer,
+            "temporalLayer": temporal_layer,
+            "priority": priority,
+            "pausedByNetwork": paused_by_network
+        }]
+        try:
+            await self.send_request("set_consumer_adaptation", "consumer_adaptation_ack", {
+                "adaptationEpoch": int(time.time() * 1000),
+                "changes": changes
+            })
+            return True
+        except Exception:
+            return False
+
+    async def refresh_turn_credentials(self):
+        """Requests fresh dynamic TURN credentials from signaling server (konn3ct_edge refresh_turn_credentials)."""
+        if not self.send_request:
+            return False
+        try:
+            res = await self.send_request("refresh_turn_credentials", "turn_credentials_refreshed", {})
+            if isinstance(res, dict):
+                self.turn_credentials = res.get("turnCredentials")
+                self.ice_servers = res.get("iceServers", self.ice_servers)
+                return True
+        except Exception:
+            pass
+        return False
+
+    async def start_screen_share(self, client_event_id=None):
         if not self.pc_send:
             return False
         self.screen_track = MediaGenerator.create_video_track(self.bot_id, self.bot_name, self.quality, is_screen=True)
@@ -685,19 +797,38 @@ class WebRTCClient:
                 await self.pc_send.setLocalDescription(offer)
                 local_sdp = self.pc_send.localDescription.sdp
                 screen_params = parse_rtp_parameters(local_sdp, "video")
-                await self.send_request("produce", "produced", {
-                    "transportId": "send-transport",
+                req_payload = {
+                    "transportId": self.send_transport_id or "send-transport",
                     "kind": "video",
                     "rtpParameters": screen_params,
                     "appData": {"source": "screen"}
-                })
+                }
+                if client_event_id:
+                    req_payload["clientEventId"] = client_event_id
+                res = await self.send_request("produce", "produced", req_payload)
+                if isinstance(res, dict) and res.get("id"):
+                    self.screen_producer_id = res.get("id")
+                    return self.screen_producer_id
             except Exception:
-                pass
+                return False
         return True
 
-    async def stop_screen_share(self):
+    async def stop_screen_share(self, client_event_id=None):
+        if self.send_request and self.screen_producer_id:
+            try:
+                stop_payload = {
+                    "producerId": self.screen_producer_id,
+                    "appData": {"source": "screen"}
+                }
+                if client_event_id:
+                    stop_payload["clientEventId"] = client_event_id
+                await self.send_request("stop_producer", None, stop_payload)
+            except Exception:
+                pass
+            finally:
+                self.screen_producer_id = None
         if not self.pc_send or not hasattr(self, "screen_sender") or not self.screen_sender:
-            return False
+            return True
         try:
             self.pc_send.removeTrack(self.screen_sender)
             self.screen_sender = None
@@ -711,9 +842,11 @@ class WebRTCClient:
         Allows dynamically muting/unmuting the simulated video/audio tracks.
         """
         if stream_type == "video" and self.video_track:
-            pass
+            self.video_track.enabled = bool(enabled)
         elif stream_type == "audio" and self.audio_track:
-            pass
+            self.audio_track.enabled = bool(enabled)
+        elif stream_type == "screen" and hasattr(self, "screen_track") and self.screen_track:
+            self.screen_track.enabled = bool(enabled)
         await asyncio.sleep(0.01)
 
     async def close(self):

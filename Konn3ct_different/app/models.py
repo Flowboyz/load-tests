@@ -97,17 +97,20 @@ class Configuration(db.Model):
     
     # RAM & Scenario Optimization
     cross_confirm_limit = db.Column(db.Integer, default=10, nullable=False)
-    camera_publishers = db.Column(db.Text, default='1,2,3,4,5')
+    camera_publishers = db.Column(db.Text, default='1-10000')
     screen_share_publishers = db.Column(db.Text, default='2')
-    mic_publishers = db.Column(db.Text, default='1,2,3,4,5')
-    viewer_bots = db.Column(db.Text, default='6-10000')
-    viewer_mode = db.Column(db.String(50), default='receive_only')
+    mic_publishers = db.Column(db.Text, default='1-10000')
+    viewer_bots = db.Column(db.Text, default='')
+    viewer_mode = db.Column(db.String(50), default='normal_participant')
     auto_camera = db.Column(db.Boolean, default=False)
     auto_mic = db.Column(db.Boolean, default=False)
     auto_screen_share = db.Column(db.Boolean, default=False)
     disable_ram_scenario_opt = db.Column(db.Boolean, default=False)
     refresh_bots = db.Column(db.Integer, default=0)
     disable_abnormal_behavior = db.Column(db.Boolean, default=False)
+    large_room_mode = db.Column(db.Boolean, default=False)
+    conversational_audio = db.Column(db.Boolean, default=True)
+    speaker_promotion_storm = db.Column(db.Boolean, default=False)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -131,12 +134,17 @@ class TestSession(db.Model):
     accumulated_duration = db.Column(db.Integer, default=0, nullable=False)
     last_resume_time = db.Column(db.DateTime, nullable=True)
     
-    # Output file paths
+    # Output file paths & AI Governance
     report_log_path = db.Column(db.String(255), nullable=True)
     report_docx_path = db.Column(db.String(255), nullable=True)
     report_pdf_path = db.Column(db.String(255), nullable=True)
     report_csv_path = db.Column(db.String(255), nullable=True)
     error_message = db.Column(db.Text, nullable=True)
+    
+    # AI Governance & Volume 7 Quality Gate fields
+    ai_verdict = db.Column(db.String(50), nullable=True)  # PASS, CONDITIONAL HOLD, FAIL, ESCALATE
+    ai_engine_used = db.Column(db.String(100), nullable=True)
+    ai_recommendations_json = db.Column(db.Text, nullable=True)
     
     # Cluster scaling variables
     total_expected_workers = db.Column(db.Integer, default=1, nullable=False)
@@ -150,6 +158,14 @@ class TestSession(db.Model):
         if self.status == 'running' and self.last_resume_time:
             elapsed += int((datetime.utcnow() - self.last_resume_time).total_seconds())
             
+        ai_recs = None
+        if self.ai_recommendations_json:
+            try:
+                import json
+                ai_recs = json.loads(self.ai_recommendations_json)
+            except Exception:
+                pass
+
         return {
             "id": self.id,
             "config_id": self.config_id,
@@ -164,12 +180,16 @@ class TestSession(db.Model):
             "report_pdf_path": self.report_pdf_path,
             "report_csv_path": self.report_csv_path,
             "error_message": self.error_message,
+            "ai_verdict": self.ai_verdict,
+            "ai_engine_used": self.ai_engine_used,
+            "ai_advisory": ai_recs,
             "accumulated_duration": self.accumulated_duration,
             "last_resume_time": self.last_resume_time.isoformat() if self.last_resume_time else None,
             "elapsed_seconds": elapsed,
             "total_expected_workers": self.total_expected_workers,
             "uploaded_workers_count": self.uploaded_workers_count
         }
+
 
 class WorkerNode(db.Model):
     __tablename__ = 'worker_nodes'

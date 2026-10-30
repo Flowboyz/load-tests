@@ -140,17 +140,19 @@ def run_test_process(app, socketio, session_id):
                 "--sla-packet-loss", str(getattr(config, 'sla_packet_loss', 2.0)),
                 "--sla-jitter", str(getattr(config, 'sla_jitter', 30.0)),
                 "--cross-confirm-limit", str(999999 if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'cross_confirm_limit', 10)),
-                "--camera-publishers", "1-10000" if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'camera_publishers', "1,2,3,4,5"),
+                "--camera-publishers", "1-10000" if (getattr(config, 'disable_ram_scenario_opt', False) or getattr(config, 'auto_camera', False) or getattr(config, 'camera_publishers', '') in ('1,2,3,4,5', 'all', '1-10000', '')) else str(config.camera_publishers),
                 "--screen-share-publishers", "1-10000" if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'screen_share_publishers', "2"),
-                "--mic-publishers", "1-10000" if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'mic_publishers', "1,2,3,4,5"),
-                "--viewer-bots", "" if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'viewer_bots', "6-10000"),
-                "--viewer-mode", "normal_participant" if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'viewer_mode', "receive_only"),
+                "--mic-publishers", "1-10000" if (getattr(config, 'disable_ram_scenario_opt', False) or getattr(config, 'auto_mic', False) or getattr(config, 'mic_publishers', '') in ('1,2,3,4,5', 'all', '1-10000', '')) else str(config.mic_publishers),
+                "--viewer-bots", "" if (getattr(config, 'disable_ram_scenario_opt', False) or getattr(config, 'auto_camera', False) or getattr(config, 'viewer_bots', '') in ('6-10000', '6-1000', '')) else str(config.viewer_bots),
+                "--viewer-mode", "normal_participant" if (getattr(config, 'disable_ram_scenario_opt', False) or getattr(config, 'auto_camera', False)) else getattr(config, 'viewer_mode', "receive_only"),
                 "--refresh-bots", str(getattr(config, 'refresh_bots', 0) or 0)
             ]
             
             # Add flags
             if getattr(config, 'disable_abnormal_behavior', False):
                 cmd.append("--disable-abnormal-behavior")
+            if "chaos" in (config.test_scenarios or "").lower() or getattr(config, 'enable_chaos', False):
+                cmd.append("--enable-chaos")
             if config.webrtc_enabled:
                 cmd.append("--webrtc-enabled")
             if config.decode_downlink:
@@ -175,8 +177,29 @@ def run_test_process(app, socketio, session_id):
                 cmd.append("--no-screen-share")
             if config.no_cross_confirm:
                 cmd.append("--no-cross-confirm")
-            if config.jwt_secret:
-                cmd.extend(["--jwt-secret", config.jwt_secret])
+            jwt_secret_val = config.jwt_secret or os.environ.get("JWT_SECRET")
+            if jwt_secret_val:
+                cmd.extend(["--jwt-secret", jwt_secret_val])
+            if getattr(config, 'large_room_mode', False) or "large_room" in (config.test_scenarios or "").lower():
+                cmd.append("--large-room-mode")
+            if getattr(config, 'conversational_audio', True):
+                cmd.append("--conversational-audio")
+            if getattr(config, 'speaker_promotion_storm', False) or "speaker_promotion" in (config.test_scenarios or "").lower():
+                cmd.append("--speaker-promotion-storm")
+            
+            # Auto-scale configurations when spawned from dashboard
+            if config.bots >= 2000:
+                if "--lightweight" not in cmd:
+                    cmd.append("--lightweight")
+                if "--no-cross-confirm" not in cmd:
+                    cmd.append("--no-cross-confirm")
+                # Override cross-confirm-limit to 3 if present in args
+                try:
+                    idx = cmd.index("--cross-confirm-limit")
+                    cmd[idx + 1] = "3"
+                except ValueError:
+                    cmd.extend(["--cross-confirm-limit", "3"])
+
             # Always append chromium launch bypass flag compatibility argument
             cmd.append("--use-fake-ui-for-media-stream")
                  
@@ -263,10 +286,19 @@ def run_test_process(app, socketio, session_id):
                         'elapsed_seconds': 0
                     }, room=f"session_{session_id}")
                 
-                # Wait for all processes to complete
-                for proc in processes:
-                    proc.communicate()
-                success = all(proc.returncode == 0 for proc in processes)
+                # Wait for all processes to complete using non-blocking greenlet polling
+                while any(proc.poll() is None for proc in processes) and not stop_event.is_set():
+                    socketio.sleep(0.5)
+                    
+                if stop_event.is_set():
+                    for proc in processes:
+                        if proc and proc.poll() is None:
+                            try:
+                                proc.terminate()
+                            except Exception:
+                                pass
+                                
+                success = all(proc.returncode == 0 for proc in processes if proc.poll() is not None)
                 
             except Exception as e:
                 error_msg = f"Runner exception: {str(e)}"
@@ -342,6 +374,19 @@ def run_test_process(app, socketio, session_id):
                         if project_root and report_log and report_docx and has_log_or_chunks:
                             try:
                                 compile_report_log(project_root, report_log, report_docx)
+                                
+                                # Cache AI verdict and recommendations in DB
+                                temp_json_path = os.path.join(project_root, "_report_data.json")
+                                if os.path.exists(temp_json_path):
+                                    try:
+                                        with open(temp_json_path, "r", encoding="utf-8") as tjf:
+                                            tdata = json.load(tjf)
+                                            session.ai_verdict = tdata.get("qa_verdict")
+                                            session.ai_engine_used = tdata.get("engine_attribution", {}).get("engine_name")
+                                            if tdata.get("ai_advisory"):
+                                                session.ai_recommendations_json = json.dumps(tdata["ai_advisory"])
+                                    except Exception as db_e:
+                                        print(f"Note: Could not parse AI report data for DB caching: {db_e}")
                             except Exception as cre:
                                 print(f"Error compiling report log: {cre}")
                                 
@@ -356,6 +401,7 @@ def run_test_process(app, socketio, session_id):
                             
                         db.session.commit()
                         final_status = session.status
+
                     
                 with RUNNING_SESSIONS_LOCK:
                     if session_id in RUNNING_SESSIONS:
@@ -400,15 +446,20 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
     base_name = os.path.basename(log_path)
     base_prefix = base_name.replace(".jsonl", "")
     
-    # Wait for the first chunk log file to be created (up to 10 seconds)
-    chunk_1_log = os.path.join(session_dir, f"{base_prefix}_chunk_1.jsonl")
+    # Wait for any log file to be created (chunk or single log, up to 15 seconds)
     start_wait = time.time()
-    while not os.path.exists(chunk_1_log) and time.time() - start_wait < 10.0:
+    found_log = False
+    while time.time() - start_wait < 15.0 and not stop_event.is_set():
+        chunk_pattern = os.path.join(session_dir, f"{base_prefix}_chunk_*.jsonl")
+        single_log = os.path.join(session_dir, f"{base_prefix}.jsonl")
+        if glob.glob(chunk_pattern) or os.path.exists(single_log):
+            found_log = True
+            break
         if process and process.poll() is not None:
             break
         socketio.sleep(0.2)
         
-    if not os.path.exists(chunk_1_log):
+    if not found_log:
         return
 
     # Running aggregation state
@@ -430,8 +481,18 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
         "global_peak_latency": 0.0
     }
     
+    connecting_ids = set()
+    reconnecting_ids = set()
     joined_ids = set()
     failed_ids = set()
+    left_ids = set()
+
+    def sync_bot_counts():
+        metrics_state["connected_bots"] = len(joined_ids)
+        metrics_state["connecting_bots"] = len(connecting_ids)
+        metrics_state["reconnecting_bots"] = len(reconnecting_ids)
+        metrics_state["failed_bots"] = len(failed_ids)
+        metrics_state["left_bots"] = len(left_ids)
 
     # Load session configuration details for batch tracking
     start_id = 1
@@ -461,9 +522,13 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
     
     try:
         while not stop_event.is_set():
-            # 1. Discover all active chunk files
+            # 1. Discover all active chunk files or single report_log
             pattern = os.path.join(session_dir, f"{base_prefix}_chunk_*.jsonl")
             chunk_files = glob.glob(pattern)
+            if not chunk_files:
+                single_log = os.path.join(session_dir, f"{base_prefix}.jsonl")
+                if os.path.exists(single_log):
+                    chunk_files = [single_log]
             
             any_new_lines = False
             
@@ -486,20 +551,22 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                     
                 f = open_files[chunk_id]
                 while True:
+                    where = f.tell()
                     line = f.readline()
                     if not line:
+                        f.seek(where)
                         break
-                    
-                    line_buffers[chunk_id] += line
-                    if not line_buffers[chunk_id].endswith("\n"):
+                    if not line.endswith("\n"):
+                        f.seek(where)
                         break
                         
                     any_new_lines = True
-                    complete_line = line_buffers[chunk_id]
-                    line_buffers[chunk_id] = ""
+                    complete_line = line.strip()
+                    if not complete_line:
+                        continue
                     
                     try:
-                        event = json.loads(complete_line.strip())
+                        event = json.loads(complete_line)
                         etype = event.get("event")
                         
                         # Buffer raw event for console log viewer
@@ -516,68 +583,66 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                         bot_id = event.get("bot_id")
                         
                         if etype == "bot_connecting" and bot_id:
-                            metrics_state["connecting_bots"] = metrics_state["connecting_bots"] + 1
+                            connecting_ids.add(bot_id)
+                            reconnecting_ids.discard(bot_id)
+                            joined_ids.discard(bot_id)
+                            failed_ids.discard(bot_id)
+                            left_ids.discard(bot_id)
+                            sync_bot_counts()
                         elif etype == "bot_reconnecting" and bot_id:
-                            metrics_state["reconnecting_bots"] = metrics_state["reconnecting_bots"] + 1
-                            if bot_id in joined_ids:
-                                joined_ids.remove(bot_id)
-                            metrics_state["connected_bots"] = len(joined_ids)
+                            reconnecting_ids.add(bot_id)
+                            connecting_ids.discard(bot_id)
+                            joined_ids.discard(bot_id)
+                            failed_ids.discard(bot_id)
+                            sync_bot_counts()
                             # Update batch tracking
                             batch_idx = (bot_id - start_id) // batch_size
                             if 0 <= batch_idx < expected_workers:
-                                if bot_id in joined_by_batch[batch_idx]:
-                                    joined_by_batch[batch_idx].remove(bot_id)
-                        elif etype == "bot_joined" and bot_id:
+                                joined_by_batch[batch_idx].discard(bot_id)
+                        elif etype in ("bot_joined", "bot_waiting") and bot_id:
                             joined_ids.add(bot_id)
-                            metrics_state["connecting_bots"] = max(0, metrics_state["connecting_bots"] - 1)
-                            metrics_state["reconnecting_bots"] = max(0, metrics_state["reconnecting_bots"] - 1)
-                            metrics_state["connected_bots"] = len(joined_ids)
+                            connecting_ids.discard(bot_id)
+                            reconnecting_ids.discard(bot_id)
+                            failed_ids.discard(bot_id)
+                            left_ids.discard(bot_id)
+                            sync_bot_counts()
                             # Update batch tracking
                             batch_idx = (bot_id - start_id) // batch_size
                             if 0 <= batch_idx < expected_workers:
                                 joined_by_batch[batch_idx].add(bot_id)
-                                if bot_id in failed_by_batch[batch_idx]:
-                                    failed_by_batch[batch_idx].remove(bot_id)
+                                failed_by_batch[batch_idx].discard(bot_id)
                         elif etype == "bot_failed" and bot_id:
                             failed_ids.add(bot_id)
-                            metrics_state["failed_bots"] = len(failed_ids)
-                            metrics_state["reconnecting_bots"] = max(0, metrics_state["reconnecting_bots"] - 1)
-                            metrics_state["connecting_bots"] = max(0, metrics_state["connecting_bots"] - 1)
-                            if bot_id in joined_ids:
-                                joined_ids.remove(bot_id)
-                            metrics_state["connected_bots"] = len(joined_ids)
+                            connecting_ids.discard(bot_id)
+                            reconnecting_ids.discard(bot_id)
+                            joined_ids.discard(bot_id)
+                            sync_bot_counts()
                             # Update batch tracking
                             batch_idx = (bot_id - start_id) // batch_size
                             if 0 <= batch_idx < expected_workers:
                                 failed_by_batch[batch_idx].add(bot_id)
-                                if bot_id in joined_by_batch[batch_idx]:
-                                    joined_by_batch[batch_idx].remove(bot_id)
+                                joined_by_batch[batch_idx].discard(bot_id)
                         elif etype == "bot_left" and bot_id:
-                            metrics_state["left_bots"] = metrics_state["left_bots"] + 1
-                            if bot_id in joined_ids:
-                                joined_ids.remove(bot_id)
-                            metrics_state["connected_bots"] = len(joined_ids)
+                            left_ids.add(bot_id)
+                            connecting_ids.discard(bot_id)
+                            reconnecting_ids.discard(bot_id)
+                            joined_ids.discard(bot_id)
+                            sync_bot_counts()
                             # Update batch tracking
                             batch_idx = (bot_id - start_id) // batch_size
                             if 0 <= batch_idx < expected_workers:
-                                if bot_id in joined_by_batch[batch_idx]:
-                                    joined_by_batch[batch_idx].remove(bot_id)
+                                joined_by_batch[batch_idx].discard(bot_id)
                         elif etype == "action_logged":
                             act_type = event.get("action_type")
                             status = event.get("status")
                             final_status = event.get("final_status")
                             lat = event.get("latency_ms")
                             
-                            if act_type == "webrtc_connection":
+                            if act_type == "webrtc_connection" and bot_id:
                                 if status == "confirmed":
-                                    metrics_state["connected_bots"] = len(joined_ids)
-                                    metrics_state["reconnecting_bots"] = max(0, metrics_state["reconnecting_bots"] - 1)
-                                elif status == "failed":
-                                    failed_ids.add(bot_id)
-                                    metrics_state["failed_bots"] = len(failed_ids)
-                                    if bot_id in joined_ids:
-                                        joined_ids.remove(bot_id)
-                                    metrics_state["connected_bots"] = len(joined_ids)
+                                    reconnecting_ids.discard(bot_id)
+                                    connecting_ids.discard(bot_id)
+                                    sync_bot_counts()
                             
                             if lat is not None:
                                 metrics_state["latencies"].append(lat)
@@ -627,7 +692,9 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                                 metrics_state["relay_count"] += 1
                             
                         elif etype == "error_logged":
-                            metrics_state["failed_bots"] = metrics_state["failed_bots"] + 1
+                            # Transient socket/action errors are logged for console visibility;
+                            # terminal bot failures are tracked via bot_failed events.
+                            pass
                             
                         # Extract WebRTC parameters if logged
                         webrtc_data = event.get("summary", {}).get("webrtc_performance", {})
@@ -645,10 +712,12 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                         
             # Always emit raw events batch if it has accumulated or if it's been more than 0.2s since last emit
             if buffered_raw_events and (len(buffered_raw_events) >= 50 or (time.time() - last_raw_emit_time > 0.2)):
-                socketio.emit('session_raw_events_batch', {
+                raw_payload = {
                     'session_id': session_id,
                     'events': buffered_raw_events
-                }, room=f"session_{session_id}")
+                }
+                socketio.emit('session_raw_events_batch', raw_payload, room=f"session_{session_id}")
+                socketio.emit('session_raw_events_batch', raw_payload)
                 buffered_raw_events = []
                 last_raw_emit_time = time.time()
 
@@ -698,7 +767,7 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                         metrics_payload["left_bots"] = metrics_state["left_bots"]
                         
                         # Emit metrics via Socket.IO
-                        socketio.emit('session_metrics', {
+                        live_metrics_data = {
                             'session_id': session_id,
                             'metrics': metrics_payload,
                             'elapsed_seconds': elapsed_secs,
@@ -716,7 +785,9 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                                     'peak_latency': metrics_state["global_peak_latency"]
                                 }
                             }
-                        }, room=f"session_{session_id}")
+                        }
+                        socketio.emit('session_metrics', live_metrics_data, room=f"session_{session_id}")
+                        socketio.emit('session_metrics', live_metrics_data)
                         
                         # Update RUNNING_SESSIONS with live batch metrics
                         with RUNNING_SESSIONS_LOCK:
@@ -763,10 +834,11 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                         buffered_raw_events.append(event)
                         bot_id = event.get("bot_id")
                         if etype == "bot_left" and bot_id:
-                            metrics_state["left_bots"] = metrics_state["left_bots"] + 1
-                            if bot_id in joined_ids:
-                                joined_ids.remove(bot_id)
-                            metrics_state["connected_bots"] = len(joined_ids)
+                            left_ids.add(bot_id)
+                            connecting_ids.discard(bot_id)
+                            reconnecting_ids.discard(bot_id)
+                            joined_ids.discard(bot_id)
+                            sync_bot_counts()
                     except Exception:
                         pass
             except Exception:
@@ -944,27 +1016,14 @@ def find_libreoffice():
 
 def convert_docx_to_pdf(docx_path, out_dir):
     """
-    Converts compiled docx to pdf using LibreOffice headless command line.
+    Converts compiled docx/markdown to pdf using LibreOffice with Playwright fallback.
     """
-    if not os.path.exists(docx_path):
-        return None
-        
-    soffice_bin = find_libreoffice()
-    if not soffice_bin:
-        print("LibreOffice soffice binary not found. Skipping PDF conversion.")
-        return None
-        
     try:
-        cmd = [soffice_bin, "--headless", "--convert-to", "pdf", "--outdir", out_dir, docx_path]
-        subprocess.run(cmd, check=True, capture_output=True, timeout=30)
-        pdf_path = docx_path.replace(".docx", ".pdf")
-        if os.path.exists(pdf_path):
-            print(f"Successfully converted report to PDF: {pdf_path}")
-            return pdf_path
+        from pdf_generator import convert_report_to_pdf
+        return convert_report_to_pdf(docx_path, out_dir)
     except Exception as e:
-        print(f"LibreOffice PDF conversion failed: {e}")
-        
-    return None
+        print(f"PDF conversion failed: {e}")
+        return None
 
 def start_session(app, socketio, session_id):
     """
@@ -1010,10 +1069,17 @@ def resume_session(session_id):
 
 def stop_session(session_id):
     """
-    Terminates the running processes using graceful signals.
+    Terminates the running processes gracefully:
+    1. Writes {"stopped": True, "paused": False} to control.json so bots send leave_meeting.
+    2. Sets internal stop_event.
+    3. Waits a brief grace period (1.5s) for WebSocket leave packets to flush.
+    4. Terminates the processes if still alive.
     """
     processes = []
     pid = None
+    control_file = None
+    stop_event = None
+    
     with RUNNING_SESSIONS_LOCK:
         sess = RUNNING_SESSIONS.get(session_id)
         if sess:
@@ -1022,7 +1088,27 @@ def stop_session(session_id):
             elif "process" in sess and sess["process"]:
                 processes = [sess["process"]]
             pid = sess.get("pid") or (processes[0].pid if processes else None)
-            
+            control_file = sess.get("control_file")
+            stop_event = sess.get("stop_event")
+            if stop_event:
+                stop_event.set()
+                
+    session_dir = get_session_dir(session_id)
+    if not control_file:
+        control_file = os.path.join(session_dir, "control.json")
+
+    # Step 1: Write stopped state to control.json
+    try:
+        if control_file and os.path.exists(os.path.dirname(control_file)):
+            with open(control_file, "w") as f:
+                json.dump({"stopped": True, "paused": False}, f)
+    except Exception:
+        pass
+
+    # Step 2: Dedicated grace period for WebSocket leave_meeting signaling packets to flush
+    import time
+    time.sleep(2.5)
+
     if not pid:
         # Check DB
         try:
@@ -1032,28 +1118,31 @@ def stop_session(session_id):
         except Exception:
             pass
 
-    if not pid:
+    if not pid and not processes:
         return False
 
     terminated = False
     if processes:
         for proc in processes:
             try:
-                # Send Ctrl+C signal to allow graceful exit and report compilation
-                if sys.platform == "win32":
-                    proc.send_signal(signal.CTRL_C_EVENT)
-                else:
-                    proc.send_signal(signal.SIGINT)
+                if proc.poll() is None:
+                    # Send Ctrl+C signal or terminate
+                    if sys.platform == "win32":
+                        try:
+                            proc.send_signal(signal.CTRL_C_EVENT)
+                        except Exception:
+                            proc.terminate()
+                    else:
+                        proc.send_signal(signal.SIGINT)
                 terminated = True
             except Exception:
-                # Fallback hard kill if signal fail
                 try:
                     proc.terminate()
                     terminated = True
                 except Exception:
                     pass
                 
-    if not terminated and pid:
+    if pid:
         try:
             import psutil
             if psutil.pid_exists(pid):

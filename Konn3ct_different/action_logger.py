@@ -30,6 +30,12 @@ class ActionLogger:
         self.log_path = log_path
         self.lock = asyncio.Lock()
         self.start_time = datetime.datetime.utcnow()
+        self._buffer = []
+        self._buffer_lock = asyncio.Lock()
+        self._max_buffer_size = 500
+        self._flush_interval = 2.0
+        self._flush_task = None
+        self._closed = False
         if self.log_path:
             with open(self.log_path, "w", encoding="utf-8") as f:
                 f.write(json.dumps({
@@ -157,6 +163,46 @@ class ActionLogger:
             "email": email,
             **extra
         }
-        async with self.lock:
-            with open(self.log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry) + "\n")
+        entry_str = json.dumps(entry) + "\n"
+        
+        trigger_flush = False
+        async with self._buffer_lock:
+            self._buffer.append(entry_str)
+            if len(self._buffer) >= self._max_buffer_size:
+                trigger_flush = True
+                
+        if self._flush_task is None or self._flush_task.done():
+            if not self._closed:
+                self._flush_task = asyncio.create_task(self._periodic_flush())
+                
+        if trigger_flush:
+            await self._flush_buffer()
+
+    async def _flush_buffer(self):
+        async with self._buffer_lock:
+            if not self._buffer:
+                return
+            entries = self._buffer
+            self._buffer = []
+            
+        try:
+            async with self.lock:
+                with open(self.log_path, "a", encoding="utf-8") as f:
+                    f.writelines(entries)
+        except Exception as e:
+            print(f"Error flushing log buffer: {e}", file=sys.stderr)
+
+    async def _periodic_flush(self):
+        while not self._closed:
+            await asyncio.sleep(self._flush_interval)
+            await self._flush_buffer()
+
+    async def close(self):
+        self._closed = True
+        if self._flush_task and not self._flush_task.done():
+            self._flush_task.cancel()
+            try:
+                await self._flush_task
+            except asyncio.CancelledError:
+                pass
+        await self._flush_buffer()

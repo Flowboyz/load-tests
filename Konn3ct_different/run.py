@@ -10,6 +10,13 @@ if hasattr(sys.stderr, 'reconfigure'):
     except Exception:
         pass
 
+import os
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
+except Exception:
+    pass
+
 from gevent import monkey
 monkey.patch_all()
 

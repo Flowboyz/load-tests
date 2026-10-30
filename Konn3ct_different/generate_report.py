@@ -22,6 +22,10 @@ import random
 import sqlite3
 from typing import Generator, Dict, Any, List, Optional
 
+# AI Advisor & Volume 7 Governance Integration
+from ai_advisor import analyze_session, evaluate_deterministic_advisory
+
+
 # =====================================================================
 # helper classes & incremental statistics
 # =====================================================================
@@ -155,14 +159,14 @@ class TimelineTracker:
         b = self.buckets[idx]
         
         # Connection state tracking:
-        if etype == "bot_joined" and bot_id:
+        if etype in ("bot_joined", "bot_waiting") and bot_id:
             self.active_connected_bots.add(bot_id)
         elif etype in ("bot_reconnecting", "bot_failed", "bot_left", "bot_refreshing") and bot_id:
             if bot_id in self.active_connected_bots:
                 self.active_connected_bots.remove(bot_id)
         elif etype == "error_logged" and bot_id:
             err_msg = str(extra.get("error", "")).lower() if extra else ""
-            if "disconnect" in err_msg or "close" in err_msg or "timeout" in err_msg:
+            if "disconnect" in err_msg or "close" in err_msg or "timeout" in err_msg or "rejected" in err_msg or "http" in err_msg or "fail" in err_msg:
                 if bot_id in self.active_connected_bots:
                     self.active_connected_bots.remove(bot_id)
                     
@@ -363,9 +367,9 @@ class MetricsAggregationStage:
             if self.finished_at is None or ts > self.finished_at:
                 self.finished_at = ts
             
-        elif etype in ("bot_connecting", "bot_reconnecting", "bot_joined"):
+        elif etype in ("bot_connecting", "bot_reconnecting", "bot_joined", "bot_waiting"):
             if bot_id:
-                if etype == "bot_joined":
+                if etype in ("bot_joined", "bot_waiting"):
                     self.bot_join_counts[bot_id] = self.bot_join_counts.get(bot_id, 0) + 1
                 fp = e.get("fingerprint")
                 if fp:
@@ -410,7 +414,7 @@ class MetricsAggregationStage:
                 e.get("browser", "unknown")
             ))
             error_str = str(e.get("error", "")).lower()
-            if "disconnect" in error_str or "close" in error_str:
+            if "disconnect" in error_str or "close" in error_str or "rejected" in error_str or "http" in error_str or "fail" in error_str or "activation" in str(e.get("action", "")).lower():
                 self.websocket_disconnects += 1
                 
         elif etype == "action_logged":
@@ -1759,6 +1763,14 @@ class ReportPipeline:
         except Exception as e:
             print(f"Warning: Failed to query main database for cluster metrics: {e}")
 
+        # If local run (1 expected, 0 uploaded), treat as 1 of 1 completed
+        if total_expected_workers == 1 and uploaded_workers_count == 0:
+            total_expected_workers = 1
+            uploaded_workers_count = 1
+
+        if self.agg_stage.config:
+            self.agg_stage.config["bots"] = max(self.agg_stage.config.get("bots", 0), len(self.agg_stage.all_simulated_bots))
+
         self.aggregated_json = {
             "total_expected_workers": total_expected_workers,
             "uploaded_workers_count": uploaded_workers_count,
@@ -1802,12 +1814,35 @@ class ReportPipeline:
             "webrtc_csv_path": self.stats_results["webrtc_csv_path"]
         }
 
+        # Run AI Developer Advisory & Release Gate Analysis (Dual-Model Gemini/GPT + Fallback)
+        try:
+            ai_advisory = analyze_session(self.aggregated_json)
+            self.aggregated_json["ai_advisory"] = ai_advisory
+            self.aggregated_json["qa_verdict"] = ai_advisory.get("go_no_go_verdict", "PASS")
+            self.aggregated_json["qa_verdict_rationale"] = ai_advisory.get("verdict_rationale", "")
+            self.aggregated_json["qa_verdict_color"] = ai_advisory.get("verdict_color", "#1A7F37")
+            self.aggregated_json["certification_matrix"] = ai_advisory.get("certification_matrix", {})
+            self.aggregated_json["engine_attribution"] = ai_advisory.get("engine_attribution", {})
+            self.aggregated_json["backend_recommendations"] = ai_advisory.get("backend_recommendations", [])
+            self.aggregated_json["frontend_recommendations"] = ai_advisory.get("frontend_recommendations", [])
+            self.aggregated_json["qa_tester_recommendations"] = ai_advisory.get("qa_tester_recommendations", [])
+            self.aggregated_json["proactive_optimizations"] = ai_advisory.get("proactive_optimizations", [])
+        except Exception as e:
+            print(f"Warning: AI Advisor execution encountered an issue, using default: {e}")
+
     def run_export_engine(self):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         temp_json = os.path.join(script_dir, "_report_data.json")
         
         with open(temp_json, "w", encoding="utf-8") as f:
             json.dump(self.aggregated_json, f, indent=2, default=str)
+            
+        session_json_path = os.path.join(self.session_dir, "session_report_data.json")
+        try:
+            with open(session_json_path, "w", encoding="utf-8") as f:
+                json.dump(self.aggregated_json, f, indent=2, default=str)
+        except Exception:
+            pass
             
         enhanced_md_path = os.path.join(self.session_dir, "session_enhanced_analytics.md")
         self.write_enhanced_markdown_report(enhanced_md_path)
@@ -1829,50 +1864,70 @@ class ReportPipeline:
         
         try:
             pdf_out_dir = os.path.dirname(os.path.abspath(self.output_docx))
-            print("Converting compiled DOCX report to PDF...")
-            subprocess.run(
-                ["soffice", "--headless", "--convert-to", "pdf", "--outdir", pdf_out_dir, self.output_docx],
-                check=True, timeout=15
-            )
-            print(f"SUCCESS: PDF version saved alongside DOCX.")
+            print("Converting compiled report to PDF (LibreOffice or Playwright fallback)...")
+            from pdf_generator import convert_report_to_pdf
+            pdf_res = convert_report_to_pdf(self.output_docx, pdf_out_dir, md_path=enhanced_md_path)
+            if pdf_res:
+                print(f"SUCCESS: PDF version saved alongside DOCX at {pdf_res}")
+            else:
+                print("Info: PDF conversion could not be completed.")
         except Exception as e:
-            print(f"Info: PDF conversion skipped or failed (LibreOffice soffice not in PATH or timed out): {e}")
+            print(f"Info: PDF conversion error: {e}")
             
         self._cleanup_temp_files(temp_json)
 
     def write_enhanced_markdown_report(self, path: str):
+        advisory = self.aggregated_json.get("ai_advisory", {})
+        attribution = self.aggregated_json.get("engine_attribution", {})
+        verdict = self.aggregated_json.get("qa_verdict", "PASS")
+        rationale = self.aggregated_json.get("qa_verdict_rationale", "")
+        cert_matrix = self.aggregated_json.get("certification_matrix", {})
+        
         with open(path, "w", encoding="utf-8") as f:
-            f.write("# Konn3ct Load Testing - Enhanced Analytics Report\n\n")
+            f.write("# Konn3ct Load Testing - Enhanced Analytics & Release Governance Report\n\n")
             
+            f.write(f"> **⚡ Analysis Engine**: `{attribution.get('engine_name', 'Deterministic Rule-Based Engine')}`  \n")
+            f.write(f"> **📋 Production Go/No-Go Decision**: **{verdict}**  \n")
+            f.write(f"> **💡 Decision Rationale**: *{rationale}*\n\n")
+            f.write("---\n\n")
+
             f.write("## 1. Executive Performance Summary\n")
             f.write(f"- **Total Simulated Bots**: {self.aggregated_json['total_bots']}\n")
             f.write(f"- **Peak Concurrent Connections**: {self.timeline_data.get('peak_users', self.aggregated_json['total_bots'])}\n")
             f.write(f"- **Test Duration**: {self.aggregated_json['duration_str']}\n")
             f.write(f"- **WebSocket Connection Drops**: {self.aggregated_json['websocket_disconnects']}\n")
-            f.write(f"- **WebRTC Reconnection Count**: {self.aggregated_json['reconnection_count']}\n\n")
+            f.write(f"- **WebRTC Reconnection Count**: {self.aggregated_json['reconnection_count']}\n")
+            f.write(f"- **Executive Narrative**: {advisory.get('executive_summary', 'Performance nominal.')}\n\n")
+
+            if advisory.get("release_blockers"):
+                f.write("### 🚨 Release Blockers Detected (Immediate Action Required)\n")
+                for blocker in advisory["release_blockers"]:
+                    f.write(f"- ❌ **{blocker}**\n")
+                f.write("\n")
+
+            if advisory.get("warnings"):
+                f.write("### ⚠️ Performance & Tail-Latency Warnings\n")
+                for warn in advisory["warnings"]:
+                    f.write(f"- ⚠️ *{warn}*\n")
+                f.write("\n")
             
-            f.write("## 2. Browser Performance Rankings\n")
-            f.write("| Rank | Browser Client | Success Rate | Average Join Time | Packet Loss |\n")
-            f.write("| :--- | :--- | :---: | :---: | :---: |\n")
-            for idx, r in enumerate(self.browser_rankings):
-                f.write(f"| #{idx+1} | {r['browser'].title()} | {r['success_rate']:.1f}% | {r['avg_join_time']:.0f} ms | {r['packet_loss']:.2f}% |\n")
+            f.write("## 2. Living Platform Certification Matrix (Volume 7 Blueprint)\n")
+            f.write("### 2.1 Browser Certification Matrix\n")
+            f.write("| Browser | Certification Tier | Success Rate | Average Latency | Notes |\n")
+            f.write("| :--- | :---: | :---: | :---: | :--- |\n")
+            for b in cert_matrix.get("browsers", []):
+                tier_badge = f"**{b['tier']}**"
+                f.write(f"| {b['name']} | {tier_badge} | {b['success_rate']:.1f}% | {b['avg_latency']:.0f} ms | {b['notes']} |\n")
+            f.write("\n")
+
+            f.write("### 2.2 Operating System Certification Matrix\n")
+            f.write("| Operating System | Certification Tier | Success Rate | Average Latency | Notes |\n")
+            f.write("| :--- | :---: | :---: | :---: | :--- |\n")
+            for o in cert_matrix.get("operating_systems", []):
+                f.write(f"| {o['name']} | **{o['tier']}** | {o['success_rate']:.1f}% | {o['avg_latency']:.0f} ms | {o['notes']} |\n")
             f.write("\n")
             
-            f.write("## 3. Operating System Stability Rankings\n")
-            f.write("| Rank | Operating System | Success Rate | Average RTT | Failure Count |\n")
-            f.write("| :--- | :--- | :---: | :---: | :---: |\n")
-            for idx, r in enumerate(self.os_rankings):
-                f.write(f"| #{idx+1} | {r['os'].title()} | {r['success_rate']:.1f}% | {r['avg_latency']:.1f} ms | {r['failures']} |\n")
-            f.write("\n")
-            
-            f.write("## 4. Simulated Device Cohort Rankings\n")
-            f.write("| Rank | Device Profile | Success Rate | Average Latency | Stability Verdict |\n")
-            f.write("| :--- | :--- | :---: | :---: | :---: |\n")
-            for idx, r in enumerate(self.device_rankings):
-                f.write(f"| #{idx+1} | {r['device'].title()} | {r['success_rate']:.1f}% | {r['avg_latency']:.1f} ms | {r['stability']} |\n")
-            f.write("\n")
-            
-            f.write("## 5. Failure & Error Analysis Breakdown\n")
+            f.write("## 3. Failure & Timeout Stage Breakdown\n")
             if self.aggregated_json["error_code_breakdown"]:
                 f.write("| Error Standard Code | Occurrences Count | Description |\n")
                 f.write("| :--- | :---: | :--- |\n")
@@ -1882,50 +1937,53 @@ class ReportPipeline:
                 f.write("*No action failures or errors logged during this test run.*\n")
             f.write("\n")
             
-            f.write("## 6. Bucketed Event Timeline\n")
-            f.write("| Time Delta | Event Description | Severity |\n")
-            f.write("| :--- | :--- | :---: |\n")
-            for item in self.timeline_data.get("timeline", []):
-                f.write(f"| {item['time']} | {item['event']} | **{item['severity']}** |\n")
-            f.write("\n")
+            f.write("## 4. Multi-Disciplinary Engineering Recommendations\n")
             
-            f.write("## 7. Automated Recommendations Engine\n")
-            for item in self.recommendations:
-                f.write(f"### [{item['priority']}] {item['category']}\n")
-                f.write(f"- **Issue Detected**: {item['issue']}\n")
-                f.write(f"- **Evidence-Based Remediation Action**: {item['remediation']}\n\n")
+            f.write("### 4.1 Backend & Signaling Infrastructure Actions\n")
+            for be in advisory.get("backend_recommendations", []):
+                f.write(f"#### [{be.get('priority', 'HIGH')}] {be.get('subsystem')}\n")
+                f.write(f"- **Issue Detected**: {be.get('issue')}\n")
+                f.write(f"- **Root Cause Hypothesis**: {be.get('root_cause')}\n")
+                f.write(f"- **Actionable Fix**: {be.get('remediation')}\n\n")
 
-            f.write("## 8. WebRTC Telemetry Performance Results\n")
-            f.write("The table below summarizes the measured session results for each of the core WebRTC telemetry metrics defined in the glossary:\n\n")
+            f.write("### 4.2 Frontend & Client Application Actions\n")
+            for fe in advisory.get("frontend_recommendations", []):
+                f.write(f"#### [{fe.get('priority', 'MEDIUM')}] {fe.get('subsystem')}\n")
+                f.write(f"- **Issue Detected**: {fe.get('issue')}\n")
+                f.write(f"- **Root Cause Hypothesis**: {fe.get('root_cause')}\n")
+                f.write(f"- **Actionable Fix**: {fe.get('remediation')}\n\n")
+
+            f.write("### 4.3 QA & Test Strategy Recommendations\n")
+            for qa in advisory.get("qa_tester_recommendations", []):
+                f.write(f"- **Scenario**: `{qa.get('scenario')}` ({qa.get('priority', 'MEDIUM')} Priority)\n")
+                f.write(f"  - **Run Parameters**: `{qa.get('chaos_parameters')}`\n")
+                f.write(f"  - **Rationale**: {qa.get('recommendation')}\n\n")
+
+            f.write("### 4.4 Proactive Architectural Optimizations (Continuous Improvement)\n")
+            for opt in advisory.get("proactive_optimizations", []):
+                f.write(f"- **{opt.get('area')}**: {opt.get('suggestion')}\n")
+            f.write("\n")
+
+            f.write("## 5. WebRTC Telemetry Performance Results\n")
             f.write("| WebRTC Telemetry Metric | Session Result | Status / Layman Assessment |\n")
             f.write("| :--- | :---: | :--- |\n")
             
-            # Calculate WebRTC aggregates
             webrtcPerfList = list(self.aggregated_json.get("webrtc_performance", {}).values())
             avgRtt = sum(wp.get("avg_rtt", 0) for wp in webrtcPerfList) / len(webrtcPerfList) if webrtcPerfList else 30.0
             avgJitter = sum(wp.get("avg_jitter", 0) for wp in webrtcPerfList) / len(webrtcPerfList) if webrtcPerfList else 5.0
             avgLoss = sum(wp.get("avg_packet_loss", 0) for wp in webrtcPerfList) / len(webrtcPerfList) if webrtcPerfList else 0.0
             
-            f.write(f"| **1. RTT (Round Trip Time)** | {avgRtt:.0f} ms | {'Good: Under 200ms is healthy; lag is imperceptible.' if avgRtt < 200 else 'Warning: Over 200ms delay might cause speech overlap.'} |\n")
-            f.write(f"| **2. Jitter** | {avgJitter:.1f} ms | {'Stable: Low packet arrival variation. Smooth streaming.' if avgJitter < 30 else 'Warning: Jitter spikes may cause audio distortion.'} |\n")
-            f.write(f"| **3. Packet Loss** | {avgLoss * 100:.2f}% | {'Excellent: Zero or minimal packet loss. Voices sound clear.' if avgLoss < 0.02 else 'Warning: High packet loss will cause audio robotic stuttering.'} |\n")
-            f.write(f"| **4. ICE State** | Connected | Successful: Network paths between browsers and SFU are established. |\n")
+            f.write(f"| **1. RTT (Round Trip Time)** | {avgRtt:.0f} ms | {'Good: Under 200ms is healthy.' if avgRtt < 200 else 'Warning: Over 200ms delay.'} |\n")
+            f.write(f"| **2. Jitter** | {avgJitter:.1f} ms | {'Stable: Smooth streaming.' if avgJitter < 30 else 'Warning: High variation.'} |\n")
+            f.write(f"| **3. Packet Loss** | {avgLoss * 100:.2f}% | {'Excellent: Minimal packet loss.' if avgLoss < 0.02 else 'Warning: Robotic stuttering risk.'} |\n")
+            f.write(f"| **4. ICE State** | Connected | Successful: Media paths established. |\n")
             
             send_bitrate_str = "35 kbps (Audio-only)" if self.aggregated_json.get("config", {}).get("webrtc_enabled") else "0 kbps (Muted)"
-            f.write(f"| **5. Send Bitrate** | {send_bitrate_str} | Normal: Pushing active mic stream data up to meeting. |\n")
+            f.write(f"| **5. Send Bitrate** | {send_bitrate_str} | Active upstream audio. |\n")
             
             recv_bitrate_str = "840 kbps" if self.aggregated_json.get("config", {}).get("webrtc_enabled") else "0 kbps"
-            f.write(f"| **6. Recv (Receive) Bitrate** | {recv_bitrate_str} | Active: Downloading participant audio/video streams. |\n")
-            
-            f.write(f"| **7. Avail Out Bitrate** | 141 kbps (Estimated) | Healthy: Browser estimates sufficient local bandwidth margin. |\n")
-            
-            fps_str = "30 FPS" if self.aggregated_json.get("config", {}).get("webrtc_enabled") else "0 FPS (Muted)"
-            f.write(f"| **8. FPS (Frames Per Second)** | {fps_str} | {'Smooth: Active video frames.' if self.aggregated_json.get("config", {}).get("webrtc_enabled") else 'Normal: Camera is muted.'} |\n")
-            
-            f.write(f"| **9. Frames Dropped** | 0 (Perfect) | Excellent: Hardware running cool; zero video rendering stutter. |\n")
-            
-            reconnects_count = self.aggregated_json.get("reconnection_count", 0)
-            f.write(f"| **10. Reconnects** | {reconnects_count} | {'Stable: Zero connection drops detected.' if reconnects_count == 0 else f'Warning: {reconnects_count} reconnect events logged.'} |\n\n")
+            f.write(f"| **6. Recv Bitrate** | {recv_bitrate_str} | Active downstream media. |\n\n")
+
 
     def _cleanup_temp_files(self, temp_json: str):
         if os.path.exists(self.temp_db_path):
@@ -1970,7 +2028,7 @@ def main():
     parser.add_argument("--sla-jitter", type=float, help="Override max jitter SLA")
     parser.add_argument("--sla-join-latency", type=float, help="Override target bot join latency SLA (seconds)")
     parser.add_argument("--sla-min-fps", type=float, help="Override min video FPS SLA")
-    parser.add_argument("--sla-max-disconnects", type=float, help="Override max disconnect rate SLA (%)")
+    parser.add_argument("--sla-max-disconnects", type=float, help="Override max disconnect rate SLA (%%)")
     parser.add_argument("--sla-min-bitrate", type=float, help="Override min stream bitrate SLA (kbps)")
     args = parser.parse_args()
 

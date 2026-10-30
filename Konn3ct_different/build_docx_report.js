@@ -939,13 +939,28 @@ const telemetrySummaryTable = new Table({
   ]
 });
 
-// Determine QA Verdict
+// Determine QA Verdict & AI Governance Attribution
 console.log("⚖️ [6/7] Evaluating SLA Quality Gates & compiling QA Verdict...");
 const hasFailedGate = gates.some(g => !g.pass);
-const qaVerdict = hasFailedGate ? "FAILED" : "PASSED";
-const qaVerdictColor = hasFailedGate ? RED : GREEN;
 const failedGates = gates.filter(g => !g.pass);
 const hasFailedGates = failedGates.length > 0;
+
+const attribution = data.engine_attribution || {
+  engine_name: "Deterministic Rule-Based Engine (Volume 7 Blueprint)",
+  is_ai: false
+};
+const rawVerdict = (data.qa_verdict || (hasFailedGate ? "FAIL" : "PASS")).toUpperCase();
+const qaVerdict = rawVerdict.includes("PASS") ? (rawVerdict.includes("ADVISORY") ? "PASS WITH ADVISORY" : "PASSED") : (rawVerdict.includes("HOLD") ? "CONDITIONAL HOLD" : (rawVerdict.includes("ESCALATE") ? "ESCALATE" : "FAILED"));
+const qaVerdictColor = qaVerdict === "PASSED" ? GREEN : (qaVerdict === "PASS WITH ADVISORY" ? TEAL : (qaVerdict === "CONDITIONAL HOLD" ? AMBER : RED));
+const verdictRationale = data.qa_verdict_rationale || (qaVerdict === "PASSED" ? 
+  "All action lifecycle gates, WebRTC stats thresholds, and propagation delay benchmarks passed. The system is verified stable." : 
+  "Critical SLA thresholds were breached. Investigation required.");
+const releaseBlockers = data.ai_advisory?.release_blockers || [];
+const warningsList = data.ai_advisory?.warnings || [];
+const backendRecs = data.backend_recommendations || [];
+const frontendRecs = data.frontend_recommendations || [];
+const qaRecs = data.qa_tester_recommendations || [];
+const proactiveOpts = data.proactive_optimizations || [];
 
 // ── Document Assembly ───────────────────────────────────────────────────
 const doc = new Document({
@@ -999,11 +1014,19 @@ const doc = new Document({
         children: [new TextRun({ text: "Konn3ct Different Load Test Report", bold: true, size: 40, color: NAVY })],
       }),
       new Paragraph({
-        spacing: { after: 280 },
+        spacing: { after: 140 },
         children: [new TextRun({
           text: `Room "${data.config?.room ?? "N/A"}"  •  Generated ${fmtDate(new Date().toISOString())}`,
           size: 20, color: GREY,
         })],
+      }),
+      new Paragraph({
+        spacing: { after: 280 },
+        children: [
+          new TextRun({ text: "⚡ Analysis Engine: ", bold: true, size: 18, color: TEAL }),
+          new TextRun({ text: `${attribution.engine_name || "Deterministic Rule-Based Engine"} `, size: 18, color: NAVY, bold: true }),
+          new TextRun({ text: attribution.is_ai ? "(AI Dual-Model Pipeline)" : "(Volume 7 Deterministic Governance)", size: 16, color: GREY, italics: true })
+        ]
       }),
 
       // 1. Executive Summary Dashboard
@@ -1037,12 +1060,12 @@ const doc = new Document({
 
       // 4. Browser Coverage Matrix
       sectionHeading("4. Browser Coverage Matrix"),
-      paragraph("The browser allocation matrix outlines the connection success rate and join delays for each emulated browser type:"),
+      paragraph("The browser allocation matrix outlines the connection success rate, join delays, and Volume 7 certification status for each emulated browser type:"),
       bMatrixTable,
 
       // 5. OS Coverage Matrix
       sectionHeading("5. OS Coverage Matrix"),
-      paragraph("Breakdown of bots across simulated operating system layers:"),
+      paragraph("Breakdown of bots across simulated operating system layers and platform certification tiers:"),
       osTable,
 
       // 6. Device Coverage Matrix
@@ -1123,37 +1146,78 @@ const doc = new Document({
       paragraph("• Technical Root Cause: The bots registered under identical identities (session tokens and user IDs). During simulated reload, the previous WebSocket connection was abruptly severed, and a new handshake was initiated immediately. The signaling server did not instantly clean up the stale session state, resulting in dual active mappings ('joined twice') before the old connection timed out."),
 
       // 20. Sprint 1 Pass/Fail Assessment
-      sectionHeading("20. Sprint 1 Pass/Fail Assessment"),
-      paragraph("Comparing test results against the strict Sprint 1 Quality Gates:"),
+      sectionHeading("20. Sprint Quality Gate Assessment"),
+      paragraph("Comparing test results against the strict Sprint Quality Gates:"),
       gatesTable,
 
-      // 21. QA Verdict
-      sectionHeading("21. QA Verdict"),
+      // 21. QA Verdict & Production Go/No-Go Decision Gate
+      sectionHeading("21. Production Go/No-Go Decision Gate"),
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        spacing: { before: 200, after: 200 },
+        spacing: { before: 200, after: 120 },
         children: [
-          new TextRun({ text: "FINAL VERDICT: ", bold: true, size: 24 }),
-          new TextRun({ text: qaVerdict, bold: true, size: 28, color: qaVerdictColor })
+          new TextRun({ text: "PRODUCTION DECISION: ", bold: true, size: 24, color: NAVY }),
+          new TextRun({ text: qaVerdict, bold: true, size: 30, color: qaVerdictColor })
         ]
       }),
-      paragraph(qaVerdict === "PASSED" ? 
-        "All action lifecycle gates, WebRTC stats thresholds, and propagation delay benchmarks passed. The system is verified stable." : 
-        "Some action lifecycle success rates fell below the 99% SLA or latencies exceeded the maximum threshold limits. Optimization required.",
-        { italics: true }
-      ),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 200 },
+        children: [
+          new TextRun({ text: `Decision Rationale: ${verdictRationale}`, italics: true, size: 20, color: GREY })
+        ]
+      }),
+      ...(releaseBlockers.length > 0 ? [
+        paragraph("🚨 Release Blockers (Immediate Action Required):", { bold: true, color: RED }),
+        ...releaseBlockers.map(b => paragraph(`• ❌ ${b}`, { color: RED }))
+      ] : []),
+      ...(warningsList.length > 0 ? [
+        paragraph("⚠️ Performance Warnings & Bottlenecks:", { bold: true, color: AMBER }),
+        ...warningsList.map(w => paragraph(`• ⚠️ ${w}`, { color: AMBER }))
+      ] : []),
 
-      // 22. Developer Recommendations
-      sectionHeading("22. Developer Recommendations"),
-      ...(hasFailedGates ?
-        failedGates.flatMap((g, idx) => [
-          paragraph(`${idx + 1}. [SLA Gate Failed: ${g.name}] (Measured: ${g.measured} vs Target: ${g.threshold})`, { bold: true }),
-          paragraph(`   • Frontend Action: ${g.rec_fe}`),
-          paragraph(`   • Backend/Infrastructure Action: ${g.rec_be}`),
-          paragraph(`   • Load Tester Action: ${g.rec_lt}`),
+      // 22. Multi-Disciplinary Engineering Recommendations
+      sectionHeading("22. Multi-Disciplinary Engineering Recommendations"),
+      
+      // 22.1 Backend Recommendations
+      paragraph("22.1 Backend & Signaling Infrastructure Recommendations", { bold: true, color: NAVY }),
+      ...(backendRecs.length > 0 ?
+        backendRecs.flatMap(be => [
+          paragraph(`• [${be.priority || "HIGH"}] ${be.subsystem || "Signaling Core"}`, { bold: true }),
+          paragraph(`   - Issue: ${be.issue}`),
+          paragraph(`   - Root Cause: ${be.root_cause}`),
+          paragraph(`   - Remediation: ${be.remediation}`, { color: GREEN }),
           paragraph("")
         ]) :
-        [paragraph("All SLA thresholds successfully satisfied. No developer adjustments are recommended at this time.")]
+        [paragraph("• Backend infrastructure operated within normal load and throughput thresholds.")]
+      ),
+
+      // 22.2 Frontend Recommendations
+      paragraph("22.2 Frontend & Client Application Recommendations", { bold: true, color: NAVY }),
+      ...(frontendRecs.length > 0 ?
+        frontendRecs.flatMap(fe => [
+          paragraph(`• [${fe.priority || "MEDIUM"}] ${fe.subsystem || "Client UI"}`, { bold: true }),
+          paragraph(`   - Issue: ${fe.issue}`),
+          paragraph(`   - Root Cause: ${fe.root_cause}`),
+          paragraph(`   - Remediation: ${fe.remediation}`, { color: GREEN }),
+          paragraph("")
+        ]) :
+        [paragraph("• Client UI rendering latency and WebRTC track management operated cleanly.")]
+      ),
+
+      // 22.3 QA Recommendations
+      paragraph("22.3 QA & Next-Sprint Test Strategy", { bold: true, color: NAVY }),
+      ...(qaRecs.length > 0 ?
+        qaRecs.map(qa => paragraph(`• Scenario: ${qa.scenario} [${qa.priority || "MEDIUM"} Priority]\n   - Run Arguments: ${qa.chaos_parameters}\n   - Scope: ${qa.recommendation}`)) :
+        [paragraph("• Standard regression test suite passed.")]
+      ),
+      paragraph(""),
+
+      // 22.4 Proactive Optimizations
+      paragraph("22.4 Proactive Architectural Optimizations (Continuous Improvement)", { bold: true, color: NAVY }),
+      ...(proactiveOpts.length > 0 ?
+        proactiveOpts.map(opt => paragraph(`• ${opt.area}: ${opt.suggestion}`, { italics: true })) :
+        [paragraph("• All architectural components optimized for current scale.")]
       ),
 
       // 23. Appendix: Full Action Log Reference

@@ -21,7 +21,7 @@ let localTimerBaseSeconds = 0;
 let localElapsedSeconds = 0;
 
 // Tab Routing Configuration
-const TABS = ['monitoring', 'configurator', 'templates', 'history', 'mobile-test', '1gov-app'];
+const TABS = ['monitoring', 'configurator', 'templates', 'history', 'mobile-test', 'web-test', '1gov-app', 'user-guide'];
 let currentActiveTab = 'monitoring';
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -57,6 +57,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 9. Setup Console Live Filters & Events rate ticker
     setupConsoleFilters();
     startEventsRateCounter();
+
+    // 9b. Setup E2E Web UI Testboard
+    initWebTestboard();
+
+    // 9c. Setup Interactive User Guide & Drawer
+    initUserGuide();
+
+    // 10. Volume 7 QA Governance & AI Advisory Setup
+    initSlaPresets();
+    initAiSettings();
+    initSessionComparison();
 });
 
 // Theme Management
@@ -172,14 +183,15 @@ function switchTab(tabId) {
 
     currentActiveTab = tabId;
 
-    // Update header page title
     const titles = {
         'monitoring': 'Monitoring Dashboard',
         'configurator': 'Configure New Test Session',
         'templates': 'Saved Configuration Presets',
         'history': 'Test Session Execution History',
         'mobile-test': 'Mobile UI Test Automation',
-        '1gov-app': '1gov App UI Test Automation'
+        'web-test': 'Test Web',
+        '1gov-app': '1gov App UI Test Automation',
+        'user-guide': 'Interactive User Guide'
     };
     document.getElementById('pageTitle').textContent = titles[tabId] || 'Dashboard';
 
@@ -188,6 +200,9 @@ function switchTab(tabId) {
         loadMobileTestData('mobile');
     } else if (tabId === '1gov-app') {
         loadMobileTestData('gov');
+    } else if (tabId === 'web-test') {
+        loadWebReports();
+        ensureWebSocketConnected();
     }
 }
 
@@ -321,7 +336,7 @@ async function loadSessionHistory() {
         tbody.innerHTML = '';
         
         if (data.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No previous sessions found.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted">No previous sessions found.</td></tr>`;
             return;
         }
 
@@ -337,11 +352,28 @@ async function loadSessionHistory() {
 
             const isFinished = sess.status === 'completed' || sess.status === 'stopped' || sess.status === 'failed';
 
+            // Volume 7 AI Go/No-Go Decision Gate Badge
+            let gateBadgeHtml = '<span class="badge" style="background: rgba(156, 163, 175, 0.15); color: #9ca3af;">Pending</span>';
+            if (sess.ai_verdict) {
+                const v = sess.ai_verdict.toUpperCase();
+                if (v === 'PASS') {
+                    gateBadgeHtml = '<span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: 700;">PASS (GO)</span>';
+                } else if (v === 'CONDITIONAL HOLD') {
+                    gateBadgeHtml = '<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; font-weight: 700;">HOLD</span>';
+                } else if (v === 'FAIL') {
+                    gateBadgeHtml = '<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; font-weight: 700;">FAIL</span>';
+                } else if (v === 'ESCALATE') {
+                    gateBadgeHtml = '<span class="badge" style="background: rgba(185, 28, 28, 0.25); color: #fca5a5; font-weight: 700;">ESCALATE</span>';
+                }
+            }
+
             const tr = document.createElement('tr');
             tr.innerHTML = `
+                <td style="text-align: center;"><input type="checkbox" class="history-select-chk" value="${sess.id}"></td>
                 <td>#${sess.id}</td>
                 <td><strong>${escapeHtml(sess.name)}</strong></td>
                 <td><span class="badge ${badgeClass}">${sess.status}</span></td>
+                <td>${gateBadgeHtml}</td>
                 <td>${sess.started_at ? new Date(sess.started_at).toLocaleString() : 'N/A'}</td>
                 <td>${duration}</td>
                 <td>
@@ -358,6 +390,9 @@ async function loadSessionHistory() {
             `;
             tbody.appendChild(tr);
         });
+
+        // Re-attach checkbox event listeners
+        bindHistoryCheckboxEvents();
     } catch (err) {
         console.error("Failed to load history: ", err);
     }
@@ -652,7 +687,7 @@ function initWebSocket(sessionId) {
 
     // Listen for raw logs in batch
     socket.on('session_raw_events_batch', (payload) => {
-        if (payload.session_id !== sessionId) return;
+        if (String(payload.session_id) !== String(sessionId)) return;
         payload.events.forEach(evt => {
             pushToConsoleBuffer(evt);
         });
@@ -661,7 +696,7 @@ function initWebSocket(sessionId) {
 
     // Listen for fallback stdout console logs
     socket.on('session_console_log', (payload) => {
-        if (payload.session_id !== sessionId) return;
+        if (String(payload.session_id) !== String(sessionId)) return;
         const consoleEl = document.getElementById('consoleTerminal');
         const placeholder = consoleEl.querySelector('.console-placeholder');
         if (placeholder) placeholder.remove();
@@ -680,7 +715,7 @@ function initWebSocket(sessionId) {
 
     // Listen for metrics updates
     socket.on('session_metrics', (payload) => {
-        if (payload.session_id !== sessionId) return;
+        if (String(payload.session_id) !== String(sessionId)) return;
         
         // Sync local timer base
         if (payload.elapsed_seconds !== undefined) {
@@ -689,11 +724,15 @@ function initWebSocket(sessionId) {
         }
         
         updateMetricsCards(payload.metrics, payload.lifecycle_summary);
+        
+        // Push real-time data point into live chart timelines
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        updateCharts(timeStr, payload.metrics);
     });
 
     // Listen for session completion status
     socket.on('session_status_changed', (payload) => {
-        if (payload.session_id !== sessionId) return;
+        if (String(payload.session_id) !== String(sessionId)) return;
         
         if (payload.status === 'completed' || payload.status === 'stopped' || payload.status === 'failed') {
             handleSessionFinished(payload.status);
@@ -732,7 +771,7 @@ function initWebSocket(sessionId) {
 
     // Listen for cluster uploads
     socket.on('cluster_status_changed', (payload) => {
-        if (payload.session_id !== sessionId) return;
+        if (String(payload.session_id) !== String(sessionId)) return;
         
         const progEl = document.getElementById('clusterUploadProgress');
         if (progEl) {
@@ -750,7 +789,7 @@ function initWebSocket(sessionId) {
 
     // Listen for background compilation stage progress
     socket.on('report_compile_status', (payload) => {
-        if (payload.session_id !== sessionId) return;
+        if (String(payload.session_id) !== String(sessionId)) return;
         
         const modal = document.getElementById('reportProgressModal');
         const statusText = document.getElementById('progressStatusText');
@@ -1060,6 +1099,37 @@ function updateMetricsCards(metrics, lifecycleSummary) {
             document.getElementById('lifecycleBroadcasted').textContent = sc.broadcasted || 0;
             document.getElementById('lifecycleObserved').textContent = sc.observed || 0;
             document.getElementById('lifecycleRendered').textContent = sc.rendered || 0;
+
+            // Volume 7 Live Go/No-Go Decision Gate Evaluation
+            const gateBadge = document.getElementById('liveGoNoGoBadge');
+            const gatingSummary = document.getElementById('liveAiGatingSummary');
+            if (gateBadge && gatingSummary) {
+                const targetSuccess = window.activeSessionSlaSuccess || 95.0;
+                const targetLatency = window.activeSessionSlaLatency || 500.0;
+                const targetLoss = window.activeSessionSlaLoss || 2.0;
+
+                if (successRate >= targetSuccess && metrics.avg_latency <= targetLatency && metrics.packet_loss <= targetLoss) {
+                    gateBadge.className = 'gating-verdict-badge verdict-pass';
+                    gateBadge.innerHTML = '<i class="fa-solid fa-circle-check"></i> PASS (GO)';
+                    gatingSummary.style.borderLeftColor = '#10B981';
+                    gatingSummary.textContent = `All Volume 7 Quality Gate thresholds satisfied (Success: ${successRate.toFixed(1)}% ≥ ${targetSuccess}%, Latency: ${metrics.avg_latency.toFixed(0)}ms ≤ ${targetLatency}ms, Loss: ${metrics.packet_loss.toFixed(1)}% ≤ ${targetLoss}%).`;
+                } else if (metrics.failed_bots > (totalBots * 0.15) || successRate < (targetSuccess - 10.0)) {
+                    gateBadge.className = 'gating-verdict-badge verdict-escalate';
+                    gateBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> ESCALATE';
+                    gatingSummary.style.borderLeftColor = '#B91C1C';
+                    gatingSummary.textContent = `CRITICAL ESCALATION: Severe failures detected (${metrics.failed_bots} failed bots, ${successRate.toFixed(1)}% success). Volume 7 blocker triggered.`;
+                } else if (successRate < (targetSuccess - 5.0) || metrics.avg_latency > (targetLatency * 1.5)) {
+                    gateBadge.className = 'gating-verdict-badge verdict-fail';
+                    gateBadge.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> FAIL (NO-GO)';
+                    gatingSummary.style.borderLeftColor = '#EF4444';
+                    gatingSummary.textContent = `RELEASE BLOCKER: Action success rate or propagation latency breached quality gate. Release blocked.`;
+                } else {
+                    gateBadge.className = 'gating-verdict-badge verdict-hold';
+                    gateBadge.innerHTML = '<i class="fa-solid fa-circle-pause"></i> CONDITIONAL HOLD';
+                    gatingSummary.style.borderLeftColor = '#F59E0B';
+                    gatingSummary.textContent = `CONDITIONAL HOLD: Minor threshold violation under observation. Detailed triage will compile at test end.`;
+                }
+            }
         }
 
         // Update peak latency in Average Latency sublabel
@@ -1362,7 +1432,15 @@ function setupFormActions() {
     const presetSelect = document.getElementById('scenarioPresetSelect');
     if (presetSelect) {
         presetSelect.addEventListener('change', () => {
-            document.getElementById('formTestScenarios').value = presetSelect.value;
+            const val = presetSelect.value;
+            document.getElementById('formTestScenarios').value = val;
+            if (val.includes('large_room')) {
+                if (document.getElementById('formLargeRoomMode')) document.getElementById('formLargeRoomMode').checked = true;
+                if (document.getElementById('formSpeakerPromotionStorm')) document.getElementById('formSpeakerPromotionStorm').checked = true;
+            }
+            if (val.includes('chaos')) {
+                if (document.getElementById('formDisableAbnormalBehavior')) document.getElementById('formDisableAbnormalBehavior').checked = false;
+            }
         });
     }
 
@@ -1427,7 +1505,10 @@ function getFormData() {
         auto_screen_share: document.getElementById('formAutoScreenShare').checked,
         disable_ram_scenario_opt: document.getElementById('formDisableRamScenarioOpt').checked,
         refresh_bots: parseInt(document.getElementById('formRefreshBots').value) || 0,
-        disable_abnormal_behavior: document.getElementById('formDisableAbnormalBehavior').checked
+        disable_abnormal_behavior: document.getElementById('formDisableAbnormalBehavior').checked,
+        large_room_mode: document.getElementById('formLargeRoomMode')?.checked || false,
+        conversational_audio: document.getElementById('formConversationalAudio')?.checked !== false,
+        speaker_promotion_storm: document.getElementById('formSpeakerPromotionStorm')?.checked || false
     };
 }
 
@@ -1503,17 +1584,20 @@ async function loadConfigIntoForm(cfgId) {
         document.getElementById('formSlaMinBitrate').value = cfg.sla_min_bitrate !== undefined ? cfg.sla_min_bitrate : 250.0;
         
         document.getElementById('formCrossConfirmLimit').value = cfg.cross_confirm_limit !== undefined ? cfg.cross_confirm_limit : 10;
-        document.getElementById('formCameraPublishers').value = cfg.camera_publishers !== undefined ? cfg.camera_publishers : '1,2,3,4,5';
+        document.getElementById('formCameraPublishers').value = cfg.camera_publishers !== undefined ? cfg.camera_publishers : '1-10000';
         document.getElementById('formScreenSharePublishers').value = cfg.screen_share_publishers !== undefined ? cfg.screen_share_publishers : '2';
-        document.getElementById('formMicPublishers').value = cfg.mic_publishers !== undefined ? cfg.mic_publishers : '1,2,3,4,5';
-        document.getElementById('formViewerBotIds').value = cfg.viewer_bots !== undefined ? cfg.viewer_bots : '6-1000';
-        document.getElementById('formViewerMode').value = cfg.viewer_mode !== undefined ? cfg.viewer_mode : 'receive_only';
+        document.getElementById('formMicPublishers').value = cfg.mic_publishers !== undefined ? cfg.mic_publishers : '1-10000';
+        document.getElementById('formViewerBotIds').value = cfg.viewer_bots !== undefined ? cfg.viewer_bots : '';
+        document.getElementById('formViewerMode').value = cfg.viewer_mode !== undefined ? cfg.viewer_mode : 'normal_participant';
         document.getElementById('formAutoCamera').checked = cfg.auto_camera !== undefined ? cfg.auto_camera : false;
         document.getElementById('formAutoMic').checked = cfg.auto_mic !== undefined ? cfg.auto_mic : false;
         document.getElementById('formAutoScreenShare').checked = cfg.auto_screen_share !== undefined ? cfg.auto_screen_share : false;
         document.getElementById('formDisableRamScenarioOpt').checked = cfg.disable_ram_scenario_opt !== undefined ? cfg.disable_ram_scenario_opt : false;
         document.getElementById('formRefreshBots').value = cfg.refresh_bots !== undefined ? cfg.refresh_bots : 0;
         document.getElementById('formDisableAbnormalBehavior').checked = cfg.disable_abnormal_behavior !== undefined ? cfg.disable_abnormal_behavior : false;
+        if (document.getElementById('formLargeRoomMode')) document.getElementById('formLargeRoomMode').checked = cfg.large_room_mode !== undefined ? cfg.large_room_mode : false;
+        if (document.getElementById('formConversationalAudio')) document.getElementById('formConversationalAudio').checked = cfg.conversational_audio !== undefined ? cfg.conversational_audio : true;
+        if (document.getElementById('formSpeakerPromotionStorm')) document.getElementById('formSpeakerPromotionStorm').checked = cfg.speaker_promotion_storm !== undefined ? cfg.speaker_promotion_storm : false;
         toggleRamFields();
         
         loadCheckboxesFromSerialized('network');
@@ -1521,7 +1605,6 @@ async function loadConfigIntoForm(cfgId) {
         loadCheckboxesFromSerialized('device');
         loadCheckboxesFromSerialized('os');
         
-        switchTab('configurator');
     } catch (err) {
         alert("Failed to load preset configuration details.");
     }
@@ -2658,6 +2741,18 @@ function ensureWebSocketConnected() {
         socket.on('mobile_ui_test_status', (payload) => {
             updateMobileTestStatus(payload.status);
         });
+        
+        socket.on('web_ui_test_log', (payload) => {
+            appendWebConsoleLog(payload.line);
+        });
+        
+        socket.on('web_ui_test_status', (payload) => {
+            updateWebTestStatus(payload.status);
+        });
+        
+        socket.on('web_ui_test_frame', (payload) => {
+            updateWebViewportFrame(payload.image);
+        });
     }
 }
 
@@ -2704,3 +2799,962 @@ async function loadClusterBatchTable(sessionId) {
         console.error("Failed to load cluster batches: ", e);
     }
 }
+
+// --- E2E Web UI Testboard Logic ---
+
+function initWebTestboard() {
+    const btnRun = document.getElementById('btnRunWebUiTest');
+    const btnStop = document.getElementById('btnStopWebUiTest');
+    const btnRefresh = document.getElementById('btnRefreshWebReports');
+    const btnClearConsole = document.getElementById('btnClearWebConsole');
+    const selectAccountType = document.getElementById('webAccountType');
+    
+    if (btnRun) {
+        btnRun.addEventListener('click', runWebTest);
+    }
+    
+    if (btnStop) {
+        btnStop.addEventListener('click', stopWebTest);
+    }
+    
+    if (btnRefresh) {
+        btnRefresh.addEventListener('click', loadWebReports);
+    }
+    
+    if (btnClearConsole) {
+        btnClearConsole.addEventListener('click', () => {
+            const terminal = document.getElementById('webConsoleTerminal');
+            if (terminal) {
+                terminal.innerHTML = '<div class="console-placeholder">Console cleared. Waiting for next run...</div>';
+            }
+        });
+    }
+    
+    if (selectAccountType) {
+        selectAccountType.addEventListener('change', (e) => {
+            const row = document.getElementById('webCredentialsRow');
+            if (row) {
+                row.style.display = e.target.value === 'manual' ? 'flex' : 'none';
+            }
+        });
+    }
+    
+    // Load initial reports list
+    loadWebReports();
+}
+
+function updateWebTestStatus(status) {
+    const btnRun = document.getElementById('btnRunWebUiTest');
+    const btnStop = document.getElementById('btnStopWebUiTest');
+    const placeholder = document.getElementById('webViewportPlaceholder');
+    const viewport = document.getElementById('webLiveViewport');
+    
+    if (status === 'running') {
+        if (btnRun) btnRun.disabled = true;
+        if (btnStop) btnStop.disabled = false;
+        
+        // Show viewport when running
+        if (placeholder) placeholder.style.display = 'none';
+        if (viewport) {
+            viewport.style.display = 'block';
+            viewport.src = ''; // reset previous image
+        }
+    } else {
+        if (btnRun) btnRun.disabled = false;
+        if (btnStop) btnStop.disabled = true;
+        
+        // Hide viewport frame when idle
+        if (placeholder) placeholder.style.display = 'block';
+        if (viewport) viewport.style.display = 'none';
+        
+        // Reload reports list on completion
+        loadWebReports();
+    }
+}
+
+function appendWebConsoleLog(line) {
+    const terminal = document.getElementById('webConsoleTerminal');
+    if (!terminal) return;
+    
+    // Remove placeholder on first log line
+    const placeholder = terminal.querySelector('.console-placeholder');
+    if (placeholder) {
+        terminal.innerHTML = '';
+    }
+    
+    const lineEl = document.createElement('div');
+    lineEl.className = 'log-line';
+    
+    // Style lines
+    if (line.includes('❌') || line.includes('[ERROR]') || line.includes('[FATAL]')) {
+        lineEl.style.color = 'var(--error)';
+        lineEl.style.fontWeight = '600';
+    } else if (line.includes('✅') || line.includes('[SUCCESS]')) {
+        lineEl.style.color = 'var(--success)';
+        lineEl.style.fontWeight = '600';
+    } else if (line.startsWith('--- Running Step')) {
+        lineEl.style.color = 'var(--accent)';
+        lineEl.style.fontWeight = 'bold';
+        lineEl.style.borderLeft = '3px solid var(--accent)';
+        lineEl.style.paddingLeft = '6px';
+        lineEl.style.marginTop = '8px';
+    }
+    
+    lineEl.textContent = line;
+    terminal.appendChild(lineEl);
+    
+    // Auto-scroll
+    terminal.scrollTop = terminal.scrollHeight;
+}
+
+function updateWebViewportFrame(base64Image) {
+    const viewport = document.getElementById('webLiveViewport');
+    const placeholder = document.getElementById('webViewportPlaceholder');
+    if (!viewport) return;
+    
+    if (placeholder) placeholder.style.display = 'none';
+    viewport.style.display = 'block';
+    viewport.src = `data:image/jpeg;base64,${base64Image}`;
+}
+
+async function loadWebReports() {
+    try {
+        const res = await fetch('/api/web/reports');
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        const list = document.getElementById('webReportsList');
+        if (!list) return;
+        
+        if (data.reports.length === 0) {
+            list.innerHTML = '<tr><td colspan="3" class="text-center" style="padding: 12px; color: var(--text-muted);">No reports generated yet. Run a test!</td></tr>';
+            return;
+        }
+        
+        list.innerHTML = '';
+        data.reports.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid var(--border-color)';
+            
+            let actionsHtml = `
+                <a class="btn btn-sm btn-outline-secondary" href="/api/web/reports/download/${r.filename}" download style="padding: 2px 6px; font-size: 11px; margin-right: 4px;">
+                    <i class="fa-solid fa-download"></i> Download
+                </a>
+            `;
+            if (r.video_file) {
+                actionsHtml += `
+                    <a class="btn btn-sm btn-outline-success" href="/api/web/videos/${r.video_file}" target="_blank" style="padding: 2px 6px; font-size: 11px; background-color: rgba(16, 185, 129, 0.1); color: var(--success); border-color: var(--success);">
+                        <i class="fa-solid fa-play"></i> Play Video
+                    </a>
+                `;
+            }
+            
+            tr.innerHTML = `
+                <td style="padding: 8px;">
+                    <a href="/api/web/reports/download/${r.filename}" target="_blank" style="color: var(--accent); font-weight: 500; text-decoration: none;">
+                        <i class="fa-solid fa-file-code"></i> ${r.filename}
+                    </a>
+                </td>
+                <td style="padding: 8px; color: var(--text-secondary);">${r.size}</td>
+                <td style="padding: 8px; text-align: right;">
+                    ${actionsHtml}
+                </td>
+            `;
+            list.appendChild(tr);
+        });
+    } catch (e) {
+        console.error("Error loading E2E web reports: ", e);
+    }
+}
+
+async function runWebTest() {
+    const url = document.getElementById('webTargetUrl').value;
+    const room = document.getElementById('webRoomSlug').value;
+    const accountType = document.getElementById('webAccountType').value;
+    const email = accountType === 'manual' ? document.getElementById('webEmail').value : '';
+    const password = accountType === 'manual' ? document.getElementById('webPassword').value : '';
+    const headed = document.getElementById('webHeadedMode').checked;
+    
+    // Build feature string from checked boxes
+    const checkedFeatures = [];
+    document.querySelectorAll('.web-feature-chk').forEach(chk => {
+        if (chk.checked) {
+            checkedFeatures.push(chk.value);
+        }
+    });
+    
+    if (checkedFeatures.length === 0) {
+        alert("Please select at least one E2E feature to test.");
+        return;
+    }
+    
+    // Clear terminal console
+    const terminal = document.getElementById('webConsoleTerminal');
+    if (terminal) terminal.innerHTML = '';
+    
+    try {
+        ensureWebSocketConnected();
+        
+        const res = await fetch('/api/web/run', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                url,
+                room,
+                email,
+                password,
+                headed,
+                features: checkedFeatures.join(',')
+            })
+        });
+        
+        const resData = await res.json();
+        if (!res.ok) {
+            alert(resData.message || "Failed to trigger Web E2E test.");
+        }
+    } catch (e) {
+        console.error("E2E trigger error: ", e);
+        alert("Network error starting E2E test.");
+    }
+}
+
+async function stopWebTest() {
+    try {
+        const res = await fetch('/api/web/stop', { method: 'POST' });
+        const resData = await res.json();
+        if (!res.ok) {
+            alert(resData.message || "Failed to stop E2E test.");
+        }
+    } catch (e) {
+        console.error("Stop test error: ", e);
+    }
+}
+
+// --- Interactive User Guide & Drawer Logic ---
+
+const USER_GUIDE_DATA = [
+    {
+        id: "monitoring",
+        title: "Monitoring Dashboard",
+        icon: "fa-chart-line text-emerald",
+        desc: "The main cockpit of the platform. Think of it as a live checkup screen showing exactly how your servers are handling the load.",
+        features: [
+            {
+                name: "Active Sessions Banner",
+                explain: "Shows you if a load test is currently running. If one is active, you'll see details like the name, how many virtual users are online, and buttons to pause or stop the test."
+            },
+            {
+                name: "Total Bots / Active Bots",
+                explain: "A live counter of your virtual crowd. 'Total' is the target number of users you want to simulate, and 'Active' is the number currently logged in."
+            },
+            {
+                name: "Failed Connections",
+                explain: "Virtual users who ran into errors. If a bot gets disconnected or fails to enter the room, they will be registered here."
+            },
+            {
+                name: "Telemetry Charts (CPU & RAM)",
+                explain: "Server health meters. Colorful graphs showing how hard your system's processor (CPU) and memory (RAM) are working in real-time."
+            },
+            {
+                name: "Response Time & Success Rate",
+                explain: "Speed and stability indicators. Tells you how fast your site loads and what percentage of user requests are succeeding."
+            },
+            {
+                name: "Live Log Terminal",
+                explain: "The dashboard diary. A scrolling window showing exactly what action every virtual user is performing second-by-second."
+            }
+        ]
+    },
+    {
+        id: "configurator",
+        title: "New Test (Configurator)",
+        icon: "fa-sliders text-cyan",
+        desc: "The control room where you build your virtual crowd and set up your testing rules.",
+        features: [
+            {
+                name: "Test Session Name",
+                explain: "Give your test run a clear label (like 'Friday High Stress Test') so you can identify it in your execution history reports."
+            },
+            {
+                name: "Target URL & Room Code",
+                explain: "The website address you want your virtual users to visit, and the virtual meeting room name they will join."
+            },
+            {
+                name: "Total Bots",
+                explain: "The size of the virtual crowd. The total number of virtual users to send into the meeting to stress-test your server."
+            },
+            {
+                name: "Stagger Entry",
+                explain: "Arrival spacing. Setting a delay (like 1 second) between each user's entry so they don't all crash the door at the exact same instant."
+            },
+            {
+                name: "Batch Size & Concurrency",
+                explain: "Group entries. Controls how many virtual users join in each wave, and how many are allowed to run tasks at the exact same time."
+            },
+            {
+                name: "WebRTC Options & Media Quality",
+                explain: "Send fake camera/microphone. Turns on fake video/audio for your bots, and sets how sharp (high resolution) or lightweight (low resolution) their streams are."
+            },
+            {
+                name: "Max Subscriptions",
+                explain: "How many people each user watches. Sets the maximum number of other users' video feeds each bot will pull and decode."
+            },
+            {
+                name: "Action & Chat Intervals",
+                explain: "Speed of actions. Sets how often each virtual user toggles their mic/cam, and how often they send text messages in chat."
+            },
+            {
+                name: "Device, Browser & OS Distributions",
+                explain: "Simulate real devices. Configure what percentage of your virtual crowd will use Chrome vs Safari, Windows vs macOS, or visit via mobile phones vs desktop computers."
+            }
+        ]
+    },
+    {
+        id: "templates",
+        title: "Saved Presets",
+        icon: "fa-folder-open text-cyan",
+        desc: "Your template library. Load pre-saved test configurations in one click instead of setting up parameters manually.",
+        features: [
+            {
+                name: "Preset Details Card",
+                explain: "Displays summary cards showing the presets' configuration details, descriptions, and simulated device mix."
+            },
+            {
+                name: "Load Preset Button",
+                explain: "Click this to instantly populate the 'New Test' page with all the preset's settings."
+            }
+        ]
+    },
+    {
+        id: "history",
+        title: "Test History",
+        icon: "fa-history text-cyan",
+        desc: "Your test archive. Review previous test runs and download formal analysis reports.",
+        features: [
+            {
+                name: "History Table",
+                explain: "Lists all past test sessions, showing their date, room code, number of bots, and overall status."
+            },
+            {
+                name: "Download DOCX Report",
+                explain: "Compiles all test graphs, statistics, and logs into a Microsoft Word document (.docx) to share with your team."
+            }
+        ]
+    },
+    {
+        id: "mobile-test",
+        title: "Mobile UI Test",
+        icon: "fa-mobile-screen-button text-cyan",
+        desc: "Automated simulator checks for the Konn3ct mobile application (Android/iOS).",
+        features: [
+            {
+                name: "Device / Emulator Dropdown",
+                explain: "Selects which simulated phone size (Android or iPhone) to execute the automated tests on."
+            },
+            {
+                name: "Flow Selector",
+                explain: "Pick which set of automated steps (like 'Log in and Join Room') the virtual phone will perform."
+            },
+            {
+                name: "Run / Stop buttons",
+                explain: "Starts the mobile simulator script in the background, or halts it if it gets stuck."
+            }
+        ]
+    },
+    {
+        id: "web-test",
+        title: "Test Web (E2E Web Suite)",
+        icon: "fa-laptop-code text-cyan",
+        desc: "A virtual robot that signs up, logs in, mutes the mic/camera, chats in meeting rooms, and records a video of its screen for you to play back.",
+        features: [
+            {
+                name: "Target URL",
+                explain: "The website address you want the test robot to visit (defaults to http://localhost:3001)."
+            },
+            {
+                name: "Room Slug",
+                explain: "The name of the meeting room the robot will join."
+            },
+            {
+                name: "Headed Mode Checkbox",
+                explain: "Reveal the robot. Check this if you want a visible browser window to open so you can watch the robot click buttons in real-time."
+            },
+            {
+                name: "Checklist Features",
+                explain: "Choose what the robot will test. Select actions like signing up, turning the camera on/off, or sending chat messages to see if they work."
+            },
+            {
+                name: "Live Viewport Canvas",
+                explain: "The live monitor screen. Displays screenshots of what the robot is seeing second-by-second."
+            },
+            {
+                name: "Play Video Button",
+                explain: "Replay the test run. Opens a high-definition screen recording (.webm video) of the robot's entire execution so you can see what failed."
+            }
+        ]
+    },
+    {
+        id: "1gov-app",
+        title: "1gov App",
+        icon: "fa-building-flag text-cyan",
+        desc: "Specialized mobile E2E UI verification built specifically for the 1gov application.",
+        features: [
+            {
+                name: "APK Path",
+                explain: "The folder path to the mobile application installation package."
+            },
+            {
+                name: "Visual Builder",
+                explain: "Click-and-build test flow. An interactive list where you can add actions like 'Click Element' or 'Input Text' without writing code."
+            },
+            {
+                name: "Raw YAML Editor",
+                explain: "A text editor where advanced developers can directly write Maestro testing instructions."
+            }
+        ]
+    },
+    {
+        id: "user-guide",
+        title: "User Guide Drawer & Shortcut",
+        icon: "fa-circle-question text-emerald",
+        desc: "Interactive helper utilities to quickly find dashboard explanations.",
+        features: [
+            {
+                name: "Floating Action Button",
+                explain: "A floating question mark button in the bottom right corner. Click it at any time to open the User Guide drawer from the right side of the screen."
+            },
+            {
+                name: "Drawer Backdrop",
+                explain: "Clicking outside the drawer overlay will automatically slide the User Guide back out of view."
+            }
+        ]
+    }
+];
+
+function initUserGuide() {
+    const btnFloating = document.getElementById('btnFloatingGuide');
+    const btnClose = document.getElementById('btnCloseDrawer');
+    const overlay = document.getElementById('drawerOverlay');
+    const drawer = document.getElementById('guideDrawer');
+    
+    if (btnFloating) {
+        btnFloating.addEventListener('click', () => {
+            if (drawer) drawer.classList.add('active');
+            if (overlay) overlay.style.display = 'block';
+        });
+    }
+    
+    const closeDrawer = () => {
+        if (drawer) drawer.classList.remove('active');
+        if (overlay) overlay.style.display = 'none';
+    };
+    
+    if (btnClose) btnClose.addEventListener('click', closeDrawer);
+    if (overlay) overlay.addEventListener('click', closeDrawer);
+    
+    // Generate Accordion HTML Content
+    const generateAccordionHtml = () => {
+        let html = '';
+        USER_GUIDE_DATA.forEach(item => {
+            let featuresHtml = '';
+            item.features.forEach(f => {
+                featuresHtml += `
+                    <div class="guide-feature-item">
+                        <div class="guide-feature-name">${f.name}</div>
+                        <div class="guide-feature-explain">${f.explain}</div>
+                    </div>
+                `;
+            });
+            
+            html += `
+                <div class="guide-accordion-item">
+                    <div class="guide-accordion-header">
+                        <div class="guide-accordion-title">
+                            <i class="fa-solid ${item.icon}"></i> ${item.title}
+                        </div>
+                        <i class="fa-solid fa-chevron-down toggle-icon"></i>
+                    </div>
+                    <div class="guide-accordion-content">
+                        <div class="guide-topic-desc">${item.desc}</div>
+                        <div class="guide-features-list">
+                            ${featuresHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        return html;
+    };
+    
+    const accordionHtml = generateAccordionHtml();
+    
+    // Populate drawer body and main tab page container
+    const drawerBody = document.getElementById('guideDrawerBody');
+    if (drawerBody) drawerBody.innerHTML = accordionHtml;
+    
+    const pageContainer = document.getElementById('guidePageAccordionContainer');
+    if (pageContainer) pageContainer.innerHTML = accordionHtml;
+    
+    // Hook accordion toggle click handlers
+    document.querySelectorAll('.guide-accordion-header').forEach(header => {
+        header.addEventListener('click', () => {
+            const item = header.closest('.guide-accordion-item');
+            if (item) {
+                const isActive = item.classList.contains('active');
+                
+                // Close other siblings inside the same accordion container
+                const container = item.parentNode;
+                container.querySelectorAll('.guide-accordion-item').forEach(sibling => {
+                    sibling.classList.remove('active');
+                });
+                
+                if (!isActive) {
+                    item.classList.add('active');
+                }
+            }
+        });
+    });
+}
+
+// =========================================================================
+// Volume 7 SLA Profile Presets Module
+// =========================================================================
+const SLA_PRESETS = {
+    'production_99': {
+        success_rate: 99.0, latency: 300.0, packet_loss: 0.5, jitter: 15.0,
+        join_latency: 3.0, min_fps: 24.0, max_disconnects: 0.5, min_bitrate: 500.0,
+        desc: "Volume 7 Strict Production Gate: 99% Success, <300ms Latency, <0.5% Loss, 24+ FPS. Zero blocking failures permitted."
+    },
+    'staging_95': {
+        success_rate: 95.0, latency: 500.0, packet_loss: 2.0, jitter: 30.0,
+        join_latency: 5.0, min_fps: 15.0, max_disconnects: 1.0, min_bitrate: 250.0,
+        desc: "Volume 7 Standard Staging Gate: 95% Success, <500ms Latency, <2.0% Loss, 15+ FPS. Standard pre-release staging qualification."
+    },
+    'stress_90': {
+        success_rate: 90.0, latency: 800.0, packet_loss: 5.0, jitter: 50.0,
+        join_latency: 8.0, min_fps: 10.0, max_disconnects: 3.0, min_bitrate: 150.0,
+        desc: "Volume 7 Stress Gate: 90% Success, <800ms Latency, <5.0% Loss. High-load stress resilience testing."
+    },
+    'mobile_85': {
+        success_rate: 85.0, latency: 1200.0, packet_loss: 8.0, jitter: 80.0,
+        join_latency: 10.0, min_fps: 8.0, max_disconnects: 5.0, min_bitrate: 100.0,
+        desc: "Volume 7 Mobile & Low-Bandwidth Profile: 85% Success, <1200ms Latency, <8.0% Loss. Constrained mobile network simulation."
+    },
+    'custom': {
+        desc: "Custom User-Defined Quality Gate: Enter specific threshold values manually."
+    }
+};
+
+function initSlaPresets() {
+    const presetSelect = document.getElementById('formSlaPresetProfile');
+    const descEl = document.getElementById('slaPresetDescription');
+    if (!presetSelect) return;
+
+    const applyPreset = (key) => {
+        const p = SLA_PRESETS[key];
+        if (!p) return;
+        if (descEl) descEl.textContent = p.desc;
+        if (key === 'custom') return;
+
+        const setVal = (id, val) => {
+            const el = document.getElementById(id);
+            if (el && val !== undefined) el.value = val;
+        };
+        setVal('formSlaSuccessRate', p.success_rate);
+        setVal('formSlaLatency', p.latency);
+        setVal('formSlaPacketLoss', p.packet_loss);
+        setVal('formSlaJitter', p.jitter);
+        setVal('formSlaJoinLatency', p.join_latency);
+        setVal('formSlaMinFps', p.min_fps);
+        setVal('formSlaMaxDisconnects', p.max_disconnects);
+        setVal('formSlaMinBitrate', p.min_bitrate);
+    };
+
+    presetSelect.addEventListener('change', () => {
+        applyPreset(presetSelect.value);
+    });
+
+    // Listen to manual changes in any SLA input to auto-switch preset dropdown to 'custom'
+    const slaInputs = [
+        'formSlaSuccessRate', 'formSlaLatency', 'formSlaPacketLoss', 'formSlaJitter',
+        'formSlaJoinLatency', 'formSlaMinFps', 'formSlaMaxDisconnects', 'formSlaMinBitrate'
+    ];
+    slaInputs.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('input', () => {
+                if (presetSelect.value !== 'custom') {
+                    presetSelect.value = 'custom';
+                    if (descEl) descEl.textContent = SLA_PRESETS.custom.desc;
+                }
+            });
+        }
+    });
+}
+
+// =========================================================================
+// Volume 7 AI Governance & Settings Module
+// =========================================================================
+function initAiSettings() {
+    const openBtn = document.getElementById('openAiSettingsBtn');
+    const modal = document.getElementById('aiSettingsModal');
+    const closeBtn = document.getElementById('btnCloseAiSettingsModal');
+    const cancelBtn = document.getElementById('btnCancelAiSettings');
+    const saveBtn = document.getElementById('btnSaveAiSettings');
+    const testBtn = document.getElementById('btnTestAiConnection');
+
+    if (!modal) return;
+
+    const openModal = async () => {
+        modal.style.display = 'flex';
+        await loadCurrentAiSettings();
+    };
+    const closeModal = () => {
+        modal.style.display = 'none';
+        const diag = document.getElementById('aiDiagnosticsResult');
+        if (diag) diag.style.display = 'none';
+    };
+
+    if (openBtn) {
+        openBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            openModal();
+        });
+    }
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+
+    // Password visibility toggles
+    const setupToggle = (btnId, inputId) => {
+        const b = document.getElementById(btnId);
+        const inp = document.getElementById(inputId);
+        if (b && inp) {
+            b.addEventListener('click', () => {
+                const isPass = inp.type === 'password';
+                inp.type = isPass ? 'text' : 'password';
+                b.innerHTML = isPass ? '<i class="fa-solid fa-eye-slash"></i>' : '<i class="fa-solid fa-eye"></i>';
+            });
+        }
+    };
+    setupToggle('btnToggleOpenAiKeyVisibility', 'inputOpenAiApiKey');
+    setupToggle('btnToggleGeminiKeyVisibility', 'inputGeminiApiKey');
+
+    // Load AI settings from server
+    async function loadCurrentAiSettings() {
+        try {
+            const res = await fetch('/api/settings/ai');
+            if (res.ok) {
+                const cfg = await res.json();
+                const primarySelect = document.getElementById('aiPrimaryModelSelect');
+                const fallbackSelect = document.getElementById('aiFallbackModelSelect');
+                const chkAi = document.getElementById('chkEnableAiAnalysis');
+                const openAiStatus = document.getElementById('openAiKeyStatus');
+                const geminiStatus = document.getElementById('geminiKeyStatus');
+
+                if (primarySelect) primarySelect.value = cfg.primary_model || 'openai';
+                if (chkAi) chkAi.checked = cfg.enable_ai_analysis !== false;
+
+                if (openAiStatus) {
+                    if (cfg.has_openai_key) {
+                        openAiStatus.textContent = 'Key Active (' + cfg.openai_api_key_masked + ')';
+                        openAiStatus.className = 'badge badge-completed';
+                    } else {
+                        openAiStatus.textContent = 'Not Set (sk-...)';
+                        openAiStatus.className = 'badge badge-stopped';
+                    }
+                }
+
+                if (geminiStatus) {
+                    if (cfg.has_gemini_key) {
+                        geminiStatus.textContent = 'Key Active (' + cfg.gemini_api_key_masked + ')';
+                        geminiStatus.className = 'badge badge-completed';
+                    } else {
+                        geminiStatus.textContent = 'Not Set (AIza...)';
+                        geminiStatus.className = 'badge badge-stopped';
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Failed to load AI settings:", e);
+        }
+    }
+
+    // Test Model Connectivity
+    if (testBtn) {
+        testBtn.addEventListener('click', async () => {
+            const diag = document.getElementById('aiDiagnosticsResult');
+            testBtn.disabled = true;
+            testBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Testing AI Connectivity...';
+            if (diag) {
+                diag.style.display = 'block';
+                diag.style.background = 'rgba(96, 165, 250, 0.1)';
+                diag.style.color = '#60a5fa';
+                diag.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending lightweight diagnostic telemetry payload to active AI engine...';
+            }
+
+            try {
+                const res = await fetch('/api/settings/ai/test', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok && data.status === 'success') {
+                    diag.style.background = 'rgba(16, 185, 129, 0.15)';
+                    diag.style.color = '#10B981';
+                    diag.innerHTML = `<strong>✔ Connection Successful:</strong> Responded via <code>${escapeHtml(data.model_used)}</code> in <strong>${data.latency_ms}ms</strong>. Diagnostic Verdict: <strong>${data.verdict}</strong>.`;
+                } else {
+                    diag.style.background = 'rgba(239, 68, 68, 0.15)';
+                    diag.style.color = '#EF4444';
+                    diag.innerHTML = `<strong>✖ Diagnostics Failed:</strong> ${escapeHtml(data.message || 'Unknown error occurred.')}`;
+                }
+            } catch (err) {
+                diag.style.background = 'rgba(239, 68, 68, 0.15)';
+                diag.style.color = '#EF4444';
+                diag.innerHTML = `<strong>✖ Diagnostics Error:</strong> ${escapeHtml(err.message)}`;
+            } finally {
+                testBtn.disabled = false;
+                testBtn.innerHTML = '<i class="fa-solid fa-bolt"></i> Test Model Connectivity';
+            }
+        });
+    }
+
+    // Save AI Settings
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            const openAiKey = document.getElementById('inputOpenAiApiKey').value.trim();
+            const geminiKey = document.getElementById('inputGeminiApiKey').value.trim();
+            const primaryModel = document.getElementById('aiPrimaryModelSelect').value;
+            const enableAi = document.getElementById('chkEnableAiAnalysis').checked;
+
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+
+            const payload = {
+                primary_model: primaryModel,
+                enable_ai_analysis: enableAi
+            };
+            if (openAiKey) payload.openai_api_key = openAiKey;
+            if (geminiKey) payload.gemini_api_key = geminiKey;
+
+            try {
+                const res = await fetch('/api/settings/ai', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert("AI Governance configuration saved successfully!");
+                    document.getElementById('inputOpenAiApiKey').value = '';
+                    document.getElementById('inputGeminiApiKey').value = '';
+                    closeModal();
+                } else {
+                    alert("Failed to save AI configuration: " + data.message);
+                }
+            } catch (e) {
+                alert("Request error while saving AI settings.");
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="fa-solid fa-save"></i> Save Settings';
+            }
+        });
+    }
+}
+
+// =========================================================================
+// Volume 7 AI Session Comparison & Progression Module
+// =========================================================================
+window.selectedSessionIds = new Set();
+
+function bindHistoryCheckboxEvents() {
+    const checkboxes = document.querySelectorAll('.history-select-chk');
+    const selectAllChk = document.getElementById('selectAllHistoryCheckbox');
+    const badge = document.getElementById('selectedHistoryCount');
+    const compareBtn = document.getElementById('btnCompareSessions');
+
+    const updateSelectionState = () => {
+        window.selectedSessionIds.clear();
+        checkboxes.forEach(chk => {
+            if (chk.checked) window.selectedSessionIds.add(parseInt(chk.value));
+        });
+
+        const count = window.selectedSessionIds.size;
+        if (badge) {
+            badge.textContent = `${count} Selected`;
+            badge.style.background = count === 2 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(96, 165, 250, 0.15)';
+            badge.style.color = count === 2 ? '#10B981' : '#60a5fa';
+        }
+
+        if (compareBtn) {
+            compareBtn.disabled = (count !== 2);
+            if (count === 2) {
+                compareBtn.title = "Click to run AI comparison on selected sessions";
+            } else {
+                compareBtn.title = "Please select exactly 2 sessions to compare";
+            }
+        }
+    };
+
+    checkboxes.forEach(chk => {
+        chk.addEventListener('change', updateSelectionState);
+    });
+
+    if (selectAllChk) {
+        selectAllChk.addEventListener('change', () => {
+            checkboxes.forEach(chk => { chk.checked = selectAllChk.checked; });
+            updateSelectionState();
+        });
+    }
+
+    updateSelectionState();
+}
+
+function initSessionComparison() {
+    const compareBtn = document.getElementById('btnCompareSessions');
+    const modal = document.getElementById('sessionComparisonModal');
+    const closeBtn = document.getElementById('btnCloseComparisonModal');
+    const closeBtn2 = document.getElementById('btnCloseComparisonBtn');
+    const modalBody = document.getElementById('comparisonModalBody');
+
+    if (!modal) return;
+
+    const closeModal = () => { modal.style.display = 'none'; };
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (closeBtn2) closeBtn2.addEventListener('click', closeModal);
+
+    if (compareBtn) {
+        compareBtn.addEventListener('click', async () => {
+            const arr = Array.from(window.selectedSessionIds);
+            if (arr.length !== 2) {
+                alert("Please select exactly 2 test sessions to compare.");
+                return;
+            }
+
+            modal.style.display = 'flex';
+            if (modalBody) {
+                modalBody.innerHTML = `
+                    <div class="text-center" style="padding: 40px;">
+                        <i class="fa-solid fa-spinner fa-spin" style="font-size: 28px; color: var(--accent);"></i>
+                        <h4 style="margin-top: 14px; color: var(--text-primary);">Analyzing Progression with AI Engine...</h4>
+                        <p style="font-size: 12px; color: var(--text-secondary);">Calculating telemetry deltas, WebRTC regressions, and synthesizing engineering recommendations.</p>
+                    </div>
+                `;
+            }
+
+            try {
+                // Ensure session 1 is older and session 2 is newer
+                const s1 = Math.min(arr[0], arr[1]);
+                const s2 = Math.max(arr[0], arr[1]);
+
+                const res = await fetch('/api/sessions/compare', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id_1: s1, session_id_2: s2 })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    renderComparisonResults(data);
+                } else {
+                    modalBody.innerHTML = `<div class="text-center text-red" style="padding: 30px;"><strong>Comparison Failed:</strong> ${escapeHtml(data.message)}</div>`;
+                }
+            } catch (err) {
+                modalBody.innerHTML = `<div class="text-center text-red" style="padding: 30px;"><strong>Error:</strong> ${escapeHtml(err.message)}</div>`;
+            }
+        });
+    }
+
+    function renderComparisonResults(data) {
+        const deltas = data.metrics_delta || {};
+        const att = data.attribution || {};
+        const modelBadge = att.model_used ? `<span class="ai-attribution-pill"><i class="fa-solid fa-microchip"></i> ${escapeHtml(att.model_used)}</span>` : '';
+
+        // Delta helper formatters
+        const fmtDelta = (val, suffix = '', reverse = false) => {
+            if (val === undefined || val === null) return '<span class="text-muted">N/A</span>';
+            const isGood = reverse ? val <= 0 : val >= 0;
+            const sign = val > 0 ? '+' : '';
+            const pillClass = isGood ? 'delta-pill-improved' : 'delta-pill-regressed';
+            return `<span class="${pillClass}">${sign}${val.toFixed(1)}${suffix}</span>`;
+        };
+
+        const renderList = (items) => {
+            if (!items || items.length === 0) return '<li class="text-muted" style="font-style: italic;">None identified.</li>';
+            return items.map(item => `<li style="margin-bottom: 6px;">${escapeHtml(item)}</li>`).join('');
+        };
+
+        modalBody.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <div style="font-size: 14px; font-weight: 700; color: var(--text-primary);">Test Session Progression Scorecard</div>
+                ${modelBadge}
+            </div>
+
+            <!-- Scorecard Overview -->
+            <div class="comparison-scorecard">
+                <div class="session-summary-box">
+                    <span class="badge badge-stopped" style="width: fit-content;">Baseline Session #${data.session_a_id}</span>
+                    <div class="title">${escapeHtml(data.session_a_name || 'Baseline Run')}</div>
+                    <div class="meta">Duration: ${escapeHtml(data.session_a_duration || 'N/A')}</div>
+                </div>
+                <div style="text-align: center;">
+                    <i class="fa-solid fa-arrow-right delta-arrow"></i>
+                </div>
+                <div class="session-summary-box" style="text-align: right; align-items: flex-end;">
+                    <span class="badge badge-completed" style="width: fit-content;">Candidate Session #${data.session_b_id}</span>
+                    <div class="title">${escapeHtml(data.session_b_name || 'Candidate Run')}</div>
+                    <div class="meta">Duration: ${escapeHtml(data.session_b_duration || 'N/A')}</div>
+                </div>
+            </div>
+
+            <!-- Key Metrics Delta Grid -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+                <div class="metric-card" style="padding: 12px;">
+                    <div class="label" style="font-size: 11px;">Success Rate Δ</div>
+                    <div style="margin-top: 6px;">${fmtDelta(deltas.success_rate_delta_pct, '%')}</div>
+                </div>
+                <div class="metric-card" style="padding: 12px;">
+                    <div class="label" style="font-size: 11px;">Avg Latency Δ</div>
+                    <div style="margin-top: 6px;">${fmtDelta(deltas.avg_latency_delta_ms, 'ms', true)}</div>
+                </div>
+                <div class="metric-card" style="padding: 12px;">
+                    <div class="label" style="font-size: 11px;">Packet Loss Δ</div>
+                    <div style="margin-top: 6px;">${fmtDelta(deltas.packet_loss_delta_pct, '%', true)}</div>
+                </div>
+                <div class="metric-card" style="padding: 12px;">
+                    <div class="label" style="font-size: 11px;">Network Jitter Δ</div>
+                    <div style="margin-top: 6px;">${fmtDelta(deltas.jitter_delta_ms, 'ms', true)}</div>
+                </div>
+            </div>
+
+            <!-- Progression Summary -->
+            <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
+                <div style="font-size: 13px; font-weight: 700; color: #60a5fa; margin-bottom: 6px;"><i class="fa-solid fa-chart-line"></i> Overall Trajectory & Verdict</div>
+                <p style="font-size: 12px; line-height: 1.5; color: var(--text-primary); margin: 0;">${escapeHtml(data.progression_summary || 'Analysis complete.')}</p>
+            </div>
+
+            <!-- Improvements & Regressions Two Column List -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 14px;">
+                    <div style="font-size: 12px; font-weight: 700; color: #10B981; margin-bottom: 8px;"><i class="fa-solid fa-circle-arrow-up"></i> Key Improvements Verified</div>
+                    <ul style="font-size: 11px; line-height: 1.5; padding-left: 18px; margin: 0; color: var(--text-primary);">
+                        ${renderList(data.improvements)}
+                    </ul>
+                </div>
+                <div style="background: rgba(239, 68, 68, 0.06); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; padding: 14px;">
+                    <div style="font-size: 12px; font-weight: 700; color: #EF4444; margin-bottom: 8px;"><i class="fa-solid fa-circle-arrow-down"></i> Regressions & Warnings</div>
+                    <ul style="font-size: 11px; line-height: 1.5; padding-left: 18px; margin: 0; color: var(--text-primary);">
+                        ${renderList(data.regressions)}
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Recommendations -->
+            <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
+                <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;"><i class="fa-solid fa-lightbulb text-yellow"></i> Recommended Next Steps for Engineering</div>
+                <ul style="font-size: 11px; line-height: 1.5; padding-left: 18px; margin: 0; color: var(--text-secondary);">
+                    ${renderList(data.recommendations)}
+                </ul>
+            </div>
+        `;
+    }
+}
+

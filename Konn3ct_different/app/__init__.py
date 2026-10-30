@@ -42,7 +42,17 @@ def create_app(db_uri=None):
                 if "last_resume_time" not in columns:
                     cursor.execute("ALTER TABLE test_sessions ADD COLUMN last_resume_time DATETIME")
                     print("Self-healing: added last_resume_time column to test_sessions table")
+                if "ai_verdict" not in columns:
+                    cursor.execute("ALTER TABLE test_sessions ADD COLUMN ai_verdict VARCHAR(50)")
+                    print("Self-healing: added ai_verdict column to test_sessions table")
+                if "ai_engine_used" not in columns:
+                    cursor.execute("ALTER TABLE test_sessions ADD COLUMN ai_engine_used VARCHAR(100)")
+                    print("Self-healing: added ai_engine_used column to test_sessions table")
+                if "ai_recommendations_json" not in columns:
+                    cursor.execute("ALTER TABLE test_sessions ADD COLUMN ai_recommendations_json TEXT")
+                    print("Self-healing: added ai_recommendations_json column to test_sessions table")
                 conn.commit()
+
                 
             # 2. Update configurations table
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='configurations'")
@@ -166,6 +176,18 @@ def create_app(db_uri=None):
             room = f"session_{session_id}"
             join_room(room)
             print(f"Socket Client joined room: {room}")
+            try:
+                from app.models import TestSession, SessionMetric
+                session = db.session.get(TestSession, int(session_id))
+                latest_m = SessionMetric.query.filter_by(session_id=int(session_id)).order_by(SessionMetric.id.desc()).first()
+                if latest_m:
+                    socketio.emit('session_metrics', {
+                        'session_id': int(session_id),
+                        'metrics': latest_m.to_dict(),
+                        'elapsed_seconds': session.accumulated_duration if session else 0
+                    }, to=request.sid)
+            except Exception:
+                pass
             
     @socketio.on('leave')
     def on_leave(data):
