@@ -124,27 +124,43 @@ def run_test_process(app, socketio, session_id):
             py_guest_path = os.path.join(project_root, "py_guest.py")
             
             is_large_scale = (config.bots > 50) or getattr(config, 'large_room_mode', False) or ("large_room" in (config.test_scenarios or "").lower())
-            force_all_publishers = getattr(config, 'disable_ram_scenario_opt', False) or getattr(config, 'auto_camera', False)
+            is_ultra_scale = config.bots >= 200
+            # Never allow force_all_publishers on >=200 bot runs, as 200+ aiortc PeerConnections per worker consumes ~7GB RAM/worker and triggers Linux OOM-killer
+            force_all_publishers = (not is_ultra_scale) and (getattr(config, 'disable_ram_scenario_opt', False) or getattr(config, 'auto_camera', False))
 
-            if force_all_publishers or (not is_large_scale and getattr(config, 'camera_publishers', '') in ('1,2,3,4,5', 'all', '1-10000', '')):
+            raw_cam_pub = str(getattr(config, 'camera_publishers', '') or '').strip()
+            if force_all_publishers or (not is_large_scale and raw_cam_pub in ('1,2,3,4,5', 'all', '1-10000', '')):
                 cam_pub_arg = "1-10000"
+            elif is_large_scale and raw_cam_pub in ('all', '1-10000', ''):
+                cam_pub_arg = "1,2,3,4,5"
             else:
-                cam_pub_arg = str(getattr(config, 'camera_publishers', '') or "1,2,3,4,5")
+                cam_pub_arg = raw_cam_pub or "1,2,3,4,5"
 
-            if force_all_publishers or getattr(config, 'auto_mic', False) or (not is_large_scale and getattr(config, 'mic_publishers', '') in ('1,2,3,4,5', 'all', '1-10000', '')):
+            raw_mic_pub = str(getattr(config, 'mic_publishers', '') or '').strip()
+            if force_all_publishers or ((not is_ultra_scale) and getattr(config, 'auto_mic', False)) or (not is_large_scale and raw_mic_pub in ('1,2,3,4,5', 'all', '1-10000', '')):
                 mic_pub_arg = "1-10000"
+            elif is_large_scale and raw_mic_pub in ('all', '1-10000', ''):
+                mic_pub_arg = "1,2,3,4,5"
             else:
-                mic_pub_arg = str(getattr(config, 'mic_publishers', '') or "1,2,3,4,5")
+                mic_pub_arg = raw_mic_pub or "1,2,3,4,5"
+
+            raw_scr_pub = str(getattr(config, 'screen_share_publishers', '') or '2').strip()
+            if force_all_publishers:
+                scr_pub_arg = "1-10000"
+            elif is_large_scale and raw_scr_pub in ('all', '1-10000', ''):
+                scr_pub_arg = "2"
+            else:
+                scr_pub_arg = raw_scr_pub or "2"
 
             if force_all_publishers or (not is_large_scale and getattr(config, 'viewer_bots', '') in ('6-10000', '6-1000', '')):
                 viewer_bots_arg = ""
                 viewer_mode_arg = "normal_participant"
             else:
-                raw_viewers = str(getattr(config, 'viewer_bots', '') or "6-10000")
+                raw_viewers = str(getattr(config, 'viewer_bots', '') or "6-10000").strip()
                 if raw_viewers in ("6-1000", "6-10000", ""):
                     raw_viewers = f"6-{max(10000, config.bots + 1000)}"
                 viewer_bots_arg = raw_viewers
-                viewer_mode_arg = getattr(config, 'viewer_mode', "receive_only") or "receive_only"
+                viewer_mode_arg = "receive_only" if is_ultra_scale else (getattr(config, 'viewer_mode', "receive_only") or "receive_only")
 
             cmd = [
                 get_python_executable(project_root), py_guest_path,
@@ -178,9 +194,9 @@ def run_test_process(app, socketio, session_id):
                 "--sla-latency", str(getattr(config, 'sla_latency', 500.0)),
                 "--sla-packet-loss", str(getattr(config, 'sla_packet_loss', 2.0)),
                 "--sla-jitter", str(getattr(config, 'sla_jitter', 30.0)),
-                "--cross-confirm-limit", str(999999 if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'cross_confirm_limit', 10)),
+                "--cross-confirm-limit", str(3 if is_ultra_scale else (999999 if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'cross_confirm_limit', 10))),
                 "--camera-publishers", cam_pub_arg,
-                "--screen-share-publishers", "1-10000" if getattr(config, 'disable_ram_scenario_opt', False) else getattr(config, 'screen_share_publishers', "2"),
+                "--screen-share-publishers", scr_pub_arg,
                 "--mic-publishers", mic_pub_arg,
                 "--viewer-bots", viewer_bots_arg,
                 "--viewer-mode", viewer_mode_arg,
@@ -227,7 +243,7 @@ def run_test_process(app, socketio, session_id):
                 cmd.append("--speaker-promotion-storm")
             
             # Auto-scale configurations when spawned from dashboard
-            if config.bots >= 2000:
+            if config.bots >= 500:
                 if "--lightweight" not in cmd:
                     cmd.append("--lightweight")
                 if "--no-cross-confirm" not in cmd:
@@ -250,6 +266,7 @@ def run_test_process(app, socketio, session_id):
                 creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
                 
             processes = []
+            chunk_processes = []
             stop_event = threading.Event()
             error_msg = None
             success = False
@@ -267,7 +284,9 @@ def run_test_process(app, socketio, session_id):
                     curr_id += bots_in_chunk
                     
                 stagger_val = config.stagger if hasattr(config, 'stagger') else 1.0
-                batch_val = config.batch if hasattr(config, 'batch') else 3
+                batch_val = max(1, config.batch if hasattr(config, 'batch') and config.batch else 3)
+                raw_chunk_delay = (max_bots_per_proc / batch_val) * stagger_val
+                step_delay = min(raw_chunk_delay, 8.0) if len(chunks) > 5 else raw_chunk_delay
 
                 for idx, (start_id, chunk_bots) in enumerate(chunks):
                     chunk_cmd = list(cmd)
@@ -282,8 +301,8 @@ def run_test_process(app, socketio, session_id):
                     except ValueError:
                         chunk_cmd.extend(["--start-id", str(start_id)])
                     
-                    # Calculate startup delay to stagger process chunks sequentially
-                    startup_delay = idx * (max_bots_per_proc / batch_val) * stagger_val
+                    # Calculate startup delay to stagger process chunks smoothly without waiting 27 minutes
+                    startup_delay = idx * step_delay
                     chunk_cmd.extend(["--startup-delay", f"{startup_delay:.2f}"])
                     
                     # Use separate report log file for each process chunk to prevent concurrent write collisions and file truncation
@@ -304,10 +323,12 @@ def run_test_process(app, socketio, session_id):
                         creationflags=creation_flags
                     )
                     processes.append(proc)
+                    chunk_processes.append((start_id, chunk_bots, proc))
                     
                 with RUNNING_SESSIONS_LOCK:
                     RUNNING_SESSIONS[session_id] = {
                         "processes": processes,
+                        "chunk_processes": chunk_processes,
                         "process": processes[0],
                         "stop_event": stop_event,
                         "control_file": control_file
@@ -782,6 +803,32 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
             # Emit metrics periodically (every 1.0 second) to update UI live counters
             now = time.time()
             if now - last_metrics_emit_time >= 1.0:
+                # Reconcile bot state against actual OS worker process liveness so OOM-killed or exited workers never leave phantom "connected" bots
+                with RUNNING_SESSIONS_LOCK:
+                    sess_obj = RUNNING_SESSIONS.get(session_id)
+                    c_procs = list(sess_obj.get("chunk_processes", [])) if sess_obj else []
+                reconciled_any = False
+                for c_start, c_bots, c_proc in c_procs:
+                    if c_proc and c_proc.poll() is not None:
+                        is_crash = (c_proc.returncode != 0) and not stop_event.is_set()
+                        for b_id in range(c_start, c_start + c_bots):
+                            if b_id in joined_ids or b_id in connecting_ids or b_id in reconnecting_ids:
+                                joined_ids.discard(b_id)
+                                connecting_ids.discard(b_id)
+                                reconnecting_ids.discard(b_id)
+                                if is_crash:
+                                    failed_ids.add(b_id)
+                                else:
+                                    left_ids.add(b_id)
+                                batch_idx = (b_id - start_id) // batch_size
+                                if 0 <= batch_idx < expected_workers:
+                                    joined_by_batch[batch_idx].discard(b_id)
+                                    if is_crash:
+                                        failed_by_batch[batch_idx].add(b_id)
+                                reconciled_any = True
+                if reconciled_any:
+                    sync_bot_counts()
+
                 # Fetch host resource metrics
                 try:
                     cpu = psutil.cpu_percent()

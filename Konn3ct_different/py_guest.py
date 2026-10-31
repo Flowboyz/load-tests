@@ -2037,10 +2037,10 @@ async def run_bot(
         await logger.record_event("bot_left", bot_id, name, email, fingerprint=fingerprint, reason="stopped")
 
 def is_bot_in_range(bot_id, range_str):
-    if not range_str or range_str.strip().lower() == "all":
-        return True
-    if range_str.strip().lower() in ("none", "disabled", ""):
+    if not range_str or range_str.strip().lower() in ("none", "disabled", ""):
         return False
+    if range_str.strip().lower() == "all":
+        return True
     parts = range_str.split(",")
     for part in parts:
         part = part.strip()
@@ -2170,9 +2170,11 @@ async def main(args):
                     bot_chat_enabled = not args.no_chat
 
                 # Limit WebRTC connection initialization to publishers only
-                bot_webrtc_enabled = args.webrtc_enabled and (
+                bot_webrtc_enabled = args.webrtc_enabled and (not is_viewer) and (
                     bot_camera_enabled or bot_mic_enabled or bot_screen_share_enabled
                 )
+                # In lightweight mode, allow 1 representative viewer per 100 bots to run signaling actions (hand/chat) without WebRTC RAM overhead
+                is_lightweight_viewer = getattr(args, 'lightweight', False) and is_viewer and ((bot_id - 1) % 100 != 0)
 
                 await run_bot(
                     bot_id=bot_id, room_id=args.room,
@@ -2194,7 +2196,7 @@ async def main(args):
                     cross_confirm_limit=args.cross_confirm_limit, is_viewer=is_viewer,
                     refresh_bots=args.refresh_bots,
                     disable_abnormal_behavior=args.disable_abnormal_behavior,
-                    lightweight=getattr(args, 'lightweight', False) and is_viewer,
+                    lightweight=is_lightweight_viewer,
                     enable_chaos=args.enable_chaos,
                     audio_mode="conversational" if getattr(args, "conversational_audio", True) else "continuous",
                     large_room_mode=getattr(args, "large_room_mode", False),
@@ -2403,7 +2405,7 @@ if __name__ == "__main__":
         args.jwt_secret = os.environ.get("JWT_SECRET") or "super-secret-development-key-change-in-production"
 
     # Auto-scale parameter overrides for ultra-high bot counts or lightweight multi-worker chunks
-    if args.bots >= 5000 or args.lightweight:
+    if args.bots >= 500 or args.lightweight:
         if not args.no_cross_confirm:
             args.no_cross_confirm = True
             print(f"🔧 Auto-scale: Disabled cross-confirmation for high-scale run", flush=True)
@@ -2416,6 +2418,18 @@ if __name__ == "__main__":
         if args.viewer_bots in ("6-1000", "6-10000", ""):
             args.viewer_bots = "6-100000"
             print(f"🔧 Auto-scale: Extended viewer-bots range to 6-100000", flush=True)
+        if args.viewer_mode != "receive_only":
+            args.viewer_mode = "receive_only"
+            print(f"🔧 Auto-scale: Set viewer-mode to receive_only to prevent WebRTC OOM", flush=True)
+        if args.camera_publishers in ("1-10000", "all", ""):
+            args.camera_publishers = "1,2,3,4,5"
+            print(f"🔧 Auto-scale: Capped camera-publishers to 1,2,3,4,5", flush=True)
+        if args.mic_publishers in ("1-10000", "all", ""):
+            args.mic_publishers = "1,2,3,4,5"
+            print(f"🔧 Auto-scale: Capped mic-publishers to 1,2,3,4,5", flush=True)
+        if args.screen_share_publishers in ("1-10000", "all", ""):
+            args.screen_share_publishers = "2"
+            print(f"🔧 Auto-scale: Capped screen-share-publishers to 2", flush=True)
         if args.action_interval < 60:
             args.action_interval = 120.0
             print(f"🔧 Auto-scale: Increased action-interval to 120s", flush=True)
