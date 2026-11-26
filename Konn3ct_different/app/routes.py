@@ -22,6 +22,41 @@ def stream_file_in_chunks(file_path, chunk_size=65536):
     except Exception as e:
         print(f"Error streaming file {file_path}: {e}")
 
+def _normalize_config_payload(data_dict):
+    """Normalizes room URLs (e.g. https://meet.konn3ct.com/meeting/Ade4u6L70 -> Ade4u6L70) and aligns frontend/signal/jwt_secret."""
+    from urllib.parse import urlparse
+    raw_room = str(data_dict.get("room") or "").strip()
+    if raw_room and ("/" in raw_room or raw_room.startswith("http://") or raw_room.startswith("https://")):
+        if raw_room.startswith("http://") or raw_room.startswith("https://"):
+            parsed_u = urlparse(raw_room)
+            if parsed_u.scheme and parsed_u.netloc:
+                data_dict["frontend"] = f"{parsed_u.scheme}://{parsed_u.netloc}"
+            segs = [s for s in parsed_u.path.split("/") if s and s.lower() not in ("meeting", "join", "room", "m")]
+            if segs:
+                data_dict["room"] = segs[-1]
+        else:
+            segs = [s for s in raw_room.split("/") if s and s.lower() not in ("meeting", "join", "room", "m")]
+            if segs:
+                data_dict["room"] = segs[-1]
+
+    fe = str(data_dict.get("frontend") or "").strip()
+    sig = str(data_dict.get("signal") or "").strip()
+    if "meet.konn3ct.com" in fe and sig in ("konn3ctedge.konn3ct.net", "konn3ctedge-test.konn3ct.net", "meetingapi.konn3ct.net", "edge.konn3ct.net", ""):
+        data_dict["signal"] = "meetingapi.konn3ct.com"
+    elif "meet.konn3ct.net" in fe and sig in ("konn3ctedge.konn3ct.net", "konn3ctedge-test.konn3ct.net", "meetingapi.konn3ct.com", "edge.konn3ct.net", ""):
+        data_dict["signal"] = "meetingapi.konn3ct.net"
+
+    dev_secrets = (
+        "super-secret-development-key-change-in-production",
+        "fallback-secret-key",
+        "my-secret",
+        "default-insecure-key-change-me"
+    )
+    if any(d in fe or d in str(data_dict.get("signal") or "") for d in ("meet.konn3ct.com", "meetingapi.konn3ct.com", "meet.konn3ct.net", "meetingapi.konn3ct.net")):
+        if data_dict.get("jwt_secret") in dev_secrets:
+            data_dict["jwt_secret"] = None
+    return data_dict
+
 # --- Configuration Template Routes ---
 
 @api_bp.route('/configurations', methods=['GET'])
@@ -43,7 +78,7 @@ def create_configuration():
         return jsonify({'message': 'A configuration with this name already exists!'}), 400
         
     # Exclude id and timestamps from creation data
-    clean_data = {k: v for k, v in data.items() if k not in ('id', 'created_at', 'updated_at')}
+    clean_data = _normalize_config_payload({k: v for k, v in data.items() if k not in ('id', 'created_at', 'updated_at')})
     
     cfg = Configuration(**clean_data)
     db.session.add(cfg)
@@ -61,7 +96,7 @@ def get_configuration(cfg_id):
 @roles_accepted('Admin', 'Operator')
 def update_configuration(cfg_id):
     cfg = Configuration.query.get_or_404(cfg_id)
-    data = request.get_json() or {}
+    data = _normalize_config_payload(request.get_json() or {})
     
     for key, value in data.items():
         if hasattr(cfg, key) and key not in ('id', 'created_at', 'updated_at'):
@@ -115,7 +150,7 @@ def start_test():
     if not cfg:
         # Create a transient configuration for this session
         name = f"Ad-hoc Temp {int(time.time())}"
-        clean_data = {k: v for k, v in data.items() if k not in ('config_id', 'session_name')}
+        clean_data = _normalize_config_payload({k: v for k, v in data.items() if k not in ('config_id', 'session_name')})
         cfg = Configuration(name=name, **clean_data)
         db.session.add(cfg)
         db.session.commit()

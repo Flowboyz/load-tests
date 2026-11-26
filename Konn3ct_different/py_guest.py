@@ -361,6 +361,17 @@ async def get_ws_token(session, frontend_url, room_id, name, email, bot_id, is_m
             if session_context is not None and data.get("refreshedSessionToken"):
                 session_context["refreshed_session_token"] = data.get("refreshedSessionToken")
             ws_token = data.get("token") or data.get("sessionToken") or session_token
+            # Extract canonical roomId from JWT claims (konn3ct_edge case-insensitive slug normalization)
+            if ws_token and session_context is not None:
+                try:
+                    parts = ws_token.split(".")
+                    if len(parts) >= 2:
+                        padded = parts[1] + "=" * (-len(parts[1]) % 4)
+                        claims = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+                        if isinstance(claims, dict) and claims.get("roomId"):
+                            session_context["canonical_room_id"] = claims["roomId"]
+                except Exception:
+                    pass
             return ws_token
     except Exception:
         return session_token
@@ -1050,7 +1061,11 @@ async def ws_session(
                     connected_flag[0] = True
                 break
             except Exception as e:
-                if "403" in str(e) and session_context is not None:
+                err_str = str(e)
+                if "401" in err_str and session_context is not None:
+                    session_context["jwt_rejected_401"] = True
+                    raise e
+                if "403" in err_str and session_context is not None:
                     session_context["capacity_rejected"] = True
                 if conn_attempt == connect_attempts - 1:
                     raise e
@@ -1496,6 +1511,9 @@ async def ws_session(
                                             pass
                                     asyncio.create_task(cast_vote(poll_id, options))
                                     
+                            elif mtype in ("pinned_participants_updated", "waiting_room_admitted_all"):
+                                pass
+
                             elif mtype in ("note_update", "camera_state", "mute_state", "hand_raise", "screen_share", "screen_share_started", "screen_share_stopped", "chat", "reaction", "audio_connection_status", "leave_meeting", "remove_participant", "lock_meeting", "room_settings_updated", "recording_state", "captions_state"):
                                 uid = msg.get("userId") or msg.get("senderParticipantId")
                                 val = None
@@ -1835,12 +1853,18 @@ async def run_bot(
         "session_generation": 1,
         "meeting_instance_id": None,
         "refreshed_session_token": None,
-        "capacity_rejected": False
+        "capacity_rejected": False,
+        "jwt_rejected_401": False,
+        "retried_with_http_token": False,
+        "canonical_room_id": None
     }
 
     # Helper function to acquire / generate websocket URL
     async def get_ws_url(room):
-        if jwt_secret:
+        global _jwt_secret_rejected
+        use_local_jwt = bool(jwt_secret) and (not globals().get("_jwt_secret_rejected", False)) and (not session_context.get("jwt_rejected_401"))
+        token = None
+        if use_local_jwt:
             # In Konn3ct signaling (server.ts lines 1836 & 1898), role='host' and role='bot'
             # bypass the default 100-participant DB room limit and waiting room checks
             # (matching konn3ct_edge/scripts/load-test-large-room.ts).
@@ -1860,10 +1884,20 @@ async def run_bot(
                 profile["device_type"] != "desktop",
                 session_context=session_context
             )
+            if not token:
+                fallback_secret = jwt_secret or os.environ.get("JWT_SECRET") or "super-secret-development-key-change-in-production"
+                if not globals().get("_jwt_secret_rejected", False) and not session_context.get("jwt_rejected_401"):
+                    effective_role = role if (bot_id == host_bot_id or "waiting_room" in scenarios) else "bot"
+                    token = generate_local_token(
+                        room, name, email, bot_id, effective_role,
+                        profile["device_type"] != "desktop", fallback_secret,
+                        participant_id=participant_id
+                    )
         if not token:
             return None
+        effective_room = session_context.get("canonical_room_id") or room
         proto = "ws" if "localhost" in signal_domain or "127.0.0.1" in signal_domain else "wss"
-        return f"{proto}://{signal_domain}/signal?roomId={room}&token={token}&isMobile={str(profile['device_type'] != 'desktop').lower()}&participantId={participant_id}"
+        return f"{proto}://{signal_domain}/signal?roomId={effective_room}&token={token}&isMobile={str(profile['device_type'] != 'desktop').lower()}&participantId={participant_id}"
 
     current_room = room_id
     ws_url = await get_ws_url(current_room)
@@ -1997,6 +2031,16 @@ async def run_bot(
             await logger.record_event("bot_left", bot_id, name, email, fingerprint=fingerprint, reason="graceful")
             logger.log("🚪", "grey", bot_id, name, "Bot left the meeting room gracefully.", fingerprint=fingerprint)
             break
+
+        # If local JWT was rejected with HTTP 401, immediately switch all bots to HTTP /api/prejoin + /api/join token acquisition without penalty
+        if session_context.get("jwt_rejected_401") and not session_context.get("retried_with_http_token"):
+            global _jwt_secret_rejected
+            _jwt_secret_rejected = True
+            session_context["retried_with_http_token"] = True
+            logger.log("🔑", "cyan", bot_id, name, "Local JWT secret rejected (HTTP 401) — switching to HTTP /api/prejoin + /api/join token flow...", fingerprint=fingerprint)
+            ws_url = await get_ws_url(current_room)
+            if ws_url:
+                continue
 
         # Determine success / reconnection status
         if connected_flag[0]:
@@ -2393,6 +2437,23 @@ if __name__ == "__main__":
     parser.add_argument("--speaker-promotion-storm", action="store_true", default=False, help="Enable dynamic viewer hand-raise storms and host promotion/demotion lifecycle")
     
     args = parser.parse_args()
+    # Extract room slug and domain if user passed a full meeting URL (e.g. https://meet.konn3ct.com/meeting/Ade4u6L70)
+    if args.room and ("/" in args.room or "http:" in args.room or "https:" in args.room):
+        from urllib.parse import urlparse
+        raw_room = args.room.strip()
+        if raw_room.startswith("http://") or raw_room.startswith("https://"):
+            parsed_u = urlparse(raw_room)
+            if parsed_u.scheme and parsed_u.netloc:
+                args.frontend = f"{parsed_u.scheme}://{parsed_u.netloc}"
+            path_segments = [seg for seg in parsed_u.path.split("/") if seg and seg.lower() not in ("meeting", "join", "room", "m")]
+            if path_segments:
+                args.room = path_segments[-1]
+        else:
+            path_segments = [seg for seg in raw_room.split("/") if seg and seg.lower() not in ("meeting", "join", "room", "m")]
+            if path_segments:
+                args.room = path_segments[-1]
+        print(f"🔧 Extracted room slug '{args.room}' (frontend: {args.frontend})", flush=True)
+
     if args.frontend and "edge-test.konn3ct.net" in args.frontend:
         args.frontend = args.frontend.replace("edge-test.konn3ct.net", "edge.konn3ct.net")
         print(f"🔧 Auto-corrected offline frontend domain to {args.frontend}", flush=True)
@@ -2401,8 +2462,30 @@ if __name__ == "__main__":
             args.signal = args.signal.replace("konn3ctedge-test.konn3ct.net", "konn3ctedge.konn3ct.net")
             print(f"🔧 Auto-corrected offline signaling domain to {args.signal}", flush=True)
         args.signal = args.signal.replace("wss://", "").replace("ws://", "").replace("https://", "").replace("http://", "").split("/")[0]
-    if not args.jwt_secret or args.jwt_secret in ("fallback-secret-key", "my-secret", "default-insecure-key-change-me"):
-        args.jwt_secret = os.environ.get("JWT_SECRET") or "super-secret-development-key-change-in-production"
+    # Auto-align signaling domain with frontend domain when mismatched
+    if args.frontend:
+        if "meet.konn3ct.com" in args.frontend and args.signal in ("konn3ctedge.konn3ct.net", "meetingapi.konn3ct.net", "edge.konn3ct.net", ""):
+            args.signal = "meetingapi.konn3ct.com"
+            print(f"🔧 Auto-aligned signaling domain to {args.signal} for {args.frontend}", flush=True)
+        elif "meet.konn3ct.net" in args.frontend and args.signal in ("konn3ctedge.konn3ct.net", "meetingapi.konn3ct.com", "edge.konn3ct.net", ""):
+            args.signal = "meetingapi.konn3ct.net"
+            print(f"🔧 Auto-aligned signaling domain to {args.signal} for {args.frontend}", flush=True)
+
+    DEV_PLACEHOLDER_SECRETS = (
+        "super-secret-development-key-change-in-production",
+        "fallback-secret-key",
+        "my-secret",
+        "default-insecure-key-change-me"
+    )
+    is_prod_or_stag_meet = any(
+        d in (args.frontend or "") or d in (args.signal or "")
+        for d in ("meet.konn3ct.com", "meetingapi.konn3ct.com", "meet.konn3ct.net", "meetingapi.konn3ct.net")
+    )
+    if is_prod_or_stag_meet and (not args.jwt_secret or args.jwt_secret in DEV_PLACEHOLDER_SECRETS):
+        args.jwt_secret = None
+        print(f"🔧 Using HTTP /api/prejoin + /api/join authentication flow for {args.frontend}", flush=True)
+    elif not args.jwt_secret or args.jwt_secret in ("fallback-secret-key", "my-secret", "default-insecure-key-change-me"):
+        args.jwt_secret = os.environ.get("JWT_SECRET") or None
 
     # Auto-scale parameter overrides for ultra-high bot counts or lightweight multi-worker chunks
     if args.bots >= 500 or args.lightweight:

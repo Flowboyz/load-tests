@@ -233,6 +233,18 @@ def run_test_process(app, socketio, session_id):
             if config.no_cross_confirm:
                 cmd.append("--no-cross-confirm")
             jwt_secret_val = config.jwt_secret or os.environ.get("JWT_SECRET")
+            dev_placeholder_secrets = (
+                "super-secret-development-key-change-in-production",
+                "fallback-secret-key",
+                "my-secret",
+                "default-insecure-key-change-me"
+            )
+            is_prod_or_stag_meet = any(
+                d in (config.frontend or "") or d in (config.signal or "") or d in (config.room or "")
+                for d in ("meet.konn3ct.com", "meetingapi.konn3ct.com", "meet.konn3ct.net", "meetingapi.konn3ct.net")
+            )
+            if is_prod_or_stag_meet and jwt_secret_val in dev_placeholder_secrets:
+                jwt_secret_val = None
             if jwt_secret_val:
                 cmd.extend(["--jwt-secret", jwt_secret_val])
             if getattr(config, 'large_room_mode', False) or "large_room" in (config.test_scenarios or "").lower():
