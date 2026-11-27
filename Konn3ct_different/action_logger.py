@@ -165,7 +165,11 @@ class ActionLogger:
         }
         entry_str = json.dumps(entry) + "\n"
         
-        trigger_flush = False
+        trigger_flush = event_type in (
+            "bot_connecting", "bot_joined", "bot_waiting", "bot_reconnecting",
+            "bot_refreshing", "chaos_disconnect_storm", "bot_left", "bot_failed",
+            "test_started", "test_finished"
+        )
         async with self._buffer_lock:
             self._buffer.append(entry_str)
             if len(self._buffer) >= self._max_buffer_size:

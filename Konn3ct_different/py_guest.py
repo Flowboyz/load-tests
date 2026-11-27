@@ -179,6 +179,7 @@ pause_event.set()
 
 # Global reconnection rate limiter — prevents thundering herd (max 50 reconnects/sec)
 _reconnect_semaphore = asyncio.Semaphore(50)
+_handshake_semaphore = asyncio.Semaphore(10)
 _reconnect_window_lock = asyncio.Lock()
 _reconnect_tokens = 50
 _reconnect_last_refill = time.time()
@@ -1047,26 +1048,27 @@ async def ws_session(
         connect_attempts = 3
         for conn_attempt in range(connect_attempts):
             try:
-                ws_connect_ctx = websockets.connect(
-                    ws_url,
-                    additional_headers=headers,
-                    ping_interval=30,
-                    ping_timeout=60,
-                    close_timeout=30,
-                    open_timeout=60,
-                    ssl=ssl_context
-                )
-                ws = await ws_connect_ctx.__aenter__()
-                if connected_flag is not None:
-                    connected_flag[0] = True
+                async with _handshake_semaphore:
+                    ws_connect_ctx = websockets.connect(
+                        ws_url,
+                        additional_headers=headers,
+                        ping_interval=30,
+                        ping_timeout=60,
+                        close_timeout=3,
+                        open_timeout=30,
+                        ssl=ssl_context
+                    )
+                    ws = await ws_connect_ctx.__aenter__()
                 break
             except Exception as e:
                 err_str = str(e)
                 if "401" in err_str and session_context is not None:
                     session_context["jwt_rejected_401"] = True
+                    session_context["cached_ws_token"] = None
                     raise e
                 if "403" in err_str and session_context is not None:
                     session_context["capacity_rejected"] = True
+                    session_context["cached_ws_token"] = None
                 if conn_attempt == connect_attempts - 1:
                     raise e
                 logger.log("🔄", "yellow", bot_id, name, f"Handshake failed: {e}. Retrying connection ({conn_attempt+1}/{connect_attempts})...", fingerprint=fingerprint)
@@ -1284,13 +1286,9 @@ async def ws_session(
                                         except Exception:
                                             pass
                                 elif status == "waiting":
-                                    # Connected to signaling server in waiting room; wait briefly for host admission,
-                                    # then mark session connected (matching konn3ct_edge load-test-large-room.ts)
-                                    async def _grace_resolve_waiting(uid):
-                                        await asyncio.sleep(4.0)
-                                        if not active_future.done() and not stop_event.is_set():
-                                            active_future.set_result(uid)
-                                    asyncio.create_task(_grace_resolve_waiting(my_user_id))
+                                    # Bot is in the Waiting Room (not yet an active participant in the meeting room).
+                                    # Record bot_waiting so the dashboard shows it as connecting/waiting rather than connected in room.
+                                    await logger.record_event("bot_waiting", bot_id, name, email, fingerprint=fingerprint)
                                 elif status in ("denied", "kicked", "ended"):
                                     if not active_future.done():
                                         active_future.set_exception(Exception(f"Session rejected: {status}"))
@@ -1600,21 +1598,30 @@ async def ws_session(
                                             
                         except asyncio.TimeoutError:
                             pass
-                        except websockets.exceptions.ConnectionClosed:
+                        except websockets.exceptions.ConnectionClosed as cc_exc:
+                            if not active_future.done():
+                                active_future.set_exception(cc_exc)
                             break
                 except Exception as exc:
-                    pass
+                    if not active_future.done():
+                        active_future.set_exception(exc)
 
             reader_task = asyncio.create_task(reader_loop())
+            joined_room = False
+            graceful_exit = False
             
             try:
                 try:
-                    my_user_id = await asyncio.wait_for(active_future, timeout=15.0)
-                    # Log bot_joined when session is established in the room
+                    my_user_id = await asyncio.wait_for(active_future, timeout=45.0)
+                    # Log bot_joined only when session is actively established in the room
+                    joined_room = True
+                    if connected_flag is not None:
+                        connected_flag[0] = True
                     await stats.inc("joined")
                     await logger.record_event("bot_joined", bot_id, name, email, fingerprint=fingerprint)
                 except Exception as exc:
-                    await logger.record_event("error_logged", bot_id=bot_id, name=name, action="session_activation", error=str(exc), browser=fingerprint["browser_type"])
+                    err_desc = str(exc).strip() or type(exc).__name__
+                    await logger.record_event("error_logged", bot_id=bot_id, name=name, action="session_activation", error=err_desc, browser=fingerprint["browser_type"])
                     await stats.inc("active", -1)
                     return False
 
@@ -1729,6 +1736,7 @@ async def ws_session(
                         return "migrate_to_main"
 
                     if auto_leave_s and (now - joined_at) >= auto_leave_s:
+                        graceful_exit = True
                         try:
                             await ws.send(json.dumps({"type": "leave_meeting", "roomId": room_id, "userId": my_user_id, "participantId": participant_id}))
                         except Exception:
@@ -1761,6 +1769,15 @@ async def ws_session(
                     await asyncio.sleep(1.0)
                     
             finally:
+                # Immediately record state transition when an active room session ends so the dashboard Connected Bots counter stays in sync
+                if joined_room:
+                    try:
+                        if stop_event.is_set() or graceful_exit:
+                            await logger.record_event("bot_left", bot_id, name, email, fingerprint=fingerprint, reason="stopped" if stop_event.is_set() else "graceful")
+                        else:
+                            await logger.record_event("bot_reconnecting", bot_id, name, email, fingerprint=fingerprint)
+                    except Exception:
+                        pass
                 if webrtc_client and webrtc_enabled:
                     try:
                         detailed_stats = await webrtc_client.get_webrtc_detailed_stats()
@@ -1856,12 +1873,25 @@ async def run_bot(
         "capacity_rejected": False,
         "jwt_rejected_401": False,
         "retried_with_http_token": False,
-        "canonical_room_id": None
+        "canonical_room_id": None,
+        "cached_ws_token": None,
+        "cached_ws_room": None
     }
 
     # Helper function to acquire / generate websocket URL
     async def get_ws_url(room):
         global _jwt_secret_rejected
+        # Reuse existing 12-hour JWT token across reconnects for the same room to preserve userId/participantId and avoid duplicate guest slots
+        if (
+            session_context.get("cached_ws_token")
+            and session_context.get("cached_ws_room") == room
+            and not session_context.get("jwt_rejected_401")
+        ):
+            token = session_context["cached_ws_token"]
+            effective_room = session_context.get("canonical_room_id") or room
+            proto = "ws" if "localhost" in signal_domain or "127.0.0.1" in signal_domain else "wss"
+            return f"{proto}://{signal_domain}/signal?roomId={effective_room}&token={token}&isMobile={str(profile['device_type'] != 'desktop').lower()}&participantId={participant_id}"
+
         use_local_jwt = bool(jwt_secret) and (not globals().get("_jwt_secret_rejected", False)) and (not session_context.get("jwt_rejected_401"))
         token = None
         if use_local_jwt:
@@ -1879,11 +1909,12 @@ async def run_bot(
                 participant_id=participant_id
             )
         else:
-            token = await get_ws_token(
-                session, frontend_url, room, name, email, bot_id,
-                profile["device_type"] != "desktop",
-                session_context=session_context
-            )
+            async with _handshake_semaphore:
+                token = await get_ws_token(
+                    session, frontend_url, room, name, email, bot_id,
+                    profile["device_type"] != "desktop",
+                    session_context=session_context
+                )
             if not token:
                 fallback_secret = jwt_secret or os.environ.get("JWT_SECRET") or "super-secret-development-key-change-in-production"
                 if not globals().get("_jwt_secret_rejected", False) and not session_context.get("jwt_rejected_401"):
@@ -1895,6 +1926,8 @@ async def run_bot(
                     )
         if not token:
             return None
+        session_context["cached_ws_token"] = token
+        session_context["cached_ws_room"] = room
         effective_room = session_context.get("canonical_room_id") or room
         proto = "ws" if "localhost" in signal_domain or "127.0.0.1" in signal_domain else "wss"
         return f"{proto}://{signal_domain}/signal?roomId={effective_room}&token={token}&isMobile={str(profile['device_type'] != 'desktop').lower()}&participantId={participant_id}"
@@ -1975,7 +2008,11 @@ async def run_bot(
         elif result == "refresh_session":
             refreshed = True
             await logger.record_event("bot_refreshing", bot_id, name, email, fingerprint=fingerprint, reason="Simulated User Browser Refresh")
-            await asyncio.sleep(3.0)
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=3.0)
+                break
+            except asyncio.TimeoutError:
+                pass
             
             # Retry token acquisition infinitely during refresh if server is under high load
             ws_url = None
@@ -1986,15 +2023,18 @@ async def run_bot(
                     await asyncio.sleep(5.0)
             if stop_event.is_set():
                 break
-            await logger.record_event("bot_joined", bot_id, name, email, fingerprint=fingerprint)
-            logger.log("🌐", "grey", bot_id, name, f"Reconnected after browser refresh to room: {current_room}...", fingerprint=fingerprint)
+            logger.log("🌐", "grey", bot_id, name, f"Reconnecting after browser refresh to room: {current_room}...", fingerprint=fingerprint)
             continue
 
         elif result == "chaos_reconnect":
             await logger.record_event("chaos_disconnect_storm", bot_id, name, email, fingerprint=fingerprint, reason="Simulated Chaos Disconnect Storm")
             reconnect_delay = random.uniform(2.5, 4.5)
             logger.log("⚡", "yellow", bot_id, name, f"Chaos Simulation: Recovering & reconnecting after {reconnect_delay:.1f}s storm cooldown...", fingerprint=fingerprint)
-            await asyncio.sleep(reconnect_delay)
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=reconnect_delay)
+                break
+            except asyncio.TimeoutError:
+                pass
             ws_url = None
             while not ws_url and not stop_event.is_set():
                 ws_url = await get_ws_url(current_room)
@@ -2002,7 +2042,6 @@ async def run_bot(
                     await asyncio.sleep(2.0)
             if stop_event.is_set():
                 break
-            await logger.record_event("bot_joined", bot_id, name, email, fingerprint=fingerprint)
             continue
             
         elif result == "migrate_to_main":
@@ -2063,7 +2102,11 @@ async def run_bot(
         logger.log("🔄", "yellow", bot_id, name, f"Reconnecting in {backoff:.1f}s (attempt {attempt if not has_ever_connected else '∞'}/{max_retries}, reconnect_attempt={reconnect_attempt})...", fingerprint=fingerprint)
         # Acquire a reconnection slot from the global rate limiter (max 50/sec per process)
         await acquire_reconnect_slot()
-        await asyncio.sleep(backoff)
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=backoff)
+            break
+        except asyncio.TimeoutError:
+            pass
         
         # Retry token acquisition infinitely during reconnection if server is under high load
         ws_url = None
@@ -2071,7 +2114,11 @@ async def run_bot(
             ws_url = await get_ws_url(current_room)
             if not ws_url:
                 logger.log("⚠️", "yellow", bot_id, name, "Failed to acquire token for reconnection. Retrying in 5s...", fingerprint=fingerprint)
-                await asyncio.sleep(5.0)
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=5.0)
+                    break
+                except asyncio.TimeoutError:
+                    pass
 
     if attempt > max_retries:
         await stats.inc("failed")
@@ -2322,8 +2369,11 @@ async def main(args):
         asyncio.create_task(scenario_runner())
 
         if getattr(args, "startup_delay", 0.0) > 0.0:
-            print(f"Staggering process startup: sleeping for {args.startup_delay}s...")
-            await asyncio.sleep(args.startup_delay)
+            print(f"Staggering process startup: sleeping for {args.startup_delay}s...", flush=True)
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=args.startup_delay)
+            except asyncio.TimeoutError:
+                pass
 
         while bot_id <= end_id and not stop_event.is_set():
             await pause_event.wait()

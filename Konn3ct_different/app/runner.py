@@ -284,6 +284,26 @@ def run_test_process(app, socketio, session_id):
             success = False
             
             try:
+                # Terminate any orphaned py_guest.py processes from previous stopped sessions before launching a new session
+                try:
+                    with RUNNING_SESSIONS_LOCK:
+                        active_pids = {
+                            p.pid
+                            for s_info in RUNNING_SESSIONS.values()
+                            for p in s_info.get("processes", [])
+                            if p and p.poll() is None
+                        }
+                    for proc_iter in psutil.process_iter(['pid', 'cmdline']):
+                        if proc_iter.info['pid'] not in active_pids:
+                            cmdline_list = proc_iter.info.get('cmdline') or []
+                            if any("py_guest.py" in str(arg) for arg in cmdline_list):
+                                try:
+                                    proc_iter.kill()
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+
                 # Chunk the total bots into groups of at most 200 bots per process
                 # to prevent Windows Proactor socket limits and utilize CPU cores
                 total_bots = config.bots
@@ -298,7 +318,7 @@ def run_test_process(app, socketio, session_id):
                 stagger_val = config.stagger if hasattr(config, 'stagger') else 1.0
                 batch_val = max(1, config.batch if hasattr(config, 'batch') and config.batch else 3)
                 raw_chunk_delay = (max_bots_per_proc / batch_val) * stagger_val
-                step_delay = min(raw_chunk_delay, 8.0) if len(chunks) > 5 else raw_chunk_delay
+                step_delay = min(max(8.0, raw_chunk_delay / 5.0), 20.0) if len(chunks) > 5 else raw_chunk_delay
 
                 for idx, (start_id, chunk_bots) in enumerate(chunks):
                     chunk_cmd = list(cmd)
@@ -383,11 +403,20 @@ def run_test_process(app, socketio, session_id):
                 # Set stop event to terminate log readers
                 stop_event.set()
                 
-                # Ensure all processes are terminated if still running
+                # Ensure all processes are terminated and fully exited BEFORE merging chunk logs
                 for proc in processes:
                     if proc and proc.poll() is None:
                         try:
                             proc.terminate()
+                        except Exception:
+                            pass
+                wait_deadline = time.time() + 2.5
+                while time.time() < wait_deadline and any(proc and proc.poll() is None for proc in processes):
+                    socketio.sleep(0.2)
+                for proc in processes:
+                    if proc and proc.poll() is None:
+                        try:
+                            proc.kill()
                         except Exception:
                             pass
                 
@@ -680,7 +709,7 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                             failed_ids.discard(bot_id)
                             left_ids.discard(bot_id)
                             sync_bot_counts()
-                        elif etype == "bot_reconnecting" and bot_id:
+                        elif etype in ("bot_reconnecting", "bot_refreshing", "chaos_disconnect_storm") and bot_id:
                             reconnecting_ids.add(bot_id)
                             connecting_ids.discard(bot_id)
                             joined_ids.discard(bot_id)
@@ -690,7 +719,15 @@ def stream_metrics_and_logs(app, socketio, session_id, log_path, stop_event, pro
                             batch_idx = (bot_id - start_id) // batch_size
                             if 0 <= batch_idx < expected_workers:
                                 joined_by_batch[batch_idx].discard(bot_id)
-                        elif etype in ("bot_joined", "bot_waiting") and bot_id:
+                        elif etype == "bot_waiting" and bot_id:
+                            # Waiting room bots are not yet admitted to the active meeting room
+                            connecting_ids.add(bot_id)
+                            reconnecting_ids.discard(bot_id)
+                            joined_ids.discard(bot_id)
+                            failed_ids.discard(bot_id)
+                            left_ids.discard(bot_id)
+                            sync_bot_counts()
+                        elif etype == "bot_joined" and bot_id:
                             joined_ids.add(bot_id)
                             connecting_ids.discard(bot_id)
                             reconnecting_ids.discard(bot_id)
@@ -1242,14 +1279,12 @@ def stop_session(session_id):
             pid = sess.get("pid") or (processes[0].pid if processes else None)
             control_file = sess.get("control_file")
             stop_event = sess.get("stop_event")
-            if stop_event:
-                stop_event.set()
                 
     session_dir = get_session_dir(session_id)
     if not control_file:
         control_file = os.path.join(session_dir, "control.json")
 
-    # Step 1: Write stopped state to control.json
+    # Step 1: Write stopped state to control.json first so bots send leave_meeting before processes are killed
     try:
         if control_file and os.path.exists(os.path.dirname(control_file)):
             with open(control_file, "w") as f:
@@ -1259,7 +1294,11 @@ def stop_session(session_id):
 
     # Step 2: Dedicated grace period for WebSocket leave_meeting signaling packets to flush
     import time
-    time.sleep(2.5)
+    time.sleep(2.0)
+
+    # Step 3: Signal the runner loop to stop
+    if stop_event:
+        stop_event.set()
 
     if not pid:
         # Check DB
@@ -1293,6 +1332,13 @@ def stop_session(session_id):
                     terminated = True
                 except Exception:
                     pass
+        time.sleep(1.5)
+        for proc in processes:
+            try:
+                if proc and proc.poll() is None:
+                    proc.kill()
+            except Exception:
+                pass
                 
     if pid:
         try:
